@@ -211,7 +211,17 @@ function SettingsModal({ onClose, onKeysUpdated }) {
   const [info, setInfo] = useState(null);
   const [saving, setSaving] = useState(false);
 
-  useEffect(() => { fetch("/api/keys").then(r=>r.json()).then(setInfo).catch(()=>{}); }, []);
+  useEffect(() => { 
+    fetch("/api/keys")
+      .then(r => r.json())
+      .then(d => {
+        console.log("Keys info loaded:", d);
+        setInfo(d);
+      })
+      .catch(e => {
+        console.error("Failed to load key info:", e);
+      });
+  }, []);
 
   const sc = s => s==="ok"?"#7EE8A2" : s==="fail"?"#FF8080" : "rgba(255,255,255,0.35)";
   const si = s => s==="ok"?"✓" : s==="fail"?"✗" : s==="loading"?"…" : "";
