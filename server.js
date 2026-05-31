@@ -8,7 +8,7 @@ const PORT     = process.env.PORT || 3000;
 const KEYS_FILE = path.join(__dirname, "keys.json");
 
 app.use(express.json({ limit: "25mb" }));
-app.use(express.static(path.join(__dirname, "public")));
+app.use(express.static(__dirname));
 
 // ─── Key storage ──────────────────────────────────────────────────────────────
 // Priority: environment variables > keys.json (fallback for local dev)
@@ -261,7 +261,7 @@ app.post("/api/generate-image", async (req, res) => {
 
 // ─── Fallback to frontend ─────────────────────────────────────────────────────
 app.get("*", (req, res) => {
-  res.sendFile(path.join(__dirname, "public", "index.html"));
+  res.sendFile(path.join(__dirname, "index.html"));
 });
 
 app.listen(PORT, () => {
