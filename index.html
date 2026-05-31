@@ -1,0 +1,664 @@
+<!DOCTYPE html>
+<html lang="sl">
+<head>
+  <meta charset="UTF-8"/>
+  <meta name="viewport" content="width=device-width, initial-scale=1.0"/>
+  <title>Etsy Mockup Generator</title>
+  <script src="https://unpkg.com/react@18/umd/react.development.js"></script>
+  <script src="https://unpkg.com/react-dom@18/umd/react-dom.development.js"></script>
+  <script src="https://unpkg.com/@babel/standalone/babel.min.js"></script>
+  <link href="https://fonts.googleapis.com/css2?family=DM+Sans:wght@300;400;500;600&family=DM+Mono:wght@400;500&family=Playfair+Display:wght@700&display=swap" rel="stylesheet"/>
+  <style>
+    *{box-sizing:border-box;margin:0;padding:0}
+    body{background:#0C0C0E;color:#fff;font-family:'DM Sans',sans-serif;min-height:100vh}
+    input,textarea,select{background:rgba(255,255,255,0.05)!important;border:1px solid rgba(255,255,255,0.09)!important;border-radius:9px!important;color:#fff!important;font-family:'DM Sans',sans-serif!important;font-size:13px!important;padding:9px 12px!important;width:100%;outline:none!important;transition:border-color 0.2s!important;resize:vertical}
+    input[type=password]{letter-spacing:0.1em}
+    input:focus,textarea:focus,select:focus{border-color:rgba(255,220,100,0.35)!important}
+    select option{background:#1a1a1e}
+    ::placeholder{color:rgba(255,255,255,0.18)!important}
+    @keyframes spin{to{transform:rotate(360deg)}}
+    @keyframes fadeUp{from{opacity:0;transform:translateY(10px)}to{opacity:1;transform:none}}
+    ::-webkit-scrollbar{width:4px}::-webkit-scrollbar-track{background:transparent}::-webkit-scrollbar-thumb{background:rgba(255,255,255,0.08);border-radius:4px}
+  </style>
+</head>
+<body>
+<div id="root"></div>
+<script type="text/babel">
+const { useState, useRef, useEffect } = React;
+
+// ─── 18 categories split into 3 batches of 6 ─────────────────────────────────
+const ALL_BATCHES = [
+  [
+    {id:1,  emoji:"🤍", name:"Hero Flat Lay — Clean White Background",      desc:"Thumbnail-ready, high contrast, design-first"},
+    {id:2,  emoji:"☕", name:"Styled Flat Lay — Coffee & Lifestyle Props",   desc:"Pinterest-worthy, warm mood, curated scene"},
+    {id:3,  emoji:"🌿", name:"Boho Flat Lay — Natural Surface",              desc:"Wood grain, stone, linen — earthy authenticity"},
+    {id:4,  emoji:"🤲", name:"Folded Stack — Hand-Held Product Shot",        desc:"Hands holding folded tee, design facing out"},
+    {id:5,  emoji:"👻", name:"Ghost Mannequin — Studio White",               desc:"Invisible body, 3D garment shape, clean bg"},
+    {id:6,  emoji:"🪝", name:"Hanger Shot — Wall or Door Hook",              desc:"Tee on hanger, lifestyle wall backdrop"},
+  ],
+  [
+    {id:7,  emoji:"👕", name:"Cropped Torso — Front View Model",             desc:"Classic front close-crop, design-forward"},
+    {id:8,  emoji:"🔙", name:"Back View Model — Full Body",                  desc:"Full back shot, lifestyle environment"},
+    {id:9,  emoji:"↗️", name:"Cropped Torso — Three-Quarter Angle",          desc:"Diagonal crop, dynamic but readable"},
+    {id:10, emoji:"🪞", name:"Mirror Selfie — Full Length",                  desc:"Full body mirror, natural bedroom/bathroom"},
+    {id:11, emoji:"📱", name:"Mirror Selfie — Phone Visible Gen Z Style",    desc:"Phone in frame, authentic UGC selfie energy"},
+    {id:12, emoji:"🌞", name:"Candid Outdoor — Natural Daylight Walk",       desc:"Person mid-movement, golden light, candid"},
+  ],
+  [
+    {id:13, emoji:"🏠", name:"Cozy Lifestyle — Home or Coffee Shop",         desc:"Sitting, warm ambient light, lived-in feel"},
+    {id:14, emoji:"🛋️", name:"Relaxed Lifestyle — Bed or Couch",             desc:"Lounging, soft light, aspirational comfort"},
+    {id:15, emoji:"🏙️", name:"Urban Streetwear — City Scene",                desc:"Street backdrop, editorial energy, day or dusk"},
+    {id:16, emoji:"🔍", name:"Close-Up Print Detail — Texture Shot",         desc:"Macro on design, cotton fabric texture visible"},
+    {id:17, emoji:"🤳", name:"UGC Influencer — Arm Grab or Tuck",            desc:"Casual self-shot feel, shirt tucked or grabbed"},
+    {id:18, emoji:"🌄", name:"Outdoor Nature — Golden Hour",                 desc:"Field, forest, or beach — warm bokeh scene"},
+  ],
+];
+
+// FIX: mockup count maps to how many batches to run
+const COUNT_OPTIONS = [
+  { value: 6,  label: "6 mockups",  batches: 1 },
+  { value: 12, label: "12 mockups", batches: 2 },
+  { value: 18, label: "18 mockups", batches: 3 },
+];
+
+const NICHE    = ["Funny / Humor","Dog / Pet Lover","Cat Lover","Spiritual / Wellness","Vintage / Retro","Streetwear","Rave / Festival","Motivational","Outdoors / Nature","Music / Band","Gaming","Cottagecore","Dark / Gothic","Minimalist","Anime / Pop Culture","Sports / Gym","Baby / Family","Boho"];
+const AUDIENCE = ["Women 18–34","Men 18–34","Women 35–55","Teens / Gen Z","Pet Owners","Gym / Fitness","Couples","Parents","Creatives","Streetwear Fans"];
+const SHIRTS   = ["Bella+Canvas 3001","Comfort Colors 1717","Gildan 5000","Unisex Classic Tee","Oversized Drop Shoulder","Women's Fitted","Heavyweight Tee","Crop Top","Long Sleeve"];
+
+const TABS = [
+  {id:"all",       label:"All",        ids:null},
+  {id:"flatlay",   label:"Flat Lays",  ids:[1,2,3,6]},
+  {id:"product",   label:"Product",    ids:[4,5,16]},
+  {id:"model",     label:"On Model",   ids:[7,8,9]},
+  {id:"selfie",    label:"Selfie/UGC", ids:[10,11,17]},
+  {id:"lifestyle", label:"Lifestyle",  ids:[12,13,14,15,18]},
+];
+
+// ─── Parse batch output ───────────────────────────────────────────────────────
+// FIX: now parses MANUAL_FIX_TEMPLATE as a multi-line block
+function parseBatch(raw) {
+  return raw.split("---MOCKUP_START---").slice(1).map(block => {
+    const s = block.split("---MOCKUP_END---")[0].trim();
+
+    // For single-line fields
+    const getLine = k => {
+      const m = s.match(new RegExp(`^${k}:\\s*(.+)$`, "m"));
+      return m ? m[1].trim() : "";
+    };
+
+    // For multi-line fields (up to next ALL_CAPS field or end)
+    const getBlock = k => {
+      const m = s.match(new RegExp(`${k}:\\s*([\\s\\S]*?)(?=\\n[A-Z_]+:|---MOCKUP_END---|$)`));
+      return m ? m[1].trim() : "";
+    };
+
+    // Manual fix template: parse its sub-fields
+    const mftRaw = getBlock("MANUAL_FIX_TEMPLATE");
+    const mftField = k => {
+      const m = mftRaw.match(new RegExp(`${k}:\\s*(.+)`));
+      return m ? m[1].trim() : "";
+    };
+
+    return {
+      category:        getLine("CATEGORY"),
+      primaryColor:    getLine("SHIRT_COLOR_PRIMARY"),
+      secondaryColor:  getLine("SHIRT_COLOR_SECONDARY"),
+      colorReasoning:  getLine("COLOR_REASONING"),
+      fluxPrompt:      getBlock("FLUX_PROMPT"),
+      negativePrompt:  getBlock("NEGATIVE_PROMPT"),
+      qaChecklist:     getBlock("QA_CHECKLIST"),
+      autoFix:         getBlock("AUTO_FIX_PROMPT"),
+      thumbnailNotes:  getBlock("THUMBNAIL_NOTES"),
+      // FIX: Manual fix template now parsed and stored
+      manualFix: {
+        issue:       mftField("Issue"),
+        targetArea:  mftField("Target Area"),
+        correction:  mftField("Desired Correction"),
+        preserve:    mftField("Elements To Preserve"),
+        strength:    mftField("Correction Strength"),
+      },
+    };
+  });
+}
+
+// ─── API helpers ──────────────────────────────────────────────────────────────
+async function apiFetch(path, body) {
+  const res = await fetch(path, {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify(body),
+  });
+  const d = await res.json();
+  if (!res.ok) throw new Error(d.error || `Server error ${res.status}`);
+  return d;
+}
+
+// ─── Small components ─────────────────────────────────────────────────────────
+function Spinner({ size = 18, color = "#FFDC64" }) {
+  return <div style={{width:size,height:size,border:`2px solid ${color}22`,borderTop:`2px solid ${color}`,borderRadius:"50%",animation:"spin 0.7s linear infinite",flexShrink:0}}/>;
+}
+
+function CopyBtn({ text }) {
+  const [c, setC] = useState(false);
+  return (
+    <button onClick={()=>{navigator.clipboard.writeText(text);setC(true);setTimeout(()=>setC(false),1600);}}
+      style={{background:"none",border:"none",cursor:"pointer",color:c?"#7EE8A2":"rgba(255,255,255,0.25)",fontSize:10,fontFamily:"'DM Mono',monospace",padding:"3px 7px",borderRadius:5,transition:"color 0.2s"}}>
+      {c ? "✓ copied" : "copy"}
+    </button>
+  );
+}
+
+function Field({ label, value, accent }) {
+  if (!value) return null;
+  return (
+    <div style={{marginBottom:9}}>
+      <div style={{display:"flex",justifyContent:"space-between",alignItems:"center",marginBottom:3}}>
+        <span style={{fontSize:9,fontFamily:"'DM Mono',monospace",color:accent||"rgba(255,255,255,0.25)",letterSpacing:"0.1em",textTransform:"uppercase"}}>{label}</span>
+        <CopyBtn text={value}/>
+      </div>
+      <div style={{background:"rgba(0,0,0,0.35)",borderRadius:8,padding:"9px 11px",fontSize:12,color:"rgba(255,255,255,0.72)",lineHeight:1.65,whiteSpace:"pre-wrap",wordBreak:"break-word",border:`1px solid ${accent||"rgba(255,255,255,0.06)"}`}}>
+        {value}
+      </div>
+    </div>
+  );
+}
+
+// FIX: ManualFixCard renders the structured 5-field template properly
+function ManualFixCard({ mf }) {
+  if (!mf || !mf.issue) return null;
+  const text = `Issue: ${mf.issue}\nTarget Area: ${mf.targetArea}\nDesired Correction: ${mf.correction}\nElements To Preserve: ${mf.preserve}\nCorrection Strength: ${mf.strength}`;
+  const rows = [
+    { k: "Issue",               v: mf.issue },
+    { k: "Target Area",         v: mf.targetArea },
+    { k: "Desired Correction",  v: mf.correction },
+    { k: "Elements To Preserve",v: mf.preserve },
+    { k: "Correction Strength", v: mf.strength },
+  ];
+  return (
+    <div style={{marginBottom:9}}>
+      <div style={{display:"flex",justifyContent:"space-between",alignItems:"center",marginBottom:3}}>
+        <span style={{fontSize:9,fontFamily:"'DM Mono',monospace",color:"rgba(200,160,255,0.7)",letterSpacing:"0.1em",textTransform:"uppercase"}}>🛠 Manual Fix Template</span>
+        <CopyBtn text={text}/>
+      </div>
+      <div style={{background:"rgba(0,0,0,0.35)",borderRadius:8,border:"1px solid rgba(200,160,255,0.18)",overflow:"hidden"}}>
+        {rows.map(({k,v}) => v ? (
+          <div key={k} style={{display:"grid",gridTemplateColumns:"140px 1fr",borderBottom:"1px solid rgba(255,255,255,0.04)"}}>
+            <div style={{padding:"7px 10px",fontSize:10,color:"rgba(200,160,255,0.6)",fontFamily:"'DM Mono',monospace",borderRight:"1px solid rgba(255,255,255,0.04)",background:"rgba(255,255,255,0.02)"}}>{k}</div>
+            <div style={{padding:"7px 10px",fontSize:12,color:"rgba(255,255,255,0.7)",lineHeight:1.5}}>{v}</div>
+          </div>
+        ) : null)}
+      </div>
+    </div>
+  );
+}
+
+function Tag({ children, active, onClick }) {
+  return (
+    <button onClick={onClick} style={{padding:"5px 13px",borderRadius:20,border:active?"1.5px solid #FFDC64":"1.5px solid rgba(255,255,255,0.09)",background:active?"rgba(255,220,100,0.1)":"rgba(255,255,255,0.03)",color:active?"#FFDC64":"rgba(255,255,255,0.4)",fontSize:11,cursor:"pointer",transition:"all 0.15s"}}>
+      {children}
+    </button>
+  );
+}
+
+// ─── Settings Modal ───────────────────────────────────────────────────────────
+function SettingsModal({ onClose, onKeysUpdated }) {
+  const [ant, setAnt] = useState("");
+  const [rep, setRep] = useState("");
+  const [showAnt, setShowAnt] = useState(false);
+  const [showRep, setShowRep] = useState(false);
+  const [st,  setSt]  = useState({ ant:"idle", rep:"idle" });
+  const [msg, setMsg] = useState({ ant:"", rep:"" });
+  const [info, setInfo] = useState(null);
+  const [saving, setSaving] = useState(false);
+
+  useEffect(() => { fetch("/api/keys").then(r=>r.json()).then(setInfo).catch(()=>{}); }, []);
+
+  const sc = s => s==="ok"?"#7EE8A2" : s==="fail"?"#FF8080" : "rgba(255,255,255,0.35)";
+  const si = s => s==="ok"?"✓" : s==="fail"?"✗" : s==="loading"?"…" : "";
+
+  const test = async type => {
+    setSt(s=>({...s,[type]:"loading"}));
+    try {
+      const d = await (await fetch(`/api/test/${type}`,{method:"POST"})).json();
+      setSt(s=>({...s,[type]:d.ok?"ok":"fail"}));
+      setMsg(m=>({...m,[type]:d.message}));
+    } catch(e) { setSt(s=>({...s,[type]:"fail"})); setMsg(m=>({...m,[type]:e.message})); }
+  };
+
+  const save = async () => {
+    if (!ant && !rep) return;
+    setSaving(true);
+    const body = {};
+    if (ant) body.anthropic = ant;
+    if (rep) body.replicate  = rep;
+    try {
+      await apiFetch("/api/keys", body);
+      const d = await fetch("/api/keys").then(r=>r.json());
+      setInfo(d); setAnt(""); setRep(""); onKeysUpdated(d);
+    } catch(e) { alert("Napaka: "+e.message); }
+    finally { setSaving(false); }
+  };
+
+  const del = async type => {
+    if (!confirm(`Zbriši ${type} ključ?`)) return;
+    await fetch(`/api/keys/${type}`,{method:"DELETE"});
+    const d = await fetch("/api/keys").then(r=>r.json());
+    setInfo(d); onKeysUpdated(d);
+    setSt(s=>({...s,[type]:"idle"})); setMsg(m=>({...m,[type]:""}));
+  };
+
+  const configs = [
+    { type:"anthropic", key:"ant", setKey:setAnt, val:ant, show:showAnt, setShow:setShowAnt, emoji:"🤖", title:"Anthropic API Key", desc:"Za generiranje promptov · Format: sk-ant-api03-...", ph:"sk-ant-api03-...", link:null },
+    { type:"replicate", key:"rep", setKey:setRep, val:rep, show:showRep, setShow:setShowRep, emoji:"🖼", title:"Replicate API Key",  desc:"Za generiranje slik z Flux · Format: r8_...",       ph:"r8_...",          link:"https://replicate.com/account/api-tokens" },
+  ];
+
+  return (
+    <div onClick={e=>{if(e.target===e.currentTarget)onClose();}} style={{position:"fixed",inset:0,background:"rgba(0,0,0,0.75)",display:"flex",alignItems:"center",justifyContent:"center",zIndex:999,padding:20,backdropFilter:"blur(4px)"}}>
+      <div style={{background:"#141416",border:"1px solid rgba(255,255,255,0.1)",borderRadius:18,width:"100%",maxWidth:500,maxHeight:"92vh",overflowY:"auto",animation:"fadeUp 0.25s ease"}}>
+
+        <div style={{display:"flex",justifyContent:"space-between",alignItems:"center",padding:"18px 20px",borderBottom:"1px solid rgba(255,255,255,0.07)"}}>
+          <div style={{display:"flex",alignItems:"center",gap:10}}>
+            <span style={{fontSize:18}}>⚙️</span>
+            <div>
+              <div style={{fontSize:14,fontWeight:600,color:"#fff"}}>Nastavitve API ključev</div>
+              <div style={{fontSize:11,color:"rgba(255,255,255,0.3)",marginTop:1}}>Nastavi kot env spremenljivke na Railway ali vnesi ročno</div>
+            </div>
+          </div>
+          <button onClick={onClose} style={{background:"rgba(255,255,255,0.06)",border:"1px solid rgba(255,255,255,0.1)",borderRadius:8,width:30,height:30,cursor:"pointer",color:"rgba(255,255,255,0.5)",fontSize:15,display:"flex",alignItems:"center",justifyContent:"center"}}>×</button>
+        </div>
+
+        <div style={{padding:"18px 20px"}}>
+
+          {/* Status badges */}
+          {info && (
+            <div style={{display:"flex",gap:8,marginBottom:16}}>
+              {[{k:"anthropic",l:"Anthropic"},{k:"replicate",l:"Replicate"}].map(({k,l})=>(
+                <div key={k} style={{flex:1,padding:"8px 11px",borderRadius:9,background:info[k]?.set?"rgba(126,232,162,0.07)":"rgba(255,80,80,0.07)",border:`1px solid ${info[k]?.set?"rgba(126,232,162,0.22)":"rgba(255,80,80,0.18)"}`}}>
+                  <div style={{fontSize:10,fontFamily:"'DM Mono',monospace",color:info[k]?.set?"#7EE8A2":"#FF8080"}}>{info[k]?.set?"✓ Nastavljen":"✗ Ni nastavljen"}</div>
+                  <div style={{fontSize:11,color:"rgba(255,255,255,0.55)",marginTop:2}}>{l}</div>
+                  {info[k]?.masked&&<div style={{fontSize:9,fontFamily:"'DM Mono',monospace",color:"rgba(255,255,255,0.18)",marginTop:2}}>{info[k].masked}</div>}
+                </div>
+              ))}
+            </div>
+          )}
+
+          {configs.map(({type,key,setKey,val,show,setShow,emoji,title,desc,ph,link})=>(
+            <div key={type} style={{background:"rgba(255,255,255,0.03)",border:"1px solid rgba(255,255,255,0.07)",borderRadius:12,padding:"14px",marginBottom:12}}>
+              <div style={{fontSize:12,fontWeight:600,color:"#fff",display:"flex",alignItems:"center",gap:7,marginBottom:4}}>
+                <span style={{fontSize:14}}>{emoji}</span>{title}
+              </div>
+              <div style={{fontSize:10,color:"rgba(255,255,255,0.28)",marginBottom:10}}>{desc}</div>
+              <div style={{position:"relative",marginBottom:10}}>
+                <input type={show?"text":"password"} placeholder={ph} value={val} onChange={e=>setKey(e.target.value)}/>
+                <button onClick={()=>setShow(s=>!s)} style={{position:"absolute",right:9,top:"50%",transform:"translateY(-50%)",background:"none",border:"none",cursor:"pointer",color:"rgba(255,255,255,0.3)",fontSize:13}}>{show?"🙈":"👁"}</button>
+              </div>
+              <div style={{display:"flex",gap:7,alignItems:"center",flexWrap:"wrap"}}>
+                <button onClick={()=>test(type)} disabled={st[key]==="loading"} style={{display:"flex",alignItems:"center",gap:5,padding:"6px 12px",borderRadius:8,border:"1px solid rgba(255,220,100,0.25)",background:"rgba(255,220,100,0.07)",color:"#FFDC64",fontSize:11,cursor:"pointer",fontWeight:500}}>
+                  {st[key]==="loading"?<><Spinner size={11}/><span>Testiram…</span></>:<span>🔌 Testiraj</span>}
+                </button>
+                {info?.[type]?.set&&<button onClick={()=>del(type)} style={{padding:"6px 12px",borderRadius:8,border:"1px solid rgba(255,80,80,0.25)",background:"rgba(255,80,80,0.07)",color:"#FF8080",fontSize:11,cursor:"pointer",fontWeight:500}}>🗑 Zbriši</button>}
+                {msg[key]&&<span style={{fontSize:11,color:sc(st[key]),fontFamily:"'DM Mono',monospace"}}>{si(st[key])} {msg[key]}</span>}
+              </div>
+              {link&&<div style={{marginTop:8,fontSize:10,color:"rgba(255,255,255,0.2)"}}>Pridobi na <a href={link} target="_blank" style={{color:"rgba(255,220,100,0.5)"}}>{link}</a></div>}
+            </div>
+          ))}
+
+          <div style={{display:"flex",gap:9,marginTop:4}}>
+            <button onClick={save} disabled={saving||(!ant&&!rep)} style={{flex:1,padding:"11px",background:saving||(!ant&&!rep)?"rgba(255,220,100,0.08)":"linear-gradient(135deg,#FFDC64,#FF9B40)",border:"none",borderRadius:10,color:saving||(!ant&&!rep)?"rgba(255,220,100,0.3)":"#0C0C0E",fontSize:13,fontWeight:700,cursor:saving||(!ant&&!rep)?"not-allowed":"pointer",display:"flex",alignItems:"center",justifyContent:"center",gap:7}}>
+              {saving?<><Spinner size={13} color="rgba(255,220,100,0.5)"/><span>Shranjujem…</span></>:<span>💾 Shrani ključe</span>}
+            </button>
+            <button onClick={onClose} style={{padding:"11px 18px",background:"rgba(255,255,255,0.05)",border:"1px solid rgba(255,255,255,0.1)",borderRadius:10,color:"rgba(255,255,255,0.4)",fontSize:13,cursor:"pointer"}}>Zapri</button>
+          </div>
+        </div>
+      </div>
+    </div>
+  );
+}
+
+// ─── Mockup card ──────────────────────────────────────────────────────────────
+function MockupCard({ result, catInfo, index, isOpen, onToggle, imgState, onGenImage }) {
+  const busy = imgState?.status === "loading";
+  const done = imgState?.status === "done";
+
+  return (
+    <div style={{background:"rgba(255,255,255,0.022)",border:"1px solid rgba(255,255,255,0.07)",borderRadius:14,overflow:"hidden",marginBottom:8}}>
+      <button onClick={onToggle} style={{width:"100%",background:"none",border:"none",cursor:"pointer",padding:"13px 17px",display:"flex",alignItems:"center",gap:11,textAlign:"left"}}>
+        <div style={{width:33,height:33,borderRadius:9,background:"linear-gradient(135deg,rgba(255,220,100,0.18),rgba(255,155,64,0.12))",display:"flex",alignItems:"center",justifyContent:"center",fontSize:15,flexShrink:0}}>{catInfo?.emoji||"🎨"}</div>
+        <div style={{flex:1,minWidth:0}}>
+          <div style={{fontSize:12,fontWeight:600,color:"#fff",whiteSpace:"nowrap",overflow:"hidden",textOverflow:"ellipsis"}}>
+            <span style={{color:"rgba(255,220,100,0.55)",fontFamily:"'DM Mono',monospace",fontSize:9,marginRight:7}}>#{String(index+1).padStart(2,"0")}</span>
+            {result.category||catInfo?.name}
+          </div>
+          {result.primaryColor&&(
+            <div style={{fontSize:10,color:"rgba(255,255,255,0.3)",marginTop:2}}>
+              Primary: <span style={{color:"rgba(255,220,100,0.65)"}}>{result.primaryColor}</span>
+              <span style={{opacity:0.25,margin:"0 5px"}}>·</span>
+              Secondary: <span style={{color:"rgba(255,220,100,0.45)"}}>{result.secondaryColor}</span>
+            </div>
+          )}
+        </div>
+        {done&&<span style={{fontSize:13,flexShrink:0}}>🖼</span>}
+        {busy&&<Spinner size={13}/>}
+        <span style={{color:"rgba(255,255,255,0.18)",fontSize:11,flexShrink:0,transform:isOpen?"rotate(180deg)":"none",transition:"transform 0.2s"}}>▼</span>
+      </button>
+
+      {isOpen&&(
+        <div style={{padding:"0 17px 17px",borderTop:"1px solid rgba(255,255,255,0.05)",paddingTop:13}}>
+          {result.colorReasoning&&<div style={{fontSize:11,color:"rgba(255,220,100,0.45)",marginBottom:12,fontStyle:"italic"}}>{result.colorReasoning}</div>}
+
+          {/* Image gen zone */}
+          <div style={{marginBottom:14,padding:"12px 14px",background:"rgba(255,220,100,0.04)",border:"1px solid rgba(255,220,100,0.12)",borderRadius:10}}>
+            <button onClick={onGenImage} disabled={busy} style={{display:"flex",alignItems:"center",gap:7,padding:"8px 14px",borderRadius:9,border:done?"1px solid rgba(126,232,162,0.3)":"1px solid rgba(255,220,100,0.25)",background:done?"rgba(126,232,162,0.07)":"rgba(255,220,100,0.07)",color:done?"#7EE8A2":"#FFDC64",fontSize:11,cursor:busy?"not-allowed":"pointer",fontWeight:500,transition:"all 0.2s"}}>
+              {busy?<><Spinner size={13}/><span>Generiram…</span></>:done?<>✓ <span>Regeneriraj</span></>:<>🖼 <span>Generiraj sliko</span></>}
+            </button>
+            {imgState?.status==="error"&&<div style={{marginTop:6,fontSize:11,color:"#FF8080"}}>⚠ {imgState.error}</div>}
+            {done&&imgState?.url&&(
+              <div style={{marginTop:10}}>
+                <img src={imgState.url} alt="mockup" style={{width:"100%",borderRadius:10,border:"1px solid rgba(255,255,255,0.08)",display:"block"}}/>
+                <a href={imgState.url} download target="_blank" style={{display:"inline-block",marginTop:7,fontSize:11,color:"rgba(255,220,100,0.7)",fontFamily:"'DM Mono',monospace"}}>↓ prenesi sliko</a>
+              </div>
+            )}
+          </div>
+
+          <Field label="⚡ Flux Prompt"     value={result.fluxPrompt}    accent="rgba(255,220,100,0.3)"/>
+          <Field label="✗ Negative Prompt"  value={result.negativePrompt} accent="rgba(255,100,100,0.28)"/>
+          <Field label="✓ QA Checklist"     value={result.qaChecklist}    accent="rgba(126,232,162,0.28)"/>
+          <Field label="🔧 Auto Fix Prompt" value={result.autoFix}        accent="rgba(180,130,255,0.28)"/>
+          <ManualFixCard mf={result.manualFix}/>
+          <Field label="📱 Thumbnail Notes" value={result.thumbnailNotes} accent="rgba(255,180,80,0.28)"/>
+        </div>
+      )}
+    </div>
+  );
+}
+
+// ─── Main App ─────────────────────────────────────────────────────────────────
+function App() {
+  const [showSettings, setShowSettings] = useState(false);
+  const [keyInfo,      setKeyInfo]      = useState(null);
+
+  // FIX: mockupCount added back to form state
+  const [form, setForm] = useState({
+    brandStyle:"", niche:"", audience:"",
+    shirtModel:"Bella+Canvas 3001", sceneDirection:"",
+    mockupCount: 18,
+  });
+
+  const [imageFile,    setImageFile]    = useState(null);
+  const [imagePreview, setImagePreview] = useState(null);
+  const [imageBase64,  setImageBase64]  = useState(null);
+
+  const [loading,   setLoading]   = useState(false);
+  const [progress,  setProgress]  = useState(0);
+  const [progLabel, setProgLabel] = useState("");
+  const [results,   setResults]   = useState([]);
+  const [openCard,  setOpenCard]  = useState(null);
+  const [activeTab, setActiveTab] = useState("all");
+  const [error,     setError]     = useState(null);
+  const [imgStates, setImgStates] = useState({});
+  const [genAllBusy,setGenAllBusy]= useState(false);
+
+  const fileRef = useRef();
+
+  useEffect(() => {
+    fetch("/api/keys").then(r=>r.json()).then(setKeyInfo).catch(()=>{});
+  }, []);
+
+  const setImg = (id, patch) => setImgStates(s => ({...s, [id]:{...(s[id]||{}), ...patch}}));
+
+  const handleFile = e => {
+    const f = e.target.files[0]; if (!f) return;
+    setImageFile(f);
+    const r = new FileReader();
+    r.onload = ev => { setImagePreview(ev.target.result); setImageBase64(ev.target.result.split(",")[1]); };
+    r.readAsDataURL(f);
+  };
+
+  const handleGenerate = async () => {
+    if (!imageBase64) { setError("Naloži grafiko najprej."); return; }
+    setError(null); setLoading(true); setResults([]); setProgress(0); setOpenCard(null); setImgStates({});
+
+    // FIX: determine how many batches to run based on mockupCount
+    const countOpt = COUNT_OPTIONS.find(o => o.value === form.mockupCount) || COUNT_OPTIONS[2];
+    const activeBatches = ALL_BATCHES.slice(0, countOpt.batches);
+    const labels = [
+      "Generiram flat lays in product posnetke…",
+      "Generiram model in selfie posnetke…",
+      "Generiram lifestyle in editorial posnetke…",
+    ];
+
+    const all = [];
+    try {
+      for (let i = 0; i < activeBatches.length; i++) {
+        setProgLabel(labels[i]);
+        const d = await apiFetch("/api/generate-prompts", {
+          batch: activeBatches[i],
+          imageBase64, imageType: imageFile.type || "image/png",
+          brandStyle: form.brandStyle, niche: form.niche,
+          audience: form.audience, shirtModel: form.shirtModel,
+          sceneDirection: form.sceneDirection, mockupCount: form.mockupCount,
+        });
+        const parsed = parseBatch(d.raw);
+        activeBatches[i].forEach((cat, j) => all.push({
+          catInfo: cat,
+          data: parsed[j] || { category: cat.name, fluxPrompt:"Napaka — poskusi znova", negativePrompt:"", qaChecklist:"", autoFix:"", thumbnailNotes:"", manualFix:{} },
+        }));
+        setResults([...all]);
+        setProgress(((i+1)/activeBatches.length)*100);
+      }
+      setProgLabel(`Vseh ${form.mockupCount} promptov je pripravljenih!`);
+    } catch(e) { setError("Napaka: "+e.message); }
+    finally    { setLoading(false); }
+  };
+
+  const genImage = async (id, fluxPrompt) => {
+    setImg(id, {status:"loading"});
+    try { const d = await apiFetch("/api/generate-image", {fluxPrompt}); setImg(id, {status:"done", url:d.url}); }
+    catch(e) { setImg(id, {status:"error", error:e.message}); }
+  };
+
+  const handleGenAll = async () => {
+    setGenAllBusy(true);
+    for (const r of results) {
+      const id = r.catInfo.id;
+      setImg(id, {status:"loading"});
+      try { const d = await apiFetch("/api/generate-image", {fluxPrompt:r.data.fluxPrompt}); setImg(id, {status:"done", url:d.url}); }
+      catch(e) { setImg(id, {status:"error", error:e.message}); }
+    }
+    setGenAllBusy(false);
+  };
+
+  const copyAll = () => navigator.clipboard.writeText(
+    results.map((r,i) => {
+      const mf = r.data.manualFix;
+      return `=== #${i+1}: ${r.catInfo?.name} ===
+SHIRT: ${r.data.primaryColor} / ${r.data.secondaryColor}
+
+FLUX PROMPT:
+${r.data.fluxPrompt}
+
+NEGATIVE PROMPT:
+${r.data.negativePrompt}
+
+QA CHECKLIST:
+${r.data.qaChecklist}
+
+AUTO FIX:
+${r.data.autoFix}
+
+MANUAL FIX TEMPLATE:
+Issue: ${mf?.issue||""}
+Target Area: ${mf?.targetArea||""}
+Desired Correction: ${mf?.correction||""}
+Elements To Preserve: ${mf?.preserve||""}
+Correction Strength: ${mf?.strength||""}
+
+THUMBNAIL NOTES:
+${r.data.thumbnailNotes}`;
+    }).join("\n\n"+"─".repeat(50)+"\n\n")
+  );
+
+  const filtered  = activeTab==="all" ? results : results.filter(r => TABS.find(t=>t.id===activeTab)?.ids?.includes(r.catInfo?.id));
+  const doneCount = Object.values(imgStates).filter(s=>s.status==="done").length;
+  const antOk     = keyInfo?.anthropic?.set;
+  const repOk     = keyInfo?.replicate?.set;
+  const total     = form.mockupCount;
+
+  return (
+    <div style={{minHeight:"100vh",paddingBottom:70}}>
+      {showSettings && <SettingsModal onClose={()=>setShowSettings(false)} onKeysUpdated={d=>{setKeyInfo(d);}}/>}
+
+      {/* ── Header ── */}
+      <div style={{background:"linear-gradient(180deg,rgba(255,220,100,0.05) 0%,transparent 100%)",borderBottom:"1px solid rgba(255,255,255,0.05)",padding:"26px 22px 18px"}}>
+        <div style={{maxWidth:740,margin:"0 auto",display:"flex",gap:14,alignItems:"center"}}>
+          <div style={{width:46,height:46,borderRadius:13,background:"linear-gradient(135deg,#FFDC64,#FF9B40)",display:"flex",alignItems:"center",justifyContent:"center",fontSize:21,flexShrink:0}}>🛍️</div>
+          <div style={{flex:1,minWidth:0}}>
+            <div style={{fontSize:10,letterSpacing:"0.2em",color:"rgba(255,220,100,0.6)",textTransform:"uppercase",fontFamily:"'DM Mono',monospace",marginBottom:3}}>Backend v2 · Fixed</div>
+            <h1 style={{fontSize:20,fontFamily:"'Playfair Display',serif",fontWeight:700,background:"linear-gradient(90deg,#fff 20%,rgba(255,220,100,0.85) 100%)",WebkitBackgroundClip:"text",WebkitTextFillColor:"transparent",lineHeight:1.2}}>Etsy Flux Mockup Generator</h1>
+          </div>
+          <button onClick={()=>setShowSettings(true)} style={{display:"flex",alignItems:"center",gap:7,padding:"8px 13px",borderRadius:10,border:"1px solid rgba(255,255,255,0.1)",background:"rgba(255,255,255,0.05)",color:"rgba(255,255,255,0.7)",fontSize:12,cursor:"pointer",flexShrink:0,whiteSpace:"nowrap",transition:"all 0.2s"}}>
+            <span style={{fontSize:14}}>⚙️</span>
+            <span>Nastavitve</span>
+            <span style={{fontSize:9,color:antOk?"#7EE8A2":"rgba(255,80,80,0.6)",fontFamily:"'DM Mono',monospace",marginLeft:3}}>ANT{antOk?"✓":"–"}</span>
+            <span style={{fontSize:9,color:"rgba(255,255,255,0.15)"}}>·</span>
+            <span style={{fontSize:9,color:repOk?"#7EE8A2":"rgba(255,80,80,0.6)",fontFamily:"'DM Mono',monospace"}}>REP{repOk?"✓":"–"}</span>
+          </button>
+        </div>
+      </div>
+
+      <div style={{maxWidth:740,margin:"0 auto",padding:"18px 20px 0"}}>
+
+        {/* Key warning */}
+        {keyInfo && (!antOk||!repOk) && (
+          <div style={{background:"rgba(255,180,50,0.06)",border:"1px solid rgba(255,180,50,0.18)",borderRadius:11,padding:"10px 14px",marginBottom:13,display:"flex",alignItems:"center",justifyContent:"space-between"}}>
+            <span style={{fontSize:12,color:"rgba(255,180,50,0.8)"}}>
+              {!antOk&&!repOk?"⚠ Oba API ključa manjkata":!antOk?"⚠ Anthropic ključ manjka":!repOk?"⚠ Replicate ključ manjka — slike ne bodo na voljo":""}
+            </span>
+            <button onClick={()=>setShowSettings(true)} style={{background:"rgba(255,180,50,0.15)",border:"1px solid rgba(255,180,50,0.3)",borderRadius:7,padding:"5px 12px",color:"rgba(255,180,50,0.9)",fontSize:11,cursor:"pointer",marginLeft:10,whiteSpace:"nowrap"}}>Dodaj ključe →</button>
+          </div>
+        )}
+
+        {/* Upload */}
+        <div style={{background:"rgba(255,255,255,0.022)",border:"1px solid rgba(255,255,255,0.07)",borderRadius:14,padding:"14px",marginBottom:11}}>
+          <div style={{fontSize:10,color:"rgba(255,255,255,0.28)",fontFamily:"'DM Mono',monospace",letterSpacing:"0.12em",textTransform:"uppercase",marginBottom:10}}>🎨 Design Upload</div>
+          <div onClick={()=>fileRef.current.click()} style={{border:`2px dashed ${imagePreview?"rgba(255,220,100,0.22)":"rgba(255,255,255,0.07)"}`,borderRadius:11,padding:imagePreview?"10px 14px":"24px 18px",cursor:"pointer",background:imagePreview?"rgba(255,220,100,0.03)":"rgba(255,255,255,0.012)",display:"flex",flexDirection:imagePreview?"row":"column",alignItems:"center",gap:12,transition:"all 0.2s"}}>
+            {imagePreview
+              ? <><img src={imagePreview} alt="design" style={{width:58,height:58,objectFit:"contain",borderRadius:9,background:"rgba(255,255,255,0.05)",flexShrink:0}}/><div><div style={{color:"#FFDC64",fontSize:13,fontWeight:500}}>Design pripravljen ✓</div><div style={{color:"rgba(255,255,255,0.28)",fontSize:11,marginTop:2}}>{imageFile?.name} · Klikni za zamenjavo</div></div></>
+              : <><div style={{fontSize:22}}>📁</div><div style={{color:"rgba(255,255,255,0.32)",fontSize:13}}>Naloži grafiko<br/><span style={{fontSize:10,color:"rgba(255,255,255,0.18)"}}>PNG transparentno · JPG / WEBP ok</span></div></>}
+          </div>
+          <input ref={fileRef} type="file" accept="image/*" onChange={handleFile} style={{display:"none"}}/>
+        </div>
+
+        {/* Niche + Audience */}
+        <div style={{display:"grid",gridTemplateColumns:"1fr 1fr",gap:11,marginBottom:11}}>
+          {[{label:"🎯 Niche",key:"niche",opts:NICHE},{label:"👤 Audience",key:"audience",opts:AUDIENCE}].map(({label,key,opts})=>(
+            <div key={key} style={{background:"rgba(255,255,255,0.022)",border:"1px solid rgba(255,255,255,0.07)",borderRadius:14,padding:"12px 14px"}}>
+              <div style={{fontSize:10,color:"rgba(255,255,255,0.28)",fontFamily:"'DM Mono',monospace",letterSpacing:"0.12em",textTransform:"uppercase",marginBottom:9}}>{label}</div>
+              <div style={{display:"flex",flexWrap:"wrap",gap:5}}>{opts.map(o=><Tag key={o} active={form[key]===o} onClick={()=>setForm(f=>({...f,[key]:o}))}>{o}</Tag>)}</div>
+            </div>
+          ))}
+        </div>
+
+        {/* Config — FIX: mockup count selector restored */}
+        <div style={{background:"rgba(255,255,255,0.022)",border:"1px solid rgba(255,255,255,0.07)",borderRadius:14,padding:"13px 15px",marginBottom:14}}>
+          <div style={{fontSize:10,color:"rgba(255,255,255,0.28)",fontFamily:"'DM Mono',monospace",letterSpacing:"0.12em",textTransform:"uppercase",marginBottom:11}}>⚙️ Podrobnosti</div>
+          <div style={{display:"grid",gridTemplateColumns:"1fr 1fr 1fr",gap:10,marginBottom:10}}>
+            <div>
+              <div style={{fontSize:9,color:"rgba(255,255,255,0.22)",marginBottom:4,fontFamily:"'DM Mono',monospace"}}>MODEL MAJICE</div>
+              <select value={form.shirtModel} onChange={e=>setForm(f=>({...f,shirtModel:e.target.value}))}>
+                {SHIRTS.map(s=><option key={s}>{s}</option>)}
+              </select>
+            </div>
+            <div>
+              <div style={{fontSize:9,color:"rgba(255,255,255,0.22)",marginBottom:4,fontFamily:"'DM Mono',monospace"}}>SLOG BLAGOVNE ZNAMKE</div>
+              <input type="text" placeholder="npr. Toplo, zemeljsko…" value={form.brandStyle} onChange={e=>setForm(f=>({...f,brandStyle:e.target.value}))}/>
+            </div>
+            {/* FIX: mockup count restored */}
+            <div>
+              <div style={{fontSize:9,color:"rgba(255,255,255,0.22)",marginBottom:4,fontFamily:"'DM Mono',monospace"}}>ŠTEVILO MOCKUPOV</div>
+              <select value={form.mockupCount} onChange={e=>setForm(f=>({...f,mockupCount:parseInt(e.target.value)}))}>
+                {COUNT_OPTIONS.map(o=><option key={o.value} value={o.value}>{o.label}</option>)}
+              </select>
+            </div>
+          </div>
+          <div style={{fontSize:9,color:"rgba(255,255,255,0.22)",marginBottom:4,fontFamily:"'DM Mono',monospace"}}>OPCIJSKA NAVODILA ZA SCENO</div>
+          <textarea rows={2} placeholder="npr. Prijetna jesenska vzdušje, topla jantarna svetloba…" value={form.sceneDirection} onChange={e=>setForm(f=>({...f,sceneDirection:e.target.value}))}/>
+        </div>
+
+        {error&&<div style={{background:"rgba(255,80,80,0.07)",border:"1px solid rgba(255,80,80,0.18)",borderRadius:9,padding:"10px 14px",color:"#FF8080",fontSize:12,marginBottom:12}}>⚠️ {error}</div>}
+
+        <button onClick={handleGenerate} disabled={loading} style={{width:"100%",padding:"13px",background:loading?"rgba(255,220,100,0.05)":"linear-gradient(135deg,#FFDC64 0%,#FF9B40 100%)",border:"none",borderRadius:12,color:loading?"rgba(255,220,100,0.35)":"#0C0C0E",fontSize:14,fontWeight:600,cursor:loading?"not-allowed":"pointer",display:"flex",alignItems:"center",justifyContent:"center",gap:9,transition:"all 0.2s",marginBottom:11}}>
+          {loading?<><Spinner size={17} color="rgba(255,220,100,0.5)"/><span>Generiram…</span></>:<span>⚡ Generiraj {total} Mockup Promptov</span>}
+        </button>
+
+        {/* Progress */}
+        {loading&&(
+          <div style={{background:"rgba(255,255,255,0.022)",border:"1px solid rgba(255,255,255,0.07)",borderRadius:14,padding:"14px 16px",marginBottom:16}}>
+            <div style={{display:"flex",justifyContent:"space-between",marginBottom:6}}>
+              <span style={{fontSize:11,color:"rgba(255,255,255,0.4)",fontFamily:"'DM Mono',monospace"}}>{progLabel}</span>
+              <span style={{fontSize:11,color:"#FFDC64",fontFamily:"'DM Mono',monospace"}}>{Math.round(progress)}%</span>
+            </div>
+            <div style={{background:"rgba(255,255,255,0.06)",borderRadius:999,height:3,overflow:"hidden",marginBottom:10}}>
+              <div style={{height:"100%",background:"linear-gradient(90deg,#FFDC64,#FF9B40)",borderRadius:999,width:`${progress}%`,transition:"width 0.5s ease"}}/>
+            </div>
+            <div style={{display:"grid",gridTemplateColumns:`repeat(${COUNT_OPTIONS.find(o=>o.value===total)?.batches||3},1fr)`,gap:6}}>
+              {ALL_BATCHES.slice(0,COUNT_OPTIONS.find(o=>o.value===total)?.batches||3).map((b,bi)=>{
+                const done=results.some(r=>r.catInfo?.id===b[0].id);
+                return<div key={bi} style={{background:done?"rgba(255,220,100,0.07)":"rgba(255,255,255,0.02)",border:`1px solid ${done?"rgba(255,220,100,0.18)":"rgba(255,255,255,0.05)"}`,borderRadius:8,padding:"7px 10px"}}>
+                  <div style={{fontSize:10,color:done?"#FFDC64":"rgba(255,255,255,0.22)",fontFamily:"'DM Mono',monospace"}}>{done?"✓ ":"· "}Serija {bi+1}</div>
+                  <div style={{fontSize:9,color:"rgba(255,255,255,0.18)",marginTop:2}}>{b.map(c=>c.emoji).join(" ")}</div>
+                </div>;
+              })}
+            </div>
+          </div>
+        )}
+
+        {/* Results */}
+        {results.length>0&&(
+          <div style={{animation:"fadeUp 0.4s ease"}}>
+            <div style={{display:"flex",justifyContent:"space-between",alignItems:"center",marginBottom:13}}>
+              <div style={{fontSize:10,color:"rgba(255,220,100,0.6)",fontFamily:"'DM Mono',monospace",letterSpacing:"0.14em",textTransform:"uppercase"}}>✦ {results.length}/{total} promptov · {doneCount} slik</div>
+              <div style={{display:"flex",gap:7}}>
+                {results.length===total&&<button onClick={copyAll} style={{background:"rgba(255,255,255,0.05)",border:"1px solid rgba(255,255,255,0.09)",borderRadius:8,padding:"5px 11px",color:"rgba(255,255,255,0.45)",fontSize:10,fontFamily:"'DM Mono',monospace",cursor:"pointer"}}>Kopiraj vse</button>}
+                {results.length===total&&(
+                  <button onClick={handleGenAll} disabled={genAllBusy} style={{display:"flex",alignItems:"center",gap:5,background:genAllBusy?"rgba(255,220,100,0.04)":"rgba(255,220,100,0.12)",border:"1px solid rgba(255,220,100,0.25)",borderRadius:8,padding:"5px 12px",color:genAllBusy?"rgba(255,220,100,0.3)":"#FFDC64",fontSize:10,fontFamily:"'DM Mono',monospace",cursor:genAllBusy?"not-allowed":"pointer"}}>
+                    {genAllBusy?<><Spinner size={11}/><span>Generiram…</span></>:<span>🖼 Generiraj vseh {total} slik</span>}
+                  </button>
+                )}
+              </div>
+            </div>
+
+            {doneCount>0&&(
+              <div style={{background:"rgba(255,255,255,0.03)",border:"1px solid rgba(255,255,255,0.06)",borderRadius:10,padding:"9px 13px",marginBottom:13}}>
+                <div style={{display:"flex",justifyContent:"space-between",marginBottom:5}}>
+                  <span style={{fontSize:10,color:"rgba(255,255,255,0.3)",fontFamily:"'DM Mono',monospace"}}>Generirane slike</span>
+                  <span style={{fontSize:10,color:"#7EE8A2",fontFamily:"'DM Mono',monospace"}}>{doneCount} / {total}</span>
+                </div>
+                <div style={{background:"rgba(255,255,255,0.05)",borderRadius:999,height:3}}>
+                  <div style={{height:"100%",background:"linear-gradient(90deg,#7EE8A2,#38C77E)",borderRadius:999,width:`${(doneCount/total)*100}%`,transition:"width 0.4s"}}/>
+                </div>
+              </div>
+            )}
+
+            <div style={{display:"flex",gap:5,flexWrap:"wrap",marginBottom:13}}>
+              {TABS.filter(t=>t.id==="all"||(t.ids&&t.ids.some(id=>results.some(r=>r.catInfo?.id===id)))).map(t=>(
+                <button key={t.id} onClick={()=>setActiveTab(t.id)} style={{padding:"5px 12px",borderRadius:20,border:activeTab===t.id?"1.5px solid #FFDC64":"1.5px solid rgba(255,255,255,0.08)",background:activeTab===t.id?"rgba(255,220,100,0.1)":"transparent",color:activeTab===t.id?"#FFDC64":"rgba(255,255,255,0.32)",fontSize:11,cursor:"pointer",transition:"all 0.15s"}}>{t.label}</button>
+              ))}
+            </div>
+
+            {filtered.map(r=>{
+              const gi = results.indexOf(r);
+              const id = r.catInfo?.id;
+              return <MockupCard key={id||gi} result={r.data} catInfo={r.catInfo} index={gi} isOpen={openCard===gi} onToggle={()=>setOpenCard(openCard===gi?null:gi)} imgState={imgStates[id]} onGenImage={()=>genImage(id,r.data.fluxPrompt)}/>;
+            })}
+          </div>
+        )}
+      </div>
+    </div>
+  );
+}
+
+ReactDOM.createRoot(document.getElementById("root")).render(<App/>);
+</script>
+</body>
+</html>
