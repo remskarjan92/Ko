@@ -273,7 +273,13 @@ app.post("/api/generate-image", async (req, res) => {
       },
       body: JSON.stringify({
         input: {
-          prompt: `Use the attached reference image as the exact garment design reference and keep all print artwork, typography, logo shapes, and colors faithful. ${fluxPrompt}`,
+          prompt: [
+            "Use the attached reference image as the exact source of truth for the garment design.",
+            "Preserve the artwork, typography, logo shapes, line weights, print placement, scale, spacing, and colors exactly as shown.",
+            "Do not reinterpret, simplify, redraw, or stylize the design.",
+            "The printed design must remain crisp, legible, and centered as a faithful product mockup, with no warping, cropping, spelling changes, or layout drift.",
+            fluxPrompt,
+          ].join(" "),
           input_image: inputImage,
           aspect_ratio: "match_input_image",
           output_format: "webp",
