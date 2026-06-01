@@ -137,6 +137,34 @@ function authHeaders() {
   return token ? { "x-admin-token": token } : {};
 }
 
+async function compressImageDataUrl(dataUrl, { maxSize = 1024, quality = 0.88, mimeType = "image/webp" } = {}) {
+  if (!dataUrl) return "";
+
+  const img = new Image();
+  img.decoding = "async";
+
+  const loaded = new Promise((resolve, reject) => {
+    img.onload = resolve;
+    img.onerror = reject;
+  });
+
+  img.src = dataUrl;
+  await loaded;
+
+  const scale = Math.min(1, maxSize / Math.max(img.width, img.height));
+  const width = Math.max(1, Math.round(img.width * scale));
+  const height = Math.max(1, Math.round(img.height * scale));
+
+  const canvas = document.createElement("canvas");
+  canvas.width = width;
+  canvas.height = height;
+
+  const ctx = canvas.getContext("2d");
+  ctx.drawImage(img, 0, 0, width, height);
+
+  return canvas.toDataURL(mimeType, quality);
+}
+
 async function authedFetch(path, options = {}) {
   const headers = { ...(options.headers || {}), ...authHeaders() };
   return fetch(path, { ...options, headers });
@@ -531,10 +559,15 @@ function App() {
   const genImage = async (id, fluxPrompt) => {
     setImg(id, {status:"loading"});
     try {
+      const compressed = await compressImageDataUrl(imagePreview, {
+        maxSize: 1024,
+        quality: 0.88,
+        mimeType: "image/webp",
+      });
       const d = await apiFetch("/api/generate-image", {
         fluxPrompt,
-        imageBase64,
-        imageType: imageFile?.type || "image/png",
+        imageBase64: compressed.split(",")[1],
+        imageType: "image/webp",
       });
       setImg(id, {status:"done", url:d.url});
     }
@@ -547,10 +580,15 @@ function App() {
       const id = r.catInfo.id;
       setImg(id, {status:"loading"});
       try {
+        const compressed = await compressImageDataUrl(imagePreview, {
+          maxSize: 1024,
+          quality: 0.88,
+          mimeType: "image/webp",
+        });
         const d = await apiFetch("/api/generate-image", {
           fluxPrompt: r.data.fluxPrompt,
-          imageBase64,
-          imageType: imageFile?.type || "image/png",
+          imageBase64: compressed.split(",")[1],
+          imageType: "image/webp",
         });
         setImg(id, {status:"done", url:d.url});
       }

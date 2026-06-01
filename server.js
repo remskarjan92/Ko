@@ -5,7 +5,7 @@ const fs      = require("fs");
 
 const app      = express();
 const PORT     = process.env.PORT || 3000;
-const KEYS_FILE = path.join(__dirname, "keys.json");
+const KEYS_FILE = path.join(__dirname, "..", ".etsy-mockup-keys.json");
 const ADMIN_TOKEN = process.env.ADMIN_TOKEN || "";
 
 app.use(express.json({ limit: "25mb" }));
@@ -25,7 +25,7 @@ function loadKeys() {
     if (fs.existsSync(KEYS_FILE)) {
       const saved = JSON.parse(fs.readFileSync(KEYS_FILE, "utf8"));
       return {
-        gemini: envKeys.gemini || saved.gemini || saved.anthropic || "",
+        gemini: envKeys.gemini || saved.gemini || "",
         replicate: envKeys.replicate || saved.replicate || "",
       };
     }
