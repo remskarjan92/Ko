@@ -285,6 +285,11 @@ function SettingsModal({ onClose, onKeysUpdated }) {
     }
     return getAdminToken();
   };
+  const handleAdminTokenChange = e => {
+    const next = e.target.value;
+    setAdminTokenValue(next);
+    setAdminToken(next);
+  };
 
   const test = async type => {
     setSt(s=>({...s,[type]:"loading"}));
@@ -361,9 +366,9 @@ function SettingsModal({ onClose, onKeysUpdated }) {
             <div style={{fontSize:12,fontWeight:600,color:"#fff",display:"flex",alignItems:"center",gap:7,marginBottom:4}}>
               <span style={{fontSize:14}}>🔐</span>Admin Access Token
             </div>
-            <div style={{fontSize:10,color:"rgba(255,255,255,0.28)",marginBottom:10}}>Optional local browser token used when `ADMIN_TOKEN` is enabled on the server. If you paste it here, saving keys will use it immediately.</div>
+            <div style={{fontSize:10,color:"rgba(255,255,255,0.28)",marginBottom:10}}>Optional local browser token used when `ADMIN_TOKEN` is enabled on the server. It is saved immediately as you paste or type it.</div>
             <div style={{position:"relative",marginBottom:10}}>
-              <input type={showAdmin?"text":"password"} placeholder="Paste admin token here" value={adminToken} onChange={e=>setAdminTokenValue(e.target.value)}/>
+              <input type={showAdmin?"text":"password"} placeholder="Paste admin token here" value={adminToken} onChange={handleAdminTokenChange}/>
               <button onClick={()=>setShowAdmin(s=>!s)} style={{position:"absolute",right:9,top:"50%",transform:"translateY(-50%)",background:"none",border:"none",cursor:"pointer",color:"rgba(255,255,255,0.3)",fontSize:13}}>{showAdmin?"🙈":"👁"}</button>
             </div>
             <div style={{display:"flex",gap:7,alignItems:"center",flexWrap:"wrap"}}>
