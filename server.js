@@ -6,6 +6,7 @@ const fs      = require("fs");
 const app      = express();
 const PORT     = process.env.PORT || 3000;
 const KEYS_FILE = path.join(__dirname, "keys.json");
+const ADMIN_TOKEN = process.env.ADMIN_TOKEN || "";
 
 app.use(express.json({ limit: "25mb" }));
 app.use(express.static(__dirname));
@@ -46,8 +47,30 @@ function maskKey(k) {
   return k.slice(0, 8) + "•".repeat(k.length - 12) + k.slice(-4);
 }
 
+function getAuthToken(req) {
+  const header = req.get("x-admin-token") || "";
+  if (header) return header;
+
+  const auth = req.get("authorization") || "";
+  if (auth.toLowerCase().startsWith("bearer ")) return auth.slice(7).trim();
+
+  return "";
+}
+
+function requireAdmin(req, res) {
+  if (!ADMIN_TOKEN) return true;
+  if (getAuthToken(req) === ADMIN_TOKEN) return true;
+  res.status(401).json({ error: "Unauthorized" });
+  return false;
+}
+
+function keySource(type) {
+  return process.env[type === "anthropic" ? "ANTHROPIC_API_KEY" : "REPLICATE_API_KEY"] ? "env" : "file";
+}
+
 // ─── Key management ───────────────────────────────────────────────────────────
 app.get("/api/keys", (req, res) => {
+  if (!requireAdmin(req, res)) return;
   const keys = loadKeys();
   res.json({
     anthropic: {
@@ -64,6 +87,7 @@ app.get("/api/keys", (req, res) => {
 });
 
 app.post("/api/keys", (req, res) => {
+  if (!requireAdmin(req, res)) return;
   const { anthropic, replicate } = req.body;
   const current = loadKeys();
   saveKeys({
@@ -74,9 +98,15 @@ app.post("/api/keys", (req, res) => {
 });
 
 app.delete("/api/keys/:type", (req, res) => {
+  if (!requireAdmin(req, res)) return;
   const { type } = req.params;
   if (!["anthropic", "replicate"].includes(type))
     return res.status(400).json({ error: "Invalid key type" });
+  if (keySource(type) === "env") {
+    return res.status(409).json({
+      error: `${type} key comes from an environment variable and cannot be deleted from the UI.`,
+    });
+  }
   const keys = loadKeys();
   keys[type] = "";
   saveKeys(keys);
@@ -85,6 +115,7 @@ app.delete("/api/keys/:type", (req, res) => {
 
 // ─── Connection tests ─────────────────────────────────────────────────────────
 app.post("/api/test/anthropic", async (req, res) => {
+  if (!requireAdmin(req, res)) return;
   const { anthropic } = loadKeys();
   if (!anthropic) return res.json({ ok: false, message: "Ključ ni nastavljen." });
   try {
@@ -110,6 +141,7 @@ app.post("/api/test/anthropic", async (req, res) => {
 });
 
 app.post("/api/test/replicate", async (req, res) => {
+  if (!requireAdmin(req, res)) return;
   const { replicate } = loadKeys();
   if (!replicate) return res.json({ ok: false, message: "Ključ ni nastavljen." });
   try {
@@ -161,6 +193,7 @@ GLOBAL RULES — every FLUX_PROMPT must:
 
 // ─── Prompt generation ────────────────────────────────────────────────────────
 app.post("/api/generate-prompts", async (req, res) => {
+  if (!requireAdmin(req, res)) return;
   const {
     batch, imageBase64, imageType,
     brandStyle, niche, audience, shirtModel, sceneDirection, mockupCount
@@ -221,6 +254,7 @@ async function pollPrediction(id, key) {
 }
 
 app.post("/api/generate-image", async (req, res) => {
+  if (!requireAdmin(req, res)) return;
   const { fluxPrompt } = req.body;
   const { replicate } = loadKeys();
   if (!replicate)

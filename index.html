@@ -25,6 +25,7 @@
 <div id="root"></div>
 <script type="text/babel">
 const { useState, useRef, useEffect } = React;
+const ADMIN_TOKEN_STORAGE_KEY = "etsy_mockup_admin_token";
 
 // ─── 18 categories split into 3 batches of 6 ─────────────────────────────────
 const ALL_BATCHES = [
@@ -122,8 +123,27 @@ function parseBatch(raw) {
 }
 
 // ─── API helpers ──────────────────────────────────────────────────────────────
+function getAdminToken() {
+  return localStorage.getItem(ADMIN_TOKEN_STORAGE_KEY) || "";
+}
+
+function setAdminToken(token) {
+  if (token) localStorage.setItem(ADMIN_TOKEN_STORAGE_KEY, token);
+  else localStorage.removeItem(ADMIN_TOKEN_STORAGE_KEY);
+}
+
+function authHeaders() {
+  const token = getAdminToken();
+  return token ? { "x-admin-token": token } : {};
+}
+
+async function authedFetch(path, options = {}) {
+  const headers = { ...(options.headers || {}), ...authHeaders() };
+  return fetch(path, { ...options, headers });
+}
+
 async function apiFetch(path, body) {
-  const res = await fetch(path, {
+  const res = await authedFetch(path, {
     method: "POST",
     headers: { "Content-Type": "application/json" },
     body: JSON.stringify(body),
@@ -204,14 +224,27 @@ function Tag({ children, active, onClick }) {
 function SettingsModal({ onClose, onKeysUpdated }) {
   const [ant, setAnt] = useState("");
   const [rep, setRep] = useState("");
+  const [adminToken, setAdminTokenValue] = useState(getAdminToken());
   const [showAnt, setShowAnt] = useState(false);
   const [showRep, setShowRep] = useState(false);
+  const [showAdmin, setShowAdmin] = useState(false);
   const [st,  setSt]  = useState({ ant:"idle", rep:"idle" });
   const [msg, setMsg] = useState({ ant:"", rep:"" });
   const [info, setInfo] = useState(null);
   const [saving, setSaving] = useState(false);
 
-  useEffect(() => { fetch("/api/keys").then(r=>r.json()).then(setInfo).catch(()=>{}); }, []);
+  const loadInfo = () => authedFetch("/api/keys")
+    .then(r => {
+      if (r.status === 401) {
+        setInfo({ authRequired: true });
+        return null;
+      }
+      return r.json();
+    })
+    .then(d => { if (d) setInfo(d); })
+    .catch(()=>{});
+
+  useEffect(() => { loadInfo(); }, []);
 
   const sc = s => s==="ok"?"#7EE8A2" : s==="fail"?"#FF8080" : "rgba(255,255,255,0.35)";
   const si = s => s==="ok"?"✓" : s==="fail"?"✗" : s==="loading"?"…" : "";
@@ -219,7 +252,9 @@ function SettingsModal({ onClose, onKeysUpdated }) {
   const test = async type => {
     setSt(s=>({...s,[type]:"loading"}));
     try {
-      const d = await (await fetch(`/api/test/${type}`,{method:"POST"})).json();
+      const res = await authedFetch(`/api/test/${type}`,{method:"POST"});
+      const d = await res.json();
+      if (!res.ok) throw new Error(d.error || d.message || `Server error ${res.status}`);
       setSt(s=>({...s,[type]:d.ok?"ok":"fail"}));
       setMsg(m=>({...m,[type]:d.message}));
     } catch(e) { setSt(s=>({...s,[type]:"fail"})); setMsg(m=>({...m,[type]:e.message})); }
@@ -233,18 +268,30 @@ function SettingsModal({ onClose, onKeysUpdated }) {
     if (rep) body.replicate  = rep;
     try {
       await apiFetch("/api/keys", body);
-      const d = await fetch("/api/keys").then(r=>r.json());
+      setAdminTokenValue(adminToken.trim());
+      setAdminToken(adminToken.trim());
+      const d = await authedFetch("/api/keys").then(r=>r.json());
       setInfo(d); setAnt(""); setRep(""); onKeysUpdated(d);
     } catch(e) { alert("Napaka: "+e.message); }
     finally { setSaving(false); }
   };
 
   const del = async type => {
+    if (info?.[type]?.fromEnv) {
+      alert("Ta ključ prihaja iz okoljske spremenljivke in ga tu ni mogoče zbrisati.");
+      return;
+    }
     if (!confirm(`Zbriši ${type} ključ?`)) return;
-    await fetch(`/api/keys/${type}`,{method:"DELETE"});
-    const d = await fetch("/api/keys").then(r=>r.json());
-    setInfo(d); onKeysUpdated(d);
-    setSt(s=>({...s,[type]:"idle"})); setMsg(m=>({...m,[type]:""}));
+    try {
+      const res = await authedFetch(`/api/keys/${type}`,{method:"DELETE"});
+      const d = await res.json();
+      if (!res.ok) throw new Error(d.error || `Server error ${res.status}`);
+      const next = await authedFetch("/api/keys").then(r=>r.json());
+      setInfo(next); onKeysUpdated(next);
+      setSt(s=>({...s,[type]:"idle"})); setMsg(m=>({...m,[type]:""}));
+    } catch (e) {
+      alert("Napaka: " + e.message);
+    }
   };
 
   const configs = [
@@ -269,8 +316,29 @@ function SettingsModal({ onClose, onKeysUpdated }) {
 
         <div style={{padding:"18px 20px"}}>
 
+          <div style={{background:"rgba(255,255,255,0.03)",border:"1px solid rgba(255,255,255,0.07)",borderRadius:12,padding:"14px",marginBottom:12}}>
+            <div style={{fontSize:12,fontWeight:600,color:"#fff",display:"flex",alignItems:"center",gap:7,marginBottom:4}}>
+              <span style={{fontSize:14}}>🔐</span>Admin Access Token
+            </div>
+            <div style={{fontSize:10,color:"rgba(255,255,255,0.28)",marginBottom:10}}>Optional local browser token used when `ADMIN_TOKEN` is enabled on the server.</div>
+            <div style={{position:"relative",marginBottom:10}}>
+              <input type={showAdmin?"text":"password"} placeholder="Paste admin token here" value={adminToken} onChange={e=>setAdminTokenValue(e.target.value)}/>
+              <button onClick={()=>setShowAdmin(s=>!s)} style={{position:"absolute",right:9,top:"50%",transform:"translateY(-50%)",background:"none",border:"none",cursor:"pointer",color:"rgba(255,255,255,0.3)",fontSize:13}}>{showAdmin?"🙈":"👁"}</button>
+            </div>
+            <div style={{display:"flex",gap:7,alignItems:"center",flexWrap:"wrap"}}>
+              <button onClick={()=>{setAdminTokenValue(adminToken.trim()); setAdminToken(adminToken.trim()); loadInfo();}} style={{padding:"6px 12px",borderRadius:8,border:"1px solid rgba(255,220,100,0.25)",background:"rgba(255,220,100,0.07)",color:"#FFDC64",fontSize:11,cursor:"pointer",fontWeight:500}}>💾 Shrani token</button>
+              {getAdminToken() && <button onClick={()=>{setAdminToken(""); setAdminTokenValue(""); loadInfo();}} style={{padding:"6px 12px",borderRadius:8,border:"1px solid rgba(255,80,80,0.25)",background:"rgba(255,80,80,0.07)",color:"#FF8080",fontSize:11,cursor:"pointer",fontWeight:500}}>🗑 Odstrani token</button>}
+            </div>
+          </div>
+
           {/* Status badges */}
-          {info && (
+          {info?.authRequired && (
+            <div style={{background:"rgba(80,130,255,0.08)",border:"1px solid rgba(80,130,255,0.2)",borderRadius:11,padding:"10px 14px",marginBottom:16,color:"rgba(190,210,255,0.9)",fontSize:12}}>
+              🔐 This browser is not authenticated yet. Paste the admin token above, then save it locally.
+            </div>
+          )}
+
+          {info && !info.authRequired && (
             <div style={{display:"flex",gap:8,marginBottom:16}}>
               {[{k:"anthropic",l:"Anthropic"},{k:"replicate",l:"Replicate"}].map(({k,l})=>(
                 <div key={k} style={{flex:1,padding:"8px 11px",borderRadius:9,background:info[k]?.set?"rgba(126,232,162,0.07)":"rgba(255,80,80,0.07)",border:`1px solid ${info[k]?.set?"rgba(126,232,162,0.22)":"rgba(255,80,80,0.18)"}`}}>
@@ -296,7 +364,7 @@ function SettingsModal({ onClose, onKeysUpdated }) {
                 <button onClick={()=>test(type)} disabled={st[key]==="loading"} style={{display:"flex",alignItems:"center",gap:5,padding:"6px 12px",borderRadius:8,border:"1px solid rgba(255,220,100,0.25)",background:"rgba(255,220,100,0.07)",color:"#FFDC64",fontSize:11,cursor:"pointer",fontWeight:500}}>
                   {st[key]==="loading"?<><Spinner size={11}/><span>Testiram…</span></>:<span>🔌 Testiraj</span>}
                 </button>
-                {info?.[type]?.set&&<button onClick={()=>del(type)} style={{padding:"6px 12px",borderRadius:8,border:"1px solid rgba(255,80,80,0.25)",background:"rgba(255,80,80,0.07)",color:"#FF8080",fontSize:11,cursor:"pointer",fontWeight:500}}>🗑 Zbriši</button>}
+                {info?.[type]?.set&&!info?.[type]?.fromEnv&&<button onClick={()=>del(type)} style={{padding:"6px 12px",borderRadius:8,border:"1px solid rgba(255,80,80,0.25)",background:"rgba(255,80,80,0.07)",color:"#FF8080",fontSize:11,cursor:"pointer",fontWeight:500}}>🗑 Zbriši</button>}
                 {msg[key]&&<span style={{fontSize:11,color:sc(st[key]),fontFamily:"'DM Mono',monospace"}}>{si(st[key])} {msg[key]}</span>}
               </div>
               {link&&<div style={{marginTop:8,fontSize:10,color:"rgba(255,255,255,0.2)"}}>Pridobi na <a href={link} target="_blank" style={{color:"rgba(255,220,100,0.5)"}}>{link}</a></div>}
@@ -401,7 +469,16 @@ function App() {
   const fileRef = useRef();
 
   useEffect(() => {
-    fetch("/api/keys").then(r=>r.json()).then(setKeyInfo).catch(()=>{});
+    authedFetch("/api/keys")
+      .then(r => {
+        if (r.status === 401) {
+          setKeyInfo({ authRequired: true });
+          return null;
+        }
+        return r.json();
+      })
+      .then(d => { if (d) setKeyInfo(d); })
+      .catch(()=>{});
   }, []);
 
   const setImg = (id, patch) => setImgStates(s => ({...s, [id]:{...(s[id]||{}), ...patch}}));
@@ -528,8 +605,15 @@ ${r.data.thumbnailNotes}`;
 
       <div style={{maxWidth:740,margin:"0 auto",padding:"18px 20px 0"}}>
 
+        {keyInfo?.authRequired && (
+          <div style={{background:"rgba(80,130,255,0.08)",border:"1px solid rgba(80,130,255,0.2)",borderRadius:11,padding:"10px 14px",marginBottom:13,display:"flex",alignItems:"center",justifyContent:"space-between",gap:10}}>
+            <span style={{fontSize:12,color:"rgba(190,210,255,0.85)"}}>🔐 Admin token required. Open Settings and store the server token in this browser.</span>
+            <button onClick={()=>setShowSettings(true)} style={{background:"rgba(80,130,255,0.16)",border:"1px solid rgba(80,130,255,0.3)",borderRadius:7,padding:"5px 12px",color:"rgba(190,210,255,0.95)",fontSize:11,cursor:"pointer",whiteSpace:"nowrap"}}>Odpri nastavitve</button>
+          </div>
+        )}
+
         {/* Key warning */}
-        {keyInfo && (!antOk||!repOk) && (
+        {keyInfo && !keyInfo.authRequired && (!antOk||!repOk) && (
           <div style={{background:"rgba(255,180,50,0.06)",border:"1px solid rgba(255,180,50,0.18)",borderRadius:11,padding:"10px 14px",marginBottom:13,display:"flex",alignItems:"center",justifyContent:"space-between"}}>
             <span style={{fontSize:12,color:"rgba(255,180,50,0.8)"}}>
               {!antOk&&!repOk?"⚠ Oba API ključa manjkata":!antOk?"⚠ Anthropic ključ manjka":!repOk?"⚠ Replicate ključ manjka — slike ne bodo na voljo":""}
