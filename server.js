@@ -15,17 +15,17 @@ app.use(express.static(__dirname));
 // Priority: environment variables > keys.json (fallback for local dev)
 function loadKeys() {
   const envKeys = {
-    anthropic: process.env.ANTHROPIC_API_KEY || "",
+    gemini: process.env.GEMINI_API_KEY || process.env.GOOGLE_API_KEY || "",
     replicate: process.env.REPLICATE_API_KEY || "",
   };
   // If both env vars are set, use them directly
-  if (envKeys.anthropic && envKeys.replicate) return envKeys;
+  if (envKeys.gemini && envKeys.replicate) return envKeys;
   // Otherwise merge with any saved keys (local dev fallback)
   try {
     if (fs.existsSync(KEYS_FILE)) {
       const saved = JSON.parse(fs.readFileSync(KEYS_FILE, "utf8"));
       return {
-        anthropic: envKeys.anthropic || saved.anthropic || "",
+        gemini: envKeys.gemini || saved.gemini || saved.anthropic || "",
         replicate: envKeys.replicate || saved.replicate || "",
       };
     }
@@ -36,7 +36,7 @@ function loadKeys() {
 function saveKeys(keys) {
   // On Railway, env vars take priority — saving to file is a no-op for those
   const toSave = {
-    anthropic: process.env.ANTHROPIC_API_KEY ? "" : keys.anthropic,
+    gemini: process.env.GEMINI_API_KEY || process.env.GOOGLE_API_KEY ? "" : keys.gemini,
     replicate: process.env.REPLICATE_API_KEY ? "" : keys.replicate,
   };
   try { fs.writeFileSync(KEYS_FILE, JSON.stringify(toSave, null, 2)); } catch {}
@@ -65,7 +65,8 @@ function requireAdmin(req, res) {
 }
 
 function keySource(type) {
-  return process.env[type === "anthropic" ? "ANTHROPIC_API_KEY" : "REPLICATE_API_KEY"] ? "env" : "file";
+  if (type === "gemini") return process.env.GEMINI_API_KEY || process.env.GOOGLE_API_KEY ? "env" : "file";
+  return process.env.REPLICATE_API_KEY ? "env" : "file";
 }
 
 // ─── Key management ───────────────────────────────────────────────────────────
@@ -73,10 +74,10 @@ app.get("/api/keys", (req, res) => {
   if (!requireAdmin(req, res)) return;
   const keys = loadKeys();
   res.json({
-    anthropic: {
-      set: !!keys.anthropic,
-      masked: maskKey(keys.anthropic),
-      fromEnv: !!process.env.ANTHROPIC_API_KEY,
+    gemini: {
+      set: !!keys.gemini,
+      masked: maskKey(keys.gemini),
+      fromEnv: !!(process.env.GEMINI_API_KEY || process.env.GOOGLE_API_KEY),
     },
     replicate: {
       set: !!keys.replicate,
@@ -88,10 +89,10 @@ app.get("/api/keys", (req, res) => {
 
 app.post("/api/keys", (req, res) => {
   if (!requireAdmin(req, res)) return;
-  const { anthropic, replicate } = req.body;
+  const { gemini, replicate } = req.body;
   const current = loadKeys();
   saveKeys({
-    anthropic: anthropic !== undefined ? anthropic : current.anthropic,
+    gemini: gemini !== undefined ? gemini : current.gemini,
     replicate: replicate !== undefined ? replicate : current.replicate,
   });
   res.json({ ok: true, message: "Keys saved." });
@@ -100,7 +101,7 @@ app.post("/api/keys", (req, res) => {
 app.delete("/api/keys/:type", (req, res) => {
   if (!requireAdmin(req, res)) return;
   const { type } = req.params;
-  if (!["anthropic", "replicate"].includes(type))
+  if (!["gemini", "replicate"].includes(type))
     return res.status(400).json({ error: "Invalid key type" });
   if (keySource(type) === "env") {
     return res.status(409).json({
@@ -114,27 +115,25 @@ app.delete("/api/keys/:type", (req, res) => {
 });
 
 // ─── Connection tests ─────────────────────────────────────────────────────────
-app.post("/api/test/anthropic", async (req, res) => {
+app.post("/api/test/gemini", async (req, res) => {
   if (!requireAdmin(req, res)) return;
-  const { anthropic } = loadKeys();
-  if (!anthropic) return res.json({ ok: false, message: "Ključ ni nastavljen." });
+  const { gemini } = loadKeys();
+  if (!gemini) return res.json({ ok: false, message: "Ključ ni nastavljen." });
   try {
-    const r = await fetch("https://api.anthropic.com/v1/messages", {
+    const r = await fetch("https://generativelanguage.googleapis.com/v1beta/models/gemini-2.5-flash:generateContent", {
       method: "POST",
       headers: {
         "Content-Type": "application/json",
-        "x-api-key": anthropic,
-        "anthropic-version": "2023-06-01",
+        "x-goog-api-key": gemini,
       },
       body: JSON.stringify({
-        model: "claude-sonnet-4-20250514",
-        max_tokens: 10,
-        messages: [{ role: "user", content: "hi" }],
+        contents: [{ parts: [{ text: "hi" }] }],
       }),
     });
     const d = await r.json();
     if (d.error) throw new Error(d.error.message);
-    res.json({ ok: true, message: "Povezava uspešna ✓" });
+    const text = d.candidates?.[0]?.content?.parts?.map(p => p.text || "").join("") || "";
+    res.json({ ok: true, message: text ? "Povezava uspešna ✓" : "Povezava uspešna ✓" });
   } catch (e) {
     res.json({ ok: false, message: e.message });
   }
@@ -199,34 +198,34 @@ app.post("/api/generate-prompts", async (req, res) => {
     brandStyle, niche, audience, shirtModel, sceneDirection, mockupCount
   } = req.body;
 
-  const { anthropic } = loadKeys();
-  if (!anthropic)
-    return res.status(400).json({ error: "Anthropic API ključ ni nastavljen. Pojdi v Nastavitve." });
+  const { gemini } = loadKeys();
+  if (!gemini)
+    return res.status(400).json({ error: "Gemini API ključ ni nastavljen. Pojdi v Nastavitve." });
 
   const list = batch.map((c, i) => `${i + 1}. ${c.name} — ${c.desc}`).join("\n");
 
   const userMessage = `Generate mockup prompts for these ${batch.length} categories:\n${list}\n\nDesign Details:\n- Brand Style: ${brandStyle || "Modern, clean, approachable"}\n- Niche: ${niche || "General apparel"}\n- Target Audience: ${audience || "General buyers"}\n- Shirt Model: ${shirtModel || "Unisex Classic Tee"}\n- Scene Direction: ${sceneDirection || "Natural authentic lifestyle scenes"}\n- Total mockups requested: ${mockupCount || batch.length}\n\nAnalyze the uploaded design carefully and generate all ${batch.length} mockup prompts now. Follow the format exactly.`;
 
   try {
-    const r = await fetch("https://api.anthropic.com/v1/messages", {
+    const r = await fetch("https://generativelanguage.googleapis.com/v1beta/models/gemini-2.5-flash:generateContent", {
       method: "POST",
       headers: {
         "Content-Type": "application/json",
-        "x-api-key": anthropic,
-        "anthropic-version": "2023-06-01",
+        "x-goog-api-key": gemini,
       },
       body: JSON.stringify({
-        model: "claude-sonnet-4-20250514",
-        max_tokens: 4000,
-        system: SYSTEM_PROMPT,
-        messages: [{
+        systemInstruction: { parts: [{ text: SYSTEM_PROMPT }] },
+        generationConfig: { maxOutputTokens: 4000 },
+        contents: [{
           role: "user",
-          content: [
+          parts: [
             {
-              type: "image",
-              source: { type: "base64", media_type: imageType || "image/png", data: imageBase64 },
+              inline_data: {
+                mime_type: imageType || "image/png",
+                data: imageBase64,
+              },
             },
-            { type: "text", text: userMessage },
+            { text: userMessage },
           ],
         }],
       }),
@@ -234,7 +233,8 @@ app.post("/api/generate-prompts", async (req, res) => {
 
     const d = await r.json();
     if (d.error) throw new Error(d.error.message);
-    res.json({ raw: d.content?.map(b => b.text || "").join("\n") || "" });
+    const raw = d.candidates?.[0]?.content?.parts?.map(p => p.text || "").join("\n") || "";
+    res.json({ raw });
   } catch (e) {
     res.status(500).json({ error: e.message });
   }
@@ -302,6 +302,6 @@ app.listen(PORT, () => {
   console.log(`\n🛍️  Etsy Mockup Generator`);
   console.log(`   http://localhost:${PORT}`);
   console.log(`   Node ${process.version} — native fetch ✓`);
-  console.log(`   Anthropic key: ${process.env.ANTHROPIC_API_KEY ? "✓ from env" : "from keys.json / UI"}`);
+  console.log(`   Gemini key: ${process.env.GEMINI_API_KEY || process.env.GOOGLE_API_KEY ? "✓ from env" : "from keys.json / UI"}`);
   console.log(`   Replicate key: ${process.env.REPLICATE_API_KEY ? "✓ from env" : "from keys.json / UI"}\n`);
 });

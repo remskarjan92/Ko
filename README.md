@@ -6,7 +6,7 @@
 2. Go to [railway.app](https://railway.app) → **New Project** → **Deploy from GitHub repo**
 3. Select your repo — Railway auto-detects Node.js
 4. Go to your service → **Variables** tab → add:
-   - `ANTHROPIC_API_KEY` = `sk-ant-api03-...`
+   - `GEMINI_API_KEY` = `AIza...`
    - `REPLICATE_API_KEY` = `r8_...`
    - `ADMIN_TOKEN` = any long random secret if you want to lock down the API
 5. Railway redeploys automatically — your app is live!
@@ -15,7 +15,7 @@
 
 | Variable | Description |
 |----------|-------------|
-| `ANTHROPIC_API_KEY` | Your Anthropic key (for Claude prompt generation) |
+| `GEMINI_API_KEY` | Your Gemini key (for prompt generation) |
 | `REPLICATE_API_KEY` | Your Replicate key (for Flux image generation) |
 | `ADMIN_TOKEN` | Optional shared secret that protects `/api/*` routes |
 | `PORT` | Set automatically by Railway — do not set manually |
@@ -40,5 +40,5 @@ npm start
 - ✅ `max_tokens` raised 1000 → 4000
 - ✅ Manual Fix Template added
 - ✅ Mockup count selector (6 / 12 / 18)
-- ✅ Railway env var support (`ANTHROPIC_API_KEY`, `REPLICATE_API_KEY`)
+- ✅ Railway env var support (`GEMINI_API_KEY`, `REPLICATE_API_KEY`)
 - ✅ Optional `ADMIN_TOKEN` protection for `/api/*` routes

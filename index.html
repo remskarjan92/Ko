@@ -222,14 +222,14 @@ function Tag({ children, active, onClick }) {
 
 // ─── Settings Modal ───────────────────────────────────────────────────────────
 function SettingsModal({ onClose, onKeysUpdated }) {
-  const [ant, setAnt] = useState("");
+  const [gem, setGem] = useState("");
   const [rep, setRep] = useState("");
   const [adminToken, setAdminTokenValue] = useState(getAdminToken());
-  const [showAnt, setShowAnt] = useState(false);
+  const [showGem, setShowGem] = useState(false);
   const [showRep, setShowRep] = useState(false);
   const [showAdmin, setShowAdmin] = useState(false);
-  const [st,  setSt]  = useState({ ant:"idle", rep:"idle" });
-  const [msg, setMsg] = useState({ ant:"", rep:"" });
+  const [st,  setSt]  = useState({ gemini:"idle", rep:"idle" });
+  const [msg, setMsg] = useState({ gemini:"", rep:"" });
   const [info, setInfo] = useState(null);
   const [saving, setSaving] = useState(false);
 
@@ -261,17 +261,17 @@ function SettingsModal({ onClose, onKeysUpdated }) {
   };
 
   const save = async () => {
-    if (!ant && !rep) return;
+    if (!gem && !rep) return;
     setSaving(true);
     const body = {};
-    if (ant) body.anthropic = ant;
+    if (gem) body.gemini = gem;
     if (rep) body.replicate  = rep;
     try {
       await apiFetch("/api/keys", body);
       setAdminTokenValue(adminToken.trim());
       setAdminToken(adminToken.trim());
       const d = await authedFetch("/api/keys").then(r=>r.json());
-      setInfo(d); setAnt(""); setRep(""); onKeysUpdated(d);
+      setInfo(d); setGem(""); setRep(""); onKeysUpdated(d);
     } catch(e) { alert("Napaka: "+e.message); }
     finally { setSaving(false); }
   };
@@ -295,7 +295,7 @@ function SettingsModal({ onClose, onKeysUpdated }) {
   };
 
   const configs = [
-    { type:"anthropic", key:"ant", setKey:setAnt, val:ant, show:showAnt, setShow:setShowAnt, emoji:"🤖", title:"Anthropic API Key", desc:"Za generiranje promptov · Format: sk-ant-api03-...", ph:"sk-ant-api03-...", link:null },
+    { type:"gemini", key:"gemini", setKey:setGem, val:gem, show:showGem, setShow:setShowGem, emoji:"✨", title:"Gemini API Key", desc:"Za generiranje promptov · Format: AIza...", ph:"AIza...", link:null },
     { type:"replicate", key:"rep", setKey:setRep, val:rep, show:showRep, setShow:setShowRep, emoji:"🖼", title:"Replicate API Key",  desc:"Za generiranje slik z Flux · Format: r8_...",       ph:"r8_...",          link:"https://replicate.com/account/api-tokens" },
   ];
 
@@ -340,7 +340,7 @@ function SettingsModal({ onClose, onKeysUpdated }) {
 
           {info && !info.authRequired && (
             <div style={{display:"flex",gap:8,marginBottom:16}}>
-              {[{k:"anthropic",l:"Anthropic"},{k:"replicate",l:"Replicate"}].map(({k,l})=>(
+              {[{k:"gemini",l:"Gemini"},{k:"replicate",l:"Replicate"}].map(({k,l})=>(
                 <div key={k} style={{flex:1,padding:"8px 11px",borderRadius:9,background:info[k]?.set?"rgba(126,232,162,0.07)":"rgba(255,80,80,0.07)",border:`1px solid ${info[k]?.set?"rgba(126,232,162,0.22)":"rgba(255,80,80,0.18)"}`}}>
                   <div style={{fontSize:10,fontFamily:"'DM Mono',monospace",color:info[k]?.set?"#7EE8A2":"#FF8080"}}>{info[k]?.set?"✓ Nastavljen":"✗ Ni nastavljen"}</div>
                   <div style={{fontSize:11,color:"rgba(255,255,255,0.55)",marginTop:2}}>{l}</div>
@@ -577,7 +577,7 @@ ${r.data.thumbnailNotes}`;
 
   const filtered  = activeTab==="all" ? results : results.filter(r => TABS.find(t=>t.id===activeTab)?.ids?.includes(r.catInfo?.id));
   const doneCount = Object.values(imgStates).filter(s=>s.status==="done").length;
-  const antOk     = keyInfo?.anthropic?.set;
+  const gemOk     = keyInfo?.gemini?.set;
   const repOk     = keyInfo?.replicate?.set;
   const total     = form.mockupCount;
 
@@ -596,7 +596,7 @@ ${r.data.thumbnailNotes}`;
           <button onClick={()=>setShowSettings(true)} style={{display:"flex",alignItems:"center",gap:7,padding:"8px 13px",borderRadius:10,border:"1px solid rgba(255,255,255,0.1)",background:"rgba(255,255,255,0.05)",color:"rgba(255,255,255,0.7)",fontSize:12,cursor:"pointer",flexShrink:0,whiteSpace:"nowrap",transition:"all 0.2s"}}>
             <span style={{fontSize:14}}>⚙️</span>
             <span>Nastavitve</span>
-            <span style={{fontSize:9,color:antOk?"#7EE8A2":"rgba(255,80,80,0.6)",fontFamily:"'DM Mono',monospace",marginLeft:3}}>ANT{antOk?"✓":"–"}</span>
+            <span style={{fontSize:9,color:gemOk?"#7EE8A2":"rgba(255,80,80,0.6)",fontFamily:"'DM Mono',monospace",marginLeft:3}}>GEM{gemOk?"✓":"–"}</span>
             <span style={{fontSize:9,color:"rgba(255,255,255,0.15)"}}>·</span>
             <span style={{fontSize:9,color:repOk?"#7EE8A2":"rgba(255,80,80,0.6)",fontFamily:"'DM Mono',monospace"}}>REP{repOk?"✓":"–"}</span>
           </button>
@@ -613,10 +613,10 @@ ${r.data.thumbnailNotes}`;
         )}
 
         {/* Key warning */}
-        {keyInfo && !keyInfo.authRequired && (!antOk||!repOk) && (
+        {keyInfo && !keyInfo.authRequired && (!gemOk||!repOk) && (
           <div style={{background:"rgba(255,180,50,0.06)",border:"1px solid rgba(255,180,50,0.18)",borderRadius:11,padding:"10px 14px",marginBottom:13,display:"flex",alignItems:"center",justifyContent:"space-between"}}>
             <span style={{fontSize:12,color:"rgba(255,180,50,0.8)"}}>
-              {!antOk&&!repOk?"⚠ Oba API ključa manjkata":!antOk?"⚠ Anthropic ključ manjka":!repOk?"⚠ Replicate ključ manjka — slike ne bodo na voljo":""}
+              {!gemOk&&!repOk?"⚠ Oba API ključa manjkata":!gemOk?"⚠ Gemini ključ manjka":!repOk?"⚠ Replicate ključ manjka — slike ne bodo na voljo":""}
             </span>
             <button onClick={()=>setShowSettings(true)} style={{background:"rgba(255,180,50,0.15)",border:"1px solid rgba(255,180,50,0.3)",borderRadius:7,padding:"5px 12px",color:"rgba(255,180,50,0.9)",fontSize:11,cursor:"pointer",marginLeft:10,whiteSpace:"nowrap"}}>Dodaj ključe →</button>
           </div>
