@@ -255,13 +255,16 @@ async function pollPrediction(id, key) {
 
 app.post("/api/generate-image", async (req, res) => {
   if (!requireAdmin(req, res)) return;
-  const { fluxPrompt } = req.body;
+  const { fluxPrompt, imageBase64, imageType } = req.body;
   const { replicate } = loadKeys();
   if (!replicate)
     return res.status(400).json({ error: "Replicate API ključ ni nastavljen. Pojdi v Nastavitve." });
+  if (!imageBase64)
+    return res.status(400).json({ error: "Reference image ni poslana." });
 
   try {
-    const r = await fetch("https://api.replicate.com/v1/models/black-forest-labs/flux-schnell/predictions", {
+    const inputImage = `data:${imageType || "image/png"};base64,${imageBase64}`;
+    const r = await fetch("https://api.replicate.com/v1/models/black-forest-labs/flux-kontext-dev/predictions", {
       method: "POST",
       headers: {
         Authorization: `Bearer ${replicate}`,
@@ -270,12 +273,14 @@ app.post("/api/generate-image", async (req, res) => {
       },
       body: JSON.stringify({
         input: {
-          prompt: fluxPrompt,
-          num_outputs: 1,
-          aspect_ratio: "1:1",
+          prompt: `Use the attached reference image as the exact garment design reference and keep all print artwork, typography, logo shapes, and colors faithful. ${fluxPrompt}`,
+          input_image: inputImage,
+          aspect_ratio: "match_input_image",
           output_format: "webp",
           output_quality: 85,
-          num_inference_steps: 4,
+          num_inference_steps: 28,
+          guidance: 2.5,
+          go_fast: true,
         },
       }),
     });

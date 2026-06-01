@@ -530,7 +530,14 @@ function App() {
 
   const genImage = async (id, fluxPrompt) => {
     setImg(id, {status:"loading"});
-    try { const d = await apiFetch("/api/generate-image", {fluxPrompt}); setImg(id, {status:"done", url:d.url}); }
+    try {
+      const d = await apiFetch("/api/generate-image", {
+        fluxPrompt,
+        imageBase64,
+        imageType: imageFile?.type || "image/png",
+      });
+      setImg(id, {status:"done", url:d.url});
+    }
     catch(e) { setImg(id, {status:"error", error:e.message}); }
   };
 
@@ -539,7 +546,14 @@ function App() {
     for (const r of results) {
       const id = r.catInfo.id;
       setImg(id, {status:"loading"});
-      try { const d = await apiFetch("/api/generate-image", {fluxPrompt:r.data.fluxPrompt}); setImg(id, {status:"done", url:d.url}); }
+      try {
+        const d = await apiFetch("/api/generate-image", {
+          fluxPrompt: r.data.fluxPrompt,
+          imageBase64,
+          imageType: imageFile?.type || "image/png",
+        });
+        setImg(id, {status:"done", url:d.url});
+      }
       catch(e) { setImg(id, {status:"error", error:e.message}); }
     }
     setGenAllBusy(false);
