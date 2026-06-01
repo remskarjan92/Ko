@@ -372,7 +372,7 @@ function SettingsModal({ onClose, onKeysUpdated }) {
           ))}
 
           <div style={{display:"flex",gap:9,marginTop:4}}>
-            <button onClick={save} disabled={saving||(!ant&&!rep)} style={{flex:1,padding:"11px",background:saving||(!ant&&!rep)?"rgba(255,220,100,0.08)":"linear-gradient(135deg,#FFDC64,#FF9B40)",border:"none",borderRadius:10,color:saving||(!ant&&!rep)?"rgba(255,220,100,0.3)":"#0C0C0E",fontSize:13,fontWeight:700,cursor:saving||(!ant&&!rep)?"not-allowed":"pointer",display:"flex",alignItems:"center",justifyContent:"center",gap:7}}>
+            <button onClick={save} disabled={saving||(!gem&&!rep)} style={{flex:1,padding:"11px",background:saving||(!gem&&!rep)?"rgba(255,220,100,0.08)":"linear-gradient(135deg,#FFDC64,#FF9B40)",border:"none",borderRadius:10,color:saving||(!gem&&!rep)?"rgba(255,220,100,0.3)":"#0C0C0E",fontSize:13,fontWeight:700,cursor:saving||(!gem&&!rep)?"not-allowed":"pointer",display:"flex",alignItems:"center",justifyContent:"center",gap:7}}>
               {saving?<><Spinner size={13} color="rgba(255,220,100,0.5)"/><span>Shranjujem…</span></>:<span>💾 Shrani ključe</span>}
             </button>
             <button onClick={onClose} style={{padding:"11px 18px",background:"rgba(255,255,255,0.05)",border:"1px solid rgba(255,255,255,0.1)",borderRadius:10,color:"rgba(255,255,255,0.4)",fontSize:13,cursor:"pointer"}}>Zapri</button>
