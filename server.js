@@ -253,6 +253,32 @@ async function pollPrediction(id, key) {
   throw new Error("Timed out waiting for image");
 }
 
+function isDataUrl(value) {
+  return typeof value === "string" && value.startsWith("data:");
+}
+
+async function toDataUrl(imageUrl) {
+  if (!imageUrl) throw new Error("Replicate returned no image");
+  if (isDataUrl(imageUrl)) return imageUrl;
+
+  const r = await fetch(imageUrl);
+  if (!r.ok) {
+    throw new Error(`Failed to fetch generated image (${r.status})`);
+  }
+
+  const contentType = r.headers.get("content-type") || "";
+  if (!contentType.startsWith("image/")) {
+    const preview = await r.text().catch(() => "");
+    throw new Error(
+      `Generated output was not an image (${contentType || "unknown content-type"}). ` +
+      `Preview: ${preview.slice(0, 160)}`
+    );
+  }
+
+  const buffer = Buffer.from(await r.arrayBuffer());
+  return `data:${contentType};base64,${buffer.toString("base64")}`;
+}
+
 app.post("/api/generate-image", async (req, res) => {
   if (!requireAdmin(req, res)) return;
   const { fluxPrompt, imageBase64, imageType } = req.body;
@@ -297,8 +323,9 @@ app.post("/api/generate-image", async (req, res) => {
     }
 
     const d = await r.json();
-    const url = d.output?.[0] || (await pollPrediction(d.id, replicate));
-    res.json({ url });
+    const outputUrl = d.output?.[0] || (await pollPrediction(d.id, replicate));
+    const url = await toDataUrl(outputUrl);
+    res.json({ url, mimeType: "image/webp" });
   } catch (e) {
     res.status(500).json({ error: e.message });
   }

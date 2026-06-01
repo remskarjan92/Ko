@@ -451,7 +451,7 @@ function MockupCard({ result, catInfo, index, isOpen, onToggle, imgState, onGenI
             {done&&imgState?.url&&(
               <div style={{marginTop:10}}>
                 <img src={imgState.url} alt="mockup" style={{width:"100%",borderRadius:10,border:"1px solid rgba(255,255,255,0.08)",display:"block"}}/>
-                <a href={imgState.url} download target="_blank" style={{display:"inline-block",marginTop:7,fontSize:11,color:"rgba(255,220,100,0.7)",fontFamily:"'DM Mono',monospace"}}>↓ prenesi sliko</a>
+                <a href={imgState.url} download="mockup.webp" style={{display:"inline-block",marginTop:7,fontSize:11,color:"rgba(255,220,100,0.7)",fontFamily:"'DM Mono',monospace"}}>↓ prenesi sliko</a>
               </div>
             )}
           </div>
