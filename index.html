@@ -276,6 +276,15 @@ function SettingsModal({ onClose, onKeysUpdated }) {
 
   const sc = s => s==="ok"?"#7EE8A2" : s==="fail"?"#FF8080" : "rgba(255,255,255,0.35)";
   const si = s => s==="ok"?"✓" : s==="fail"?"✗" : s==="loading"?"…" : "";
+  const syncAdminToken = () => {
+    const token = adminToken.trim();
+    if (token) {
+      setAdminToken(token);
+      setAdminTokenValue(token);
+      return token;
+    }
+    return getAdminToken();
+  };
 
   const test = async type => {
     setSt(s=>({...s,[type]:"loading"}));
@@ -291,13 +300,17 @@ function SettingsModal({ onClose, onKeysUpdated }) {
   const save = async () => {
     if (!gem && !rep) return;
     setSaving(true);
+    const token = syncAdminToken();
+    if (!token) {
+      setSaving(false);
+      alert("Admin token manjka. Najprej ga vnesi in shrani.");
+      return;
+    }
     const body = {};
     if (gem) body.gemini = gem;
     if (rep) body.replicate  = rep;
     try {
       await apiFetch("/api/keys", body);
-      setAdminTokenValue(adminToken.trim());
-      setAdminToken(adminToken.trim());
       const d = await authedFetch("/api/keys").then(r=>r.json());
       setInfo(d); setGem(""); setRep(""); onKeysUpdated(d);
     } catch(e) { alert("Napaka: "+e.message); }
@@ -348,7 +361,7 @@ function SettingsModal({ onClose, onKeysUpdated }) {
             <div style={{fontSize:12,fontWeight:600,color:"#fff",display:"flex",alignItems:"center",gap:7,marginBottom:4}}>
               <span style={{fontSize:14}}>🔐</span>Admin Access Token
             </div>
-            <div style={{fontSize:10,color:"rgba(255,255,255,0.28)",marginBottom:10}}>Optional local browser token used when `ADMIN_TOKEN` is enabled on the server.</div>
+            <div style={{fontSize:10,color:"rgba(255,255,255,0.28)",marginBottom:10}}>Optional local browser token used when `ADMIN_TOKEN` is enabled on the server. If you paste it here, saving keys will use it immediately.</div>
             <div style={{position:"relative",marginBottom:10}}>
               <input type={showAdmin?"text":"password"} placeholder="Paste admin token here" value={adminToken} onChange={e=>setAdminTokenValue(e.target.value)}/>
               <button onClick={()=>setShowAdmin(s=>!s)} style={{position:"absolute",right:9,top:"50%",transform:"translateY(-50%)",background:"none",border:"none",cursor:"pointer",color:"rgba(255,255,255,0.3)",fontSize:13}}>{showAdmin?"🙈":"👁"}</button>
