@@ -64,7 +64,18 @@ const COUNT_OPTIONS = [
 
 const NICHE    = ["Funny / Humor","Dog / Pet Lover","Cat Lover","Spiritual / Wellness","Vintage / Retro","Streetwear","Rave / Festival","Motivational","Outdoors / Nature","Music / Band","Gaming","Cottagecore","Dark / Gothic","Minimalist","Anime / Pop Culture","Sports / Gym","Baby / Family","Boho"];
 const AUDIENCE = ["Women 18–34","Men 18–34","Women 35–55","Teens / Gen Z","Pet Owners","Gym / Fitness","Couples","Parents","Creatives","Streetwear Fans"];
-const SHIRTS   = ["Bella+Canvas 3001","Comfort Colors 1717","Gildan 5000","Unisex Classic Tee","Oversized Drop Shoulder","Women's Fitted","Heavyweight Tee","Crop Top","Long Sleeve"];
+const SHIRT_TYPES = [
+  { value: "__match_picture__", label: "Match the picture" },
+  { value: "Bella+Canvas 3001", label: "Bella+Canvas 3001" },
+  { value: "Comfort Colors 1717", label: "Comfort Colors 1717" },
+  { value: "Gildan 5000", label: "Gildan 5000" },
+  { value: "Unisex Classic Tee", label: "Unisex Classic Tee" },
+  { value: "Oversized Drop Shoulder", label: "Oversized Drop Shoulder" },
+  { value: "Women's Fitted", label: "Women's Fitted" },
+  { value: "Heavyweight Tee", label: "Heavyweight Tee" },
+  { value: "Crop Top", label: "Crop Top" },
+  { value: "Long Sleeve", label: "Long Sleeve" },
+];
 
 const TABS = [
   {id:"all",       label:"All",        ids:null},
@@ -101,15 +112,18 @@ function parseBatch(raw) {
     };
 
     return {
-      category:        getLine("CATEGORY"),
-      primaryColor:    getLine("SHIRT_COLOR_PRIMARY"),
-      secondaryColor:  getLine("SHIRT_COLOR_SECONDARY"),
-      colorReasoning:  getLine("COLOR_REASONING"),
-      fluxPrompt:      getBlock("FLUX_PROMPT"),
-      negativePrompt:  getBlock("NEGATIVE_PROMPT"),
-      qaChecklist:     getBlock("QA_CHECKLIST"),
-      autoFix:         getBlock("AUTO_FIX_PROMPT"),
-      thumbnailNotes:  getBlock("THUMBNAIL_NOTES"),
+      category:         getLine("CATEGORY"),
+      primaryColor:     getLine("SHIRT_COLOR_PRIMARY"),
+      secondaryColor:   getLine("SHIRT_COLOR_SECONDARY"),
+      colorReasoning:   getLine("COLOR_REASONING"),
+      categoryResearch: getBlock("CATEGORY_RESEARCH"),
+      categoryKeywords: getBlock("CATEGORY_KEYWORDS"),
+      shirtResearch:    getBlock("SHIRT_RESEARCH"),
+      fluxPrompt:       getBlock("FLUX_PROMPT"),
+      negativePrompt:   getBlock("NEGATIVE_PROMPT"),
+      qaChecklist:      getBlock("QA_CHECKLIST"),
+      autoFix:          getBlock("AUTO_FIX_PROMPT"),
+      thumbnailNotes:   getBlock("THUMBNAIL_NOTES"),
       // FIX: Manual fix template now parsed and stored
       manualFix: {
         issue:       mftField("Issue"),
@@ -474,12 +488,15 @@ function MockupCard({ result, catInfo, index, isOpen, onToggle, imgState, onGenI
             )}
           </div>
 
-          <Field label="⚡ Flux Prompt"     value={result.fluxPrompt}    accent="rgba(255,220,100,0.3)"/>
-          <Field label="✗ Negative Prompt"  value={result.negativePrompt} accent="rgba(255,100,100,0.28)"/>
-          <Field label="✓ QA Checklist"     value={result.qaChecklist}    accent="rgba(126,232,162,0.28)"/>
-          <Field label="🔧 Auto Fix Prompt" value={result.autoFix}        accent="rgba(180,130,255,0.28)"/>
+          <Field label="Category Research" value={result.categoryResearch} accent="rgba(90,180,255,0.28)"/>
+          <Field label="SEO Keywords"      value={result.categoryKeywords} accent="rgba(90,180,255,0.2)"/>
+          <Field label="Shirt Research"    value={result.shirtResearch}    accent="rgba(126,232,162,0.24)"/>
+          <Field label="Flux Prompt"       value={result.fluxPrompt}       accent="rgba(255,220,100,0.3)"/>
+          <Field label="Negative Prompt"   value={result.negativePrompt}  accent="rgba(255,100,100,0.28)"/>
+          <Field label="QA Checklist"      value={result.qaChecklist}     accent="rgba(126,232,162,0.28)"/>
+          <Field label="Auto Fix Prompt"   value={result.autoFix}         accent="rgba(180,130,255,0.28)"/>
           <ManualFixCard mf={result.manualFix}/>
-          <Field label="📱 Thumbnail Notes" value={result.thumbnailNotes} accent="rgba(255,180,80,0.28)"/>
+          <Field label="Thumbnail Notes"   value={result.thumbnailNotes}  accent="rgba(255,180,80,0.28)"/>
         </div>
       )}
     </div>
@@ -494,7 +511,9 @@ function App() {
   // FIX: mockupCount added back to form state
   const [form, setForm] = useState({
     brandStyle:"", niche:"", audience:"",
-    shirtModel:"Bella+Canvas 3001", sceneDirection:"",
+    shirtType:"__match_picture__",
+    shirtModel:"", shirtName:"",
+    sceneDirection:"",
     mockupCount: 18,
   });
 
@@ -528,6 +547,12 @@ function App() {
   }, []);
 
   const setImg = (id, patch) => setImgStates(s => ({...s, [id]:{...(s[id]||{}), ...patch}}));
+  const resolvedShirtModel = () => {
+    const raw = form.shirtModel.trim();
+    const custom = form.shirtName.trim();
+    if (form.shirtType === "__match_picture__") return custom || "Match the picture";
+    return custom || raw || "Unisex Classic Tee";
+  };
 
   const handleFile = e => {
     const f = e.target.files[0]; if (!f) return;
@@ -558,7 +583,10 @@ function App() {
           batch: activeBatches[i],
           imageBase64, imageType: imageFile.type || "image/png",
           brandStyle: form.brandStyle, niche: form.niche,
-          audience: form.audience, shirtModel: form.shirtModel,
+          audience: form.audience,
+          shirtMode: form.shirtType,
+          shirtModel: resolvedShirtModel(),
+          shirtName: form.shirtName,
           sceneDirection: form.sceneDirection, mockupCount: form.mockupCount,
         });
         const parsed = parseBatch(d.raw);
@@ -620,6 +648,15 @@ function App() {
       const mf = r.data.manualFix;
       return `=== #${i+1}: ${r.catInfo?.name} ===
 SHIRT: ${r.data.primaryColor} / ${r.data.secondaryColor}
+
+CATEGORY RESEARCH:
+${r.data.categoryResearch}
+
+SEO KEYWORDS:
+${r.data.categoryKeywords}
+
+SHIRT RESEARCH:
+${r.data.shirtResearch}
 
 FLUX PROMPT:
 ${r.data.fluxPrompt}
@@ -718,21 +755,26 @@ ${r.data.thumbnailNotes}`;
           <div style={{fontSize:10,color:"rgba(255,255,255,0.28)",fontFamily:"'DM Mono',monospace",letterSpacing:"0.12em",textTransform:"uppercase",marginBottom:11}}>⚙️ Podrobnosti</div>
           <div style={{display:"grid",gridTemplateColumns:"1fr 1fr 1fr",gap:10,marginBottom:10}}>
             <div>
-              <div style={{fontSize:9,color:"rgba(255,255,255,0.22)",marginBottom:4,fontFamily:"'DM Mono',monospace"}}>MODEL MAJICE</div>
-              <select value={form.shirtModel} onChange={e=>setForm(f=>({...f,shirtModel:e.target.value}))}>
-                {SHIRTS.map(s=><option key={s}>{s}</option>)}
+              <div style={{fontSize:9,color:"rgba(255,255,255,0.22)",marginBottom:4,fontFamily:"'DM Mono',monospace"}}>TIP MAJICE</div>
+              <select value={form.shirtType} onChange={e=>setForm(f=>({...f,shirtType:e.target.value,shirtModel:e.target.value==="__match_picture__"?"":e.target.value}))}>
+                {SHIRT_TYPES.map(s=><option key={s.value} value={s.value}>{s.label}</option>)}
               </select>
             </div>
             <div>
-              <div style={{fontSize:9,color:"rgba(255,255,255,0.22)",marginBottom:4,fontFamily:"'DM Mono',monospace"}}>SLOG BLAGOVNE ZNAMKE</div>
-              <input type="text" placeholder="npr. Toplo, zemeljsko…" value={form.brandStyle} onChange={e=>setForm(f=>({...f,brandStyle:e.target.value}))}/>
+              <div style={{fontSize:9,color:"rgba(255,255,255,0.22)",marginBottom:4,fontFamily:"'DM Mono',monospace"}}>IME MAJICE ZA RAZISKAVO</div>
+              <input type="text" placeholder="npr. Comfort Colors 1717" value={form.shirtName} onChange={e=>setForm(f=>({...f,shirtName:e.target.value}))}/>
             </div>
-            {/* FIX: mockup count restored */}
             <div>
               <div style={{fontSize:9,color:"rgba(255,255,255,0.22)",marginBottom:4,fontFamily:"'DM Mono',monospace"}}>ŠTEVILO MOCKUPOV</div>
               <select value={form.mockupCount} onChange={e=>setForm(f=>({...f,mockupCount:parseInt(e.target.value)}))}>
                 {COUNT_OPTIONS.map(o=><option key={o.value} value={o.value}>{o.label}</option>)}
               </select>
+            </div>
+          </div>
+          <div style={{display:"grid",gridTemplateColumns:"1fr",gap:10,marginBottom:10}}>
+            <div>
+              <div style={{fontSize:9,color:"rgba(255,255,255,0.22)",marginBottom:4,fontFamily:"'DM Mono',monospace"}}>SLOG BLAGOVNE ZNAMKE</div>
+              <input type="text" placeholder="npr. Toplo, zemeljsko…" value={form.brandStyle} onChange={e=>setForm(f=>({...f,brandStyle:e.target.value}))}/>
             </div>
           </div>
           <div style={{fontSize:9,color:"rgba(255,255,255,0.22)",marginBottom:4,fontFamily:"'DM Mono',monospace"}}>OPCIJSKA NAVODILA ZA SCENO</div>

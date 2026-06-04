@@ -169,10 +169,13 @@ CATEGORY: [exact category name]
 SHIRT_COLOR_PRIMARY: [specific color name]
 SHIRT_COLOR_SECONDARY: [specific backup color name]
 COLOR_REASONING: [1 sentence explaining color choice based on design analysis]
-FLUX_PROMPT: [90-120 word Flux prompt. Must feel like real ecommerce photography — authentic cotton texture, believable natural lighting, preserve uploaded design exactly, no CGI, no AI hands, no warped text, no fake bokeh, candid imperfect energy, social-media-native composition]
-NEGATIVE_PROMPT: [40-50 comma-separated negative terms covering: CGI, plastic fabric, AI hands, warped text, distorted graphics, impossible shadows, fake bokeh, oversaturated colors, symmetrical composition, floating garments, broken seams, glossy fabric, hyper HDR, uncanny faces, mannequin plastic, neon lighting, overdesigned interiors]
-QA_CHECKLIST: [exactly 5 bullet points checking: print alignment, anatomy/pose, shadow realism, seam integrity, typography legibility specific to this shot type]
-AUTO_FIX_PROMPT: [2-3 sentences. Surgical correction prompt that preserves entire composition — only repairs detected anomaly, maintains original lighting, garment texture, pose, design scale, scene continuity]
+CATEGORY_RESEARCH: [2-4 sentences. Deep category analysis covering buyer intent, visual hook, best-seller angle, and how this design should be positioned in the Etsy market.]
+CATEGORY_KEYWORDS: [8-12 comma-separated SEO phrases that match the niche, audience, and style]
+SHIRT_RESEARCH: [2-4 sentences. Explain the shirt type, silhouette, fit, fabric feel, and why it best matches the uploaded design and reference garment.]
+FLUX_PROMPT: [100-140 word Flux prompt. Must feel like real ecommerce photography — authentic cotton texture, believable natural lighting, preserve uploaded design exactly, no CGI, no AI hands, no warped text, no fake bokeh, candid imperfect energy, social-media-native composition, and clearly respect the chosen shirt type/research.]
+NEGATIVE_PROMPT: [40-50 comma-separated negative terms covering: CGI, plastic fabric, AI hands, warped text, distorted graphics, impossible shadows, fake bokeh, oversaturated colors, symmetrical composition, floating garments, broken seams, glossy fabric, hyper HDR, uncanny faces, mannequin plastic, neon lighting, overdesigned interiors, generic shirt mislabeling, incorrect garment silhouette]
+QA_CHECKLIST: [exactly 5 bullet points checking: print alignment, anatomy/pose, shadow realism, seam integrity, typography legibility, and shirt-model accuracy specific to this shot type]
+AUTO_FIX_PROMPT: [2-3 sentences. Surgical correction prompt that preserves entire composition — only repairs detected anomaly, maintains original lighting, garment texture, pose, design scale, scene continuity, and shirt identity]
 MANUAL_FIX_TEMPLATE:
 Issue: [describe the type of issue this template addresses]
 Target Area: [specific area of the image to target]
@@ -188,6 +191,8 @@ GLOBAL RULES — every FLUX_PROMPT must:
 - Use authentic cotton/fabric texture with believable natural wrinkles
 - Apply candid imperfect energy — asymmetrical, lived-in, not studio-perfect
 - Match the scene to the niche and target audience emotionally
+- Respect the chosen shirt type or, when asked to match the picture, infer the garment from the uploaded reference with maximum realism
+- Keep the shirt silhouette, collar, sleeve length, and fit believable for the named garment
 - Avoid: glossy fabric, fake depth blur, hyper-HDR, symmetrical AI composition, floating garments, broken seams, oversaturated colors, synthetic facial expressions, repetitive layouts`;
 
 // ─── Prompt generation ────────────────────────────────────────────────────────
@@ -195,7 +200,7 @@ app.post("/api/generate-prompts", async (req, res) => {
   if (!requireAdmin(req, res)) return;
   const {
     batch, imageBase64, imageType,
-    brandStyle, niche, audience, shirtModel, sceneDirection, mockupCount
+    brandStyle, niche, audience, shirtModel, shirtName, shirtMode, sceneDirection, mockupCount
   } = req.body;
 
   const { gemini } = loadKeys();
@@ -204,7 +209,11 @@ app.post("/api/generate-prompts", async (req, res) => {
 
   const list = batch.map((c, i) => `${i + 1}. ${c.name} — ${c.desc}`).join("\n");
 
-  const userMessage = `Generate mockup prompts for these ${batch.length} categories:\n${list}\n\nDesign Details:\n- Brand Style: ${brandStyle || "Modern, clean, approachable"}\n- Niche: ${niche || "General apparel"}\n- Target Audience: ${audience || "General buyers"}\n- Shirt Model: ${shirtModel || "Unisex Classic Tee"}\n- Scene Direction: ${sceneDirection || "Natural authentic lifestyle scenes"}\n- Total mockups requested: ${mockupCount || batch.length}\n\nAnalyze the uploaded design carefully and generate all ${batch.length} mockup prompts now. Follow the format exactly.`;
+  const shirtContext = shirtMode === "__match_picture__"
+    ? `Match the shirt in the uploaded picture as closely as possible. If the garment is not a common catalog item, infer the most accurate silhouette, fabric weight, sleeve length, and fit from the reference image.`
+    : `Use this shirt type as the main research anchor: ${shirtModel || "Unisex Classic Tee"}.${shirtName ? ` Additional shirt name for research: ${shirtName}.` : ""}`;
+
+  const userMessage = `Generate mockup prompts for these ${batch.length} categories:\n${list}\n\nDesign Details:\n- Brand Style: ${brandStyle || "Modern, clean, approachable"}\n- Niche: ${niche || "General apparel"}\n- Target Audience: ${audience || "General buyers"}\n- Shirt Type Mode: ${shirtMode === "__match_picture__" ? "Match the picture" : "Catalog shirt"}\n- Shirt Model: ${shirtModel || "Unisex Classic Tee"}\n- Shirt Name for Research: ${shirtName || "Not provided"}\n- Shirt Research Instruction: ${shirtContext}\n- Scene Direction: ${sceneDirection || "Natural authentic lifestyle scenes"}\n- Total mockups requested: ${mockupCount || batch.length}\n\nAnalyze the uploaded design deeply and generate all ${batch.length} mockup prompts now. Do category research first, then shirt research, then write the prompt outputs. Follow the format exactly.`;
 
   try {
     const r = await fetch("https://generativelanguage.googleapis.com/v1beta/models/gemini-2.5-flash:generateContent", {
@@ -215,7 +224,7 @@ app.post("/api/generate-prompts", async (req, res) => {
       },
       body: JSON.stringify({
         systemInstruction: { parts: [{ text: SYSTEM_PROMPT }] },
-        generationConfig: { maxOutputTokens: 4000 },
+        generationConfig: { maxOutputTokens: 8000 },
         contents: [{
           role: "user",
           parts: [
@@ -247,10 +256,18 @@ async function pollPrediction(id, key) {
     const p = await (await fetch(`https://api.replicate.com/v1/predictions/${id}`, {
       headers: { Authorization: `Bearer ${key}` },
     })).json();
-    if (p.status === "succeeded") return p.output?.[0];
+    if (p.status === "succeeded") return getPredictionOutputUrl(p.output);
     if (p.status === "failed")    throw new Error("Replicate prediction failed");
   }
   throw new Error("Timed out waiting for image");
+}
+
+function getPredictionOutputUrl(output) {
+  if (!output) return "";
+  if (typeof output === "string") return output;
+  if (Array.isArray(output)) return output[0] || "";
+  if (typeof output === "object") return output.url || output.image || "";
+  return "";
 }
 
 function isDataUrl(value) {
@@ -323,7 +340,7 @@ app.post("/api/generate-image", async (req, res) => {
     }
 
     const d = await r.json();
-    const outputUrl = d.output?.[0] || (await pollPrediction(d.id, replicate));
+    const outputUrl = getPredictionOutputUrl(d.output) || (await pollPrediction(d.id, replicate));
     const url = await toDataUrl(outputUrl);
     res.json({ url, mimeType: "image/webp" });
   } catch (e) {
