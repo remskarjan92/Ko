@@ -7,6 +7,7 @@ const app      = express();
 const PORT     = process.env.PORT || 3000;
 const KEYS_FILE = path.join(__dirname, "..", ".etsy-mockup-keys.json");
 const ADMIN_TOKEN = process.env.ADMIN_TOKEN || "";
+const FLORENCE_VERSION = "da53547e17d45b9cfb48174b2f18af8b83ca020fa76db62136bf9c6616762595";
 
 app.use(express.json({ limit: "25mb" }));
 app.use(express.static(__dirname));
@@ -67,6 +68,10 @@ function requireAdmin(req, res) {
 function keySource(type) {
   if (type === "gemini") return process.env.GEMINI_API_KEY || process.env.GOOGLE_API_KEY ? "env" : "file";
   return process.env.REPLICATE_API_KEY ? "env" : "file";
+}
+
+function getGeminiText(data) {
+  return data.candidates?.[0]?.content?.parts?.map(p => p.text || "").join("\n").trim() || "";
 }
 
 // ─── Key management ───────────────────────────────────────────────────────────
@@ -200,7 +205,7 @@ app.post("/api/generate-prompts", async (req, res) => {
   if (!requireAdmin(req, res)) return;
   const {
     batch, imageBase64, imageType,
-    brandStyle, niche, audience, shirtModel, shirtName, shirtMode, sceneDirection, mockupCount
+    brandStyle, niche, audience, shirtModel, shirtName, shirtMode, designAnalysis, autoDetect, sceneDirection, mockupCount
   } = req.body;
 
   const { gemini } = loadKeys();
@@ -213,7 +218,7 @@ app.post("/api/generate-prompts", async (req, res) => {
     ? `Match the shirt in the uploaded picture as closely as possible. If the garment is not a common catalog item, infer the most accurate silhouette, fabric weight, sleeve length, and fit from the reference image.`
     : `Use this shirt type as the main research anchor: ${shirtModel || "Unisex Classic Tee"}.${shirtName ? ` Additional shirt name for research: ${shirtName}.` : ""}`;
 
-  const userMessage = `Generate mockup prompts for these ${batch.length} categories:\n${list}\n\nDesign Details:\n- Brand Style: ${brandStyle || "Modern, clean, approachable"}\n- Niche: ${niche || "General apparel"}\n- Target Audience: ${audience || "General buyers"}\n- Shirt Type Mode: ${shirtMode === "__match_picture__" ? "Match the picture" : "Catalog shirt"}\n- Shirt Model: ${shirtModel || "Unisex Classic Tee"}\n- Shirt Name for Research: ${shirtName || "Not provided"}\n- Shirt Research Instruction: ${shirtContext}\n- Scene Direction: ${sceneDirection || "Natural authentic lifestyle scenes"}\n- Total mockups requested: ${mockupCount || batch.length}\n\nAnalyze the uploaded design deeply and generate all ${batch.length} mockup prompts now. Do category research first, then shirt research, then write the prompt outputs. Follow the format exactly.`;
+  const userMessage = `Generate mockup prompts for these ${batch.length} categories:\n${list}\n\nDesign Details:\n- Brand Style: ${brandStyle || "Modern, clean, approachable"}\n- Niche: ${niche || "General apparel"}\n- Target Audience: ${audience || "General buyers"}\n- Shirt Type Mode: ${shirtMode === "__match_picture__" ? "Match the picture" : "Catalog shirt"}\n- Shirt Model: ${shirtModel || "Unisex Classic Tee"}\n- Shirt Name for Research: ${shirtName || "Not provided"}\n- Autodetect Enabled: ${autoDetect ? "Yes" : "No"}\n- Replicate Image-to-Text Analysis: ${designAnalysis || "Not provided"}\n- Shirt Research Instruction: ${shirtContext}\n- Scene Direction: ${sceneDirection || "Natural authentic lifestyle scenes"}\n- Total mockups requested: ${mockupCount || batch.length}\n\nAnalyze the uploaded design deeply and generate all ${batch.length} mockup prompts now. Use the Replicate image-to-text analysis when present. Do category research first, then shirt research, then write the prompt outputs. Follow the format exactly.`;
 
   try {
     const r = await fetch("https://generativelanguage.googleapis.com/v1beta/models/gemini-2.5-flash:generateContent", {
@@ -242,7 +247,7 @@ app.post("/api/generate-prompts", async (req, res) => {
 
     const d = await r.json();
     if (d.error) throw new Error(d.error.message);
-    const raw = d.candidates?.[0]?.content?.parts?.map(p => p.text || "").join("\n") || "";
+    const raw = getGeminiText(d);
     res.json({ raw });
   } catch (e) {
     res.status(500).json({ error: e.message });
@@ -260,6 +265,48 @@ async function pollPrediction(id, key) {
     if (p.status === "failed")    throw new Error("Replicate prediction failed");
   }
   throw new Error("Timed out waiting for image");
+}
+
+async function pollPredictionOutput(id, key) {
+  for (let i = 0; i < 60; i++) {
+    await new Promise(r => setTimeout(r, 2000));
+    const r = await fetch(`https://api.replicate.com/v1/predictions/${id}`, {
+      headers: { Authorization: `Bearer ${key}` },
+    });
+    const p = await r.json();
+    if (p.status === "succeeded") return p.output;
+    if (p.status === "failed") throw new Error(p.error || "Replicate prediction failed");
+  }
+  throw new Error("Timed out waiting for Replicate output");
+}
+
+async function runReplicateVersion(version, input, key) {
+  const r = await fetch("https://api.replicate.com/v1/predictions", {
+    method: "POST",
+    headers: {
+      Authorization: `Bearer ${key}`,
+      "Content-Type": "application/json",
+      Prefer: "wait",
+    },
+    body: JSON.stringify({ version, input }),
+  });
+
+  if (!r.ok) {
+    const e = await r.json().catch(() => ({}));
+    throw new Error(e?.detail || `Replicate error ${r.status}`);
+  }
+
+  const d = await r.json();
+  if (d.status === "failed") throw new Error(d.error || "Replicate prediction failed");
+  return d.output || (d.id ? await pollPredictionOutput(d.id, key) : null);
+}
+
+function getPredictionText(output) {
+  if (!output) return "";
+  if (typeof output === "string") return output;
+  if (Array.isArray(output)) return output.join("").trim();
+  if (typeof output === "object") return output.text || output.caption || JSON.stringify(output);
+  return String(output);
 }
 
 function getPredictionOutputUrl(output) {
@@ -296,9 +343,70 @@ async function toDataUrl(imageUrl) {
   return `data:${contentType};base64,${buffer.toString("base64")}`;
 }
 
+app.post("/api/analyze-shirt", async (req, res) => {
+  if (!requireAdmin(req, res)) return;
+  const { imageBase64, imageType } = req.body;
+  const { replicate } = loadKeys();
+  if (!replicate)
+    return res.status(400).json({ error: "Replicate API ključ ni nastavljen. Pojdi v Nastavitve." });
+  if (!imageBase64)
+    return res.status(400).json({ error: "Image ni poslana." });
+
+  try {
+    const output = await runReplicateVersion(FLORENCE_VERSION, {
+      image: `data:${imageType || "image/png"};base64,${imageBase64}`,
+      task_input: "Caption",
+      text_input: "Describe the apparel item in detail: shirt type, color, fit, fabric, graphic placement, visible text, style, model pose, and background.",
+    }, replicate);
+    res.json({ analysis: getPredictionText(output) });
+  } catch (e) {
+    res.status(500).json({ error: e.message });
+  }
+});
+
+app.post("/api/ai-fix-suggestion", async (req, res) => {
+  if (!requireAdmin(req, res)) return;
+  const { fluxPrompt, qaChecklist, customPrompt, imageBase64, imageType } = req.body;
+  const { gemini } = loadKeys();
+  if (!gemini)
+    return res.status(400).json({ error: "Gemini API ključ ni nastavljen. Pojdi v Nastavitve." });
+
+  try {
+    const parts = [
+      { text: `You are an ecommerce mockup QA editor. Suggest one concise corrective prompt for regenerating this mockup. Preserve the garment design exactly.\n\nOriginal Flux prompt:\n${fluxPrompt || ""}\n\nQA checklist:\n${qaChecklist || ""}\n\nUser requested change:\n${customPrompt || "No custom change provided."}\n\nReturn only the improved correction prompt, 1-3 sentences.` },
+    ];
+    if (imageBase64) {
+      parts.unshift({
+        inline_data: {
+          mime_type: imageType || "image/webp",
+          data: imageBase64,
+        },
+      });
+    }
+
+    const r = await fetch("https://generativelanguage.googleapis.com/v1beta/models/gemini-2.5-flash:generateContent", {
+      method: "POST",
+      headers: {
+        "Content-Type": "application/json",
+        "x-goog-api-key": gemini,
+      },
+      body: JSON.stringify({
+        generationConfig: { maxOutputTokens: 700 },
+        contents: [{ role: "user", parts }],
+      }),
+    });
+
+    const d = await r.json();
+    if (d.error) throw new Error(d.error.message);
+    res.json({ suggestion: getGeminiText(d) });
+  } catch (e) {
+    res.status(500).json({ error: e.message });
+  }
+});
+
 app.post("/api/generate-image", async (req, res) => {
   if (!requireAdmin(req, res)) return;
-  const { fluxPrompt, imageBase64, imageType } = req.body;
+  const { fluxPrompt, customPrompt, designAnalysis, referenceImages = [], imageBase64, imageType } = req.body;
   const { replicate } = loadKeys();
   if (!replicate)
     return res.status(400).json({ error: "Replicate API ključ ni nastavljen. Pojdi v Nastavitve." });
@@ -307,6 +415,20 @@ app.post("/api/generate-image", async (req, res) => {
 
   try {
     const inputImage = `data:${imageType || "image/png"};base64,${imageBase64}`;
+    const referenceNotes = [];
+    for (const ref of referenceImages.slice(0, 3)) {
+      if (!ref.imageBase64) continue;
+      try {
+        const output = await runReplicateVersion(FLORENCE_VERSION, {
+          image: `data:${ref.imageType || "image/png"};base64,${ref.imageBase64}`,
+          task_input: "Caption",
+          text_input: "Describe this reference image for mockup styling: pose, setting, background, lighting, camera angle, color mood, and garment styling.",
+        }, replicate);
+        referenceNotes.push(`${ref.name || "Reference"}: ${getPredictionText(output)}`);
+      } catch (e) {
+        referenceNotes.push(`${ref.name || "Reference"}: unavailable (${e.message})`);
+      }
+    }
     const r = await fetch("https://api.replicate.com/v1/models/black-forest-labs/flux-kontext-dev/predictions", {
       method: "POST",
       headers: {
@@ -321,7 +443,10 @@ app.post("/api/generate-image", async (req, res) => {
             "Preserve the artwork, typography, logo shapes, line weights, print placement, scale, spacing, and colors exactly as shown.",
             "Do not reinterpret, simplify, redraw, or stylize the design.",
             "The printed design must remain crisp, legible, and centered as a faithful product mockup, with no warping, cropping, spelling changes, or layout drift.",
+            designAnalysis ? `Detected shirt/design analysis: ${designAnalysis}` : "",
+            referenceNotes.length ? `Use these additional reference image notes for style, pose, lighting, and background only; do not replace the source garment design: ${referenceNotes.join(" | ")}` : "",
             fluxPrompt,
+            customPrompt ? `User requested change for this regeneration: ${customPrompt}. Apply it while preserving the original design exactly.` : "",
           ].join(" "),
           input_image: inputImage,
           aspect_ratio: "match_input_image",

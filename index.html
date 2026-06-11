@@ -7,11 +7,12 @@
   <script src="https://unpkg.com/react@18/umd/react.development.js"></script>
   <script src="https://unpkg.com/react-dom@18/umd/react-dom.development.js"></script>
   <script src="https://unpkg.com/@babel/standalone/babel.min.js"></script>
+  <script src="https://cdn.jsdelivr.net/npm/jszip@3.10.1/dist/jszip.min.js"></script>
   <link href="https://fonts.googleapis.com/css2?family=DM+Sans:wght@300;400;500;600&family=DM+Mono:wght@400;500&family=Playfair+Display:wght@700&display=swap" rel="stylesheet"/>
   <style>
     *{box-sizing:border-box;margin:0;padding:0}
     body{background:#0C0C0E;color:#fff;font-family:'DM Sans',sans-serif;min-height:100vh}
-    input,textarea,select{background:rgba(255,255,255,0.05)!important;border:1px solid rgba(255,255,255,0.09)!important;border-radius:9px!important;color:#fff!important;font-family:'DM Sans',sans-serif!important;font-size:13px!important;padding:9px 12px!important;width:100%;outline:none!important;transition:border-color 0.2s!important;resize:vertical}
+    input:not([type=checkbox]),textarea,select{background:rgba(255,255,255,0.05)!important;border:1px solid rgba(255,255,255,0.09)!important;border-radius:9px!important;color:#fff!important;font-family:'DM Sans',sans-serif!important;font-size:13px!important;padding:9px 12px!important;width:100%;outline:none!important;transition:border-color 0.2s!important;resize:vertical}
     input[type=password]{letter-spacing:0.1em}
     input:focus,textarea:focus,select:focus{border-color:rgba(255,220,100,0.35)!important}
     select option{background:#1a1a1e}
@@ -56,14 +57,11 @@ const ALL_BATCHES = [
 ];
 
 // FIX: mockup count maps to how many batches to run
-const COUNT_OPTIONS = [
-  { value: 6,  label: "6 mockups",  batches: 1 },
-  { value: 12, label: "12 mockups", batches: 2 },
-  { value: 18, label: "18 mockups", batches: 3 },
-];
+const COUNT_OPTIONS = [6, 9, 12, 15, 18].map(value => ({ value, label: `${value} mockups` }));
 
 const NICHE    = ["Funny / Humor","Dog / Pet Lover","Cat Lover","Spiritual / Wellness","Vintage / Retro","Streetwear","Rave / Festival","Motivational","Outdoors / Nature","Music / Band","Gaming","Cottagecore","Dark / Gothic","Minimalist","Anime / Pop Culture","Sports / Gym","Baby / Family","Boho"];
 const AUDIENCE = ["Women 18–34","Men 18–34","Women 35–55","Teens / Gen Z","Pet Owners","Gym / Fitness","Couples","Parents","Creatives","Streetwear Fans"];
+const TARGET_AUDIENCES = ["Women 18-35","Dog Lovers","Funny Gifts","Men 25-45","Moms","Teachers","Nurses","Gen Z","Pet Parents","Fitness Fans","Couples","Holiday Shoppers"];
 const SHIRT_TYPES = [
   { value: "__match_picture__", label: "Match the picture" },
   { value: "Bella+Canvas 3001", label: "Bella+Canvas 3001" },
@@ -195,6 +193,24 @@ async function apiFetch(path, body) {
   return d;
 }
 
+function dataUrlToBlob(dataUrl) {
+  const [meta, base64] = dataUrl.split(",");
+  const mime = meta.match(/data:(.*?);base64/)?.[1] || "image/webp";
+  const bytes = atob(base64);
+  const array = new Uint8Array(bytes.length);
+  for (let i = 0; i < bytes.length; i++) array[i] = bytes.charCodeAt(i);
+  return new Blob([array], { type: mime });
+}
+
+function fileToDataUrl(file) {
+  return new Promise((resolve, reject) => {
+    const reader = new FileReader();
+    reader.onload = e => resolve(e.target.result);
+    reader.onerror = reject;
+    reader.readAsDataURL(file);
+  });
+}
+
 // ─── Small components ─────────────────────────────────────────────────────────
 function Spinner({ size = 18, color = "#FFDC64" }) {
   return <div style={{width:size,height:size,border:`2px solid ${color}22`,borderTop:`2px solid ${color}`,borderRadius:"50%",animation:"spin 0.7s linear infinite",flexShrink:0}}/>;
@@ -274,6 +290,7 @@ function SettingsModal({ onClose, onKeysUpdated }) {
   const [msg, setMsg] = useState({ gemini:"", rep:"" });
   const [info, setInfo] = useState(null);
   const [saving, setSaving] = useState(false);
+  const [tokenMsg, setTokenMsg] = useState(getAdminToken() ? "Token saved locally on your device (never sent publicly)." : "");
 
   const loadInfo = () => authedFetch("/api/keys")
     .then(r => {
@@ -303,6 +320,7 @@ function SettingsModal({ onClose, onKeysUpdated }) {
     const next = e.target.value;
     setAdminTokenValue(next);
     setAdminToken(next);
+    setTokenMsg(next.trim() ? "Token saved locally on your device (never sent publicly)." : "");
   };
 
   const test = async type => {
@@ -360,7 +378,7 @@ function SettingsModal({ onClose, onKeysUpdated }) {
   ];
 
   return (
-    <div onClick={e=>{if(e.target===e.currentTarget)onClose();}} style={{position:"fixed",inset:0,background:"rgba(0,0,0,0.75)",display:"flex",alignItems:"center",justifyContent:"center",zIndex:999,padding:20,backdropFilter:"blur(4px)"}}>
+    <div style={{position:"fixed",inset:0,background:"rgba(0,0,0,0.75)",display:"flex",alignItems:"center",justifyContent:"center",zIndex:999,padding:20,backdropFilter:"blur(4px)"}}>
       <div style={{background:"#141416",border:"1px solid rgba(255,255,255,0.1)",borderRadius:18,width:"100%",maxWidth:500,maxHeight:"92vh",overflowY:"auto",animation:"fadeUp 0.25s ease"}}>
 
         <div style={{display:"flex",justifyContent:"space-between",alignItems:"center",padding:"18px 20px",borderBottom:"1px solid rgba(255,255,255,0.07)"}}>
@@ -386,8 +404,9 @@ function SettingsModal({ onClose, onKeysUpdated }) {
               <button onClick={()=>setShowAdmin(s=>!s)} style={{position:"absolute",right:9,top:"50%",transform:"translateY(-50%)",background:"none",border:"none",cursor:"pointer",color:"rgba(255,255,255,0.3)",fontSize:13}}>{showAdmin?"🙈":"👁"}</button>
             </div>
             <div style={{display:"flex",gap:7,alignItems:"center",flexWrap:"wrap"}}>
-              <button onClick={()=>{setAdminTokenValue(adminToken.trim()); setAdminToken(adminToken.trim()); loadInfo();}} style={{padding:"6px 12px",borderRadius:8,border:"1px solid rgba(255,220,100,0.25)",background:"rgba(255,220,100,0.07)",color:"#FFDC64",fontSize:11,cursor:"pointer",fontWeight:500}}>💾 Shrani token</button>
-              {getAdminToken() && <button onClick={()=>{setAdminToken(""); setAdminTokenValue(""); loadInfo();}} style={{padding:"6px 12px",borderRadius:8,border:"1px solid rgba(255,80,80,0.25)",background:"rgba(255,80,80,0.07)",color:"#FF8080",fontSize:11,cursor:"pointer",fontWeight:500}}>🗑 Odstrani token</button>}
+              <button onClick={()=>{setAdminTokenValue(adminToken.trim()); setAdminToken(adminToken.trim()); setTokenMsg(adminToken.trim() ? "Token saved locally on your device (never sent publicly)." : ""); loadInfo();}} style={{padding:"6px 12px",borderRadius:8,border:"1px solid rgba(255,220,100,0.25)",background:"rgba(255,220,100,0.07)",color:"#FFDC64",fontSize:11,cursor:"pointer",fontWeight:500}}>💾 Shrani token</button>
+              {getAdminToken() && <button onClick={()=>{setAdminToken(""); setAdminTokenValue(""); setTokenMsg(""); loadInfo();}} style={{padding:"6px 12px",borderRadius:8,border:"1px solid rgba(255,80,80,0.25)",background:"rgba(255,80,80,0.07)",color:"#FF8080",fontSize:11,cursor:"pointer",fontWeight:500}}>🗑 Odstrani token</button>}
+              {tokenMsg&&<span style={{fontSize:10,color:"#7EE8A2",fontFamily:"'DM Mono',monospace"}}>{tokenMsg}</span>}
             </div>
           </div>
 
@@ -444,9 +463,10 @@ function SettingsModal({ onClose, onKeysUpdated }) {
 }
 
 // ─── Mockup card ──────────────────────────────────────────────────────────────
-function MockupCard({ result, catInfo, index, isOpen, onToggle, imgState, onGenImage }) {
+function MockupCard({ result, catInfo, index, isOpen, onToggle, imgState, customPrompt, onCustomPrompt, onGenImage, onAiFix }) {
   const busy = imgState?.status === "loading";
   const done = imgState?.status === "done";
+  const fixing = imgState?.fixing;
 
   return (
     <div style={{background:"rgba(255,255,255,0.022)",border:"1px solid rgba(255,255,255,0.07)",borderRadius:14,overflow:"hidden",marginBottom:8}}>
@@ -474,18 +494,28 @@ function MockupCard({ result, catInfo, index, isOpen, onToggle, imgState, onGenI
         <div style={{padding:"0 17px 17px",borderTop:"1px solid rgba(255,255,255,0.05)",paddingTop:13}}>
           {result.colorReasoning&&<div style={{fontSize:11,color:"rgba(255,220,100,0.45)",marginBottom:12,fontStyle:"italic"}}>{result.colorReasoning}</div>}
 
-          {/* Image gen zone */}
+          {/* Image generation controls */}
           <div style={{marginBottom:14,padding:"12px 14px",background:"rgba(255,220,100,0.04)",border:"1px solid rgba(255,220,100,0.12)",borderRadius:10}}>
-            <button onClick={onGenImage} disabled={busy} style={{display:"flex",alignItems:"center",gap:7,padding:"8px 14px",borderRadius:9,border:done?"1px solid rgba(126,232,162,0.3)":"1px solid rgba(255,220,100,0.25)",background:done?"rgba(126,232,162,0.07)":"rgba(255,220,100,0.07)",color:done?"#7EE8A2":"#FFDC64",fontSize:11,cursor:busy?"not-allowed":"pointer",fontWeight:500,transition:"all 0.2s"}}>
-              {busy?<><Spinner size={13}/><span>Generiram…</span></>:done?<>✓ <span>Regeneriraj</span></>:<>🖼 <span>Generiraj sliko</span></>}
+            <button onClick={()=>onGenImage()} disabled={busy} style={{display:"flex",alignItems:"center",gap:7,padding:"8px 14px",borderRadius:9,border:done?"1px solid rgba(126,232,162,0.3)":"1px solid rgba(255,220,100,0.25)",background:done?"rgba(126,232,162,0.07)":"rgba(255,220,100,0.07)",color:done?"#7EE8A2":"#FFDC64",fontSize:11,cursor:busy?"not-allowed":"pointer",fontWeight:500,transition:"all 0.2s",marginBottom:10}}>
+              {busy?<><Spinner size={13}/><span>Generiram...</span></>:done?<>✓ <span>Regenerate</span></>:<>🖼 <span>Generate image</span></>}
             </button>
             {imgState?.status==="error"&&<div style={{marginTop:6,fontSize:11,color:"#FF8080"}}>⚠ {imgState.error}</div>}
             {done&&imgState?.url&&(
               <div style={{marginTop:10}}>
                 <img src={imgState.url} alt="mockup" style={{width:"100%",borderRadius:10,border:"1px solid rgba(255,255,255,0.08)",display:"block"}}/>
-                <a href={imgState.url} download="mockup.webp" style={{display:"inline-block",marginTop:7,fontSize:11,color:"rgba(255,220,100,0.7)",fontFamily:"'DM Mono',monospace"}}>↓ prenesi sliko</a>
+                <div style={{display:"flex",gap:7,flexWrap:"wrap",alignItems:"center",marginTop:9}}>
+                  <a href={imgState.url} download={`mockup-${String(index+1).padStart(2,"0")}.webp`} style={{display:"inline-block",fontSize:11,color:"rgba(255,220,100,0.7)",fontFamily:"'DM Mono',monospace"}}>↓ prenesi sliko</a>
+                  <button onClick={()=>onGenImage()} disabled={busy} style={{padding:"6px 10px",borderRadius:8,border:"1px solid rgba(255,220,100,0.22)",background:"rgba(255,220,100,0.06)",color:"#FFDC64",fontSize:10,cursor:busy?"not-allowed":"pointer"}}>Regenerate</button>
+                  <button onClick={onAiFix} disabled={fixing} style={{padding:"6px 10px",borderRadius:8,border:"1px solid rgba(90,180,255,0.25)",background:"rgba(90,180,255,0.08)",color:"rgba(160,210,255,0.95)",fontSize:10,cursor:fixing?"not-allowed":"pointer"}}>{fixing?"Thinking...":"🤖 AI Fix Suggestion"}</button>
+                </div>
               </div>
             )}
+            {imgState?.fixSuggestion&&<div style={{marginTop:9,fontSize:11,color:"rgba(160,210,255,0.9)",lineHeight:1.5,whiteSpace:"pre-wrap"}}>{imgState.fixSuggestion}</div>}
+            <div style={{marginTop:10}}>
+              <div style={{fontSize:9,color:"rgba(255,255,255,0.25)",fontFamily:"'DM Mono',monospace",marginBottom:4}}>CUSTOM PROMPT FOR CHANGES</div>
+              <textarea rows={2} value={customPrompt||""} onChange={e=>onCustomPrompt(e.target.value)} placeholder="change background to beach, make model older, keep design exact..." />
+              <button onClick={()=>onGenImage(customPrompt)} disabled={busy||!customPrompt?.trim()} style={{marginTop:7,padding:"7px 11px",borderRadius:8,border:"1px solid rgba(126,232,162,0.25)",background:"rgba(126,232,162,0.08)",color:"#7EE8A2",fontSize:10,cursor:busy||!customPrompt?.trim()?"not-allowed":"pointer"}}>Regenerate with changes</button>
+            </div>
           </div>
 
           <Field label="Category Research" value={result.categoryResearch} accent="rgba(90,180,255,0.28)"/>
@@ -515,11 +545,15 @@ function App() {
     shirtModel:"", shirtName:"",
     sceneDirection:"",
     mockupCount: 18,
+    autoDetect: true,
   });
 
   const [imageFile,    setImageFile]    = useState(null);
   const [imagePreview, setImagePreview] = useState(null);
   const [imageBase64,  setImageBase64]  = useState(null);
+  const [referenceImages, setReferenceImages] = useState([]);
+  const [designAnalysis, setDesignAnalysis] = useState("");
+  const [analyzing, setAnalyzing] = useState(false);
 
   const [loading,   setLoading]   = useState(false);
   const [progress,  setProgress]  = useState(0);
@@ -529,9 +563,11 @@ function App() {
   const [activeTab, setActiveTab] = useState("all");
   const [error,     setError]     = useState(null);
   const [imgStates, setImgStates] = useState({});
+  const [customPrompts, setCustomPrompts] = useState({});
   const [genAllBusy,setGenAllBusy]= useState(false);
 
   const fileRef = useRef();
+  const refsRef = useRef();
 
   useEffect(() => {
     authedFetch("/api/keys")
@@ -547,11 +583,19 @@ function App() {
   }, []);
 
   const setImg = (id, patch) => setImgStates(s => ({...s, [id]:{...(s[id]||{}), ...patch}}));
+  const setCustomPrompt = (id, value) => setCustomPrompts(s => ({...s, [id]: value}));
   const resolvedShirtModel = () => {
     const raw = form.shirtModel.trim();
     const custom = form.shirtName.trim();
     if (form.shirtType === "__match_picture__") return custom || "Match the picture";
     return custom || raw || "Unisex Classic Tee";
+  };
+  const selectedCategories = () => ALL_BATCHES.flat().slice(0, form.mockupCount);
+  const selectedBatches = () => {
+    const cats = selectedCategories();
+    const chunks = [];
+    for (let i = 0; i < cats.length; i += 6) chunks.push(cats.slice(i, i + 6));
+    return chunks;
   };
 
   const handleFile = e => {
@@ -562,13 +606,40 @@ function App() {
     r.readAsDataURL(f);
   };
 
+  const handleReferenceFiles = async e => {
+    const files = Array.from(e.target.files || []).slice(0, 3);
+    const refs = await Promise.all(files.map(async file => {
+      const dataUrl = await fileToDataUrl(file);
+      const compressed = await compressImageDataUrl(dataUrl, {
+        maxSize: 1024,
+        quality: 0.86,
+        mimeType: "image/webp",
+      });
+      return { name: file.name, type: "image/webp", dataUrl: compressed, base64: compressed.split(",")[1] };
+    }));
+    setReferenceImages(refs);
+  };
+
+  const analyzeDesign = async () => {
+    if (!imageBase64) return "";
+    setAnalyzing(true);
+    try {
+      const d = await apiFetch("/api/analyze-shirt", {
+        imageBase64,
+        imageType: imageFile?.type || "image/png",
+      });
+      setDesignAnalysis(d.analysis);
+      return d.analysis;
+    } finally {
+      setAnalyzing(false);
+    }
+  };
+
   const handleGenerate = async () => {
     if (!imageBase64) { setError("Naloži grafiko najprej."); return; }
-    setError(null); setLoading(true); setResults([]); setProgress(0); setOpenCard(null); setImgStates({});
+    setError(null); setLoading(true); setResults([]); setProgress(0); setOpenCard(null); setImgStates({}); setCustomPrompts({});
 
-    // FIX: determine how many batches to run based on mockupCount
-    const countOpt = COUNT_OPTIONS.find(o => o.value === form.mockupCount) || COUNT_OPTIONS[2];
-    const activeBatches = ALL_BATCHES.slice(0, countOpt.batches);
+    const activeBatches = selectedBatches();
     const labels = [
       "Generiram flat lays in product posnetke…",
       "Generiram model in selfie posnetke…",
@@ -577,8 +648,9 @@ function App() {
 
     const all = [];
     try {
+      const analysis = form.autoDetect ? (designAnalysis || await analyzeDesign()) : "";
       for (let i = 0; i < activeBatches.length; i++) {
-        setProgLabel(labels[i]);
+        setProgLabel(labels[i] || "Generiram dodatne mockupe…");
         const d = await apiFetch("/api/generate-prompts", {
           batch: activeBatches[i],
           imageBase64, imageType: imageFile.type || "image/png",
@@ -587,6 +659,8 @@ function App() {
           shirtMode: form.shirtType,
           shirtModel: resolvedShirtModel(),
           shirtName: form.shirtName,
+          designAnalysis: analysis,
+          autoDetect: form.autoDetect,
           sceneDirection: form.sceneDirection, mockupCount: form.mockupCount,
         });
         const parsed = parseBatch(d.raw);
@@ -602,7 +676,7 @@ function App() {
     finally    { setLoading(false); }
   };
 
-  const genImage = async (id, fluxPrompt) => {
+  const genImage = async (id, fluxPrompt, customPrompt = "") => {
     setImg(id, {status:"loading"});
     try {
       const compressed = await compressImageDataUrl(imagePreview, {
@@ -612,6 +686,9 @@ function App() {
       });
       const d = await apiFetch("/api/generate-image", {
         fluxPrompt,
+        customPrompt,
+        designAnalysis,
+        referenceImages: referenceImages.map(r => ({ imageBase64: r.base64, imageType: r.type, name: r.name })),
         imageBase64: compressed.split(",")[1],
         imageType: "image/webp",
       });
@@ -633,6 +710,9 @@ function App() {
         });
         const d = await apiFetch("/api/generate-image", {
           fluxPrompt: r.data.fluxPrompt,
+          customPrompt: customPrompts[id] || "",
+          designAnalysis,
+          referenceImages: referenceImages.map(ref => ({ imageBase64: ref.base64, imageType: ref.type, name: ref.name })),
           imageBase64: compressed.split(",")[1],
           imageType: "image/webp",
         });
@@ -641,6 +721,43 @@ function App() {
       catch(e) { setImg(id, {status:"error", error:e.message}); }
     }
     setGenAllBusy(false);
+  };
+
+  const aiFixSuggestion = async (id, result) => {
+    setImg(id, {fixing:true});
+    try {
+      const d = await apiFetch("/api/ai-fix-suggestion", {
+        fluxPrompt: result.fluxPrompt,
+        qaChecklist: result.qaChecklist,
+        customPrompt: customPrompts[id] || "",
+        imageBase64: imgStates[id]?.url?.split(",")[1] || "",
+        imageType: "image/webp",
+      });
+      setImg(id, {fixing:false, fixSuggestion:d.suggestion});
+      if (!customPrompts[id]) setCustomPrompt(id, d.suggestion);
+    } catch(e) {
+      setImg(id, {fixing:false, error:e.message});
+    }
+  };
+
+  const downloadAll = async () => {
+    const done = results
+      .map((r, i) => ({ result:r, index:i, image:imgStates[r.catInfo?.id]?.url }))
+      .filter(item => item.image);
+    if (!done.length) return;
+
+    const zip = new JSZip();
+    done.forEach(({ result, index, image }) => {
+      zip.file(`mockup-${String(index + 1).padStart(2,"0")}-${(result.catInfo?.name||"image").replace(/[^a-z0-9]+/gi,"-").toLowerCase()}.webp`, dataUrlToBlob(image));
+    });
+
+    const blob = await zip.generateAsync({ type:"blob" });
+    const url = URL.createObjectURL(blob);
+    const a = document.createElement("a");
+    a.href = url;
+    a.download = "etsy-mockups.zip";
+    a.click();
+    URL.revokeObjectURL(url);
   };
 
   const copyAll = () => navigator.clipboard.writeText(
@@ -740,6 +857,17 @@ ${r.data.thumbnailNotes}`;
           <input ref={fileRef} type="file" accept="image/*" onChange={handleFile} style={{display:"none"}}/>
         </div>
 
+        <div style={{background:"rgba(255,255,255,0.022)",border:"1px solid rgba(255,255,255,0.07)",borderRadius:14,padding:"14px",marginBottom:11}}>
+          <div style={{fontSize:10,color:"rgba(255,255,255,0.28)",fontFamily:"'DM Mono',monospace",letterSpacing:"0.12em",textTransform:"uppercase",marginBottom:10}}>Additional Reference Images</div>
+          <button onClick={()=>refsRef.current.click()} style={{padding:"8px 12px",borderRadius:8,border:"1px solid rgba(90,180,255,0.22)",background:"rgba(90,180,255,0.07)",color:"rgba(160,210,255,0.95)",fontSize:11,cursor:"pointer"}}>Add up to 3 style / model / background refs</button>
+          <input ref={refsRef} type="file" accept="image/*" multiple onChange={handleReferenceFiles} style={{display:"none"}}/>
+          {referenceImages.length>0&&(
+            <div style={{display:"flex",gap:8,marginTop:10,flexWrap:"wrap"}}>
+              {referenceImages.map((ref,i)=><div key={ref.name+i} style={{display:"flex",alignItems:"center",gap:7,padding:"6px 8px",borderRadius:8,background:"rgba(255,255,255,0.04)",border:"1px solid rgba(255,255,255,0.07)"}}><img src={ref.dataUrl} alt="" style={{width:34,height:34,objectFit:"cover",borderRadius:6}}/><span style={{fontSize:10,color:"rgba(255,255,255,0.45)",maxWidth:130,overflow:"hidden",textOverflow:"ellipsis",whiteSpace:"nowrap"}}>{ref.name}</span></div>)}
+            </div>
+          )}
+        </div>
+
         {/* Niche + Audience */}
         <div style={{display:"grid",gridTemplateColumns:"1fr 1fr",gap:11,marginBottom:11}}>
           {[{label:"🎯 Niche",key:"niche",opts:NICHE},{label:"👤 Audience",key:"audience",opts:AUDIENCE}].map(({label,key,opts})=>(
@@ -748,6 +876,11 @@ ${r.data.thumbnailNotes}`;
               <div style={{display:"flex",flexWrap:"wrap",gap:5}}>{opts.map(o=><Tag key={o} active={form[key]===o} onClick={()=>setForm(f=>({...f,[key]:o}))}>{o}</Tag>)}</div>
             </div>
           ))}
+        </div>
+
+        <div style={{background:"rgba(255,255,255,0.022)",border:"1px solid rgba(255,255,255,0.07)",borderRadius:14,padding:"12px 14px",marginBottom:11}}>
+          <div style={{fontSize:10,color:"rgba(255,255,255,0.28)",fontFamily:"'DM Mono',monospace",letterSpacing:"0.12em",textTransform:"uppercase",marginBottom:9}}>Auto-suggested Targeted Audience</div>
+          <div style={{display:"flex",flexWrap:"wrap",gap:5}}>{TARGET_AUDIENCES.map(o=><Tag key={o} active={form.audience===o} onClick={()=>setForm(f=>({...f,audience:o}))}>{o}</Tag>)}</div>
         </div>
 
         {/* Config — FIX: mockup count selector restored */}
@@ -771,6 +904,12 @@ ${r.data.thumbnailNotes}`;
               </select>
             </div>
           </div>
+          <label style={{display:"flex",alignItems:"center",gap:8,marginBottom:10,fontSize:12,color:"rgba(255,255,255,0.55)",cursor:"pointer"}}>
+            <input type="checkbox" checked={form.autoDetect} onChange={e=>setForm(f=>({...f,autoDetect:e.target.checked}))} style={{width:16}}/>
+            Autodetect Shirt Design
+            {analyzing&&<span style={{color:"#FFDC64",fontFamily:"'DM Mono',monospace",fontSize:10}}>analyzing...</span>}
+          </label>
+          {designAnalysis&&<div style={{background:"rgba(90,180,255,0.06)",border:"1px solid rgba(90,180,255,0.16)",borderRadius:8,padding:"8px 10px",marginBottom:10,fontSize:11,color:"rgba(190,220,255,0.82)",lineHeight:1.45}}>{designAnalysis}</div>}
           <div style={{display:"grid",gridTemplateColumns:"1fr",gap:10,marginBottom:10}}>
             <div>
               <div style={{fontSize:9,color:"rgba(255,255,255,0.22)",marginBottom:4,fontFamily:"'DM Mono',monospace"}}>SLOG BLAGOVNE ZNAMKE</div>
@@ -797,8 +936,8 @@ ${r.data.thumbnailNotes}`;
             <div style={{background:"rgba(255,255,255,0.06)",borderRadius:999,height:3,overflow:"hidden",marginBottom:10}}>
               <div style={{height:"100%",background:"linear-gradient(90deg,#FFDC64,#FF9B40)",borderRadius:999,width:`${progress}%`,transition:"width 0.5s ease"}}/>
             </div>
-            <div style={{display:"grid",gridTemplateColumns:`repeat(${COUNT_OPTIONS.find(o=>o.value===total)?.batches||3},1fr)`,gap:6}}>
-              {ALL_BATCHES.slice(0,COUNT_OPTIONS.find(o=>o.value===total)?.batches||3).map((b,bi)=>{
+            <div style={{display:"grid",gridTemplateColumns:`repeat(${selectedBatches().length},1fr)`,gap:6}}>
+              {selectedBatches().map((b,bi)=>{
                 const done=results.some(r=>r.catInfo?.id===b[0].id);
                 return<div key={bi} style={{background:done?"rgba(255,220,100,0.07)":"rgba(255,255,255,0.02)",border:`1px solid ${done?"rgba(255,220,100,0.18)":"rgba(255,255,255,0.05)"}`,borderRadius:8,padding:"7px 10px"}}>
                   <div style={{fontSize:10,color:done?"#FFDC64":"rgba(255,255,255,0.22)",fontFamily:"'DM Mono',monospace"}}>{done?"✓ ":"· "}Serija {bi+1}</div>
@@ -815,6 +954,7 @@ ${r.data.thumbnailNotes}`;
             <div style={{display:"flex",justifyContent:"space-between",alignItems:"center",marginBottom:13}}>
               <div style={{fontSize:10,color:"rgba(255,220,100,0.6)",fontFamily:"'DM Mono',monospace",letterSpacing:"0.14em",textTransform:"uppercase"}}>✦ {results.length}/{total} promptov · {doneCount} slik</div>
               <div style={{display:"flex",gap:7}}>
+                {doneCount>0&&<button onClick={downloadAll} style={{background:"linear-gradient(135deg,#7EE8A2,#38C77E)",border:"none",borderRadius:8,padding:"7px 12px",color:"#07100B",fontSize:10,fontFamily:"'DM Mono',monospace",cursor:"pointer",fontWeight:700}}>Download All Mockups</button>}
                 {results.length===total&&<button onClick={copyAll} style={{background:"rgba(255,255,255,0.05)",border:"1px solid rgba(255,255,255,0.09)",borderRadius:8,padding:"5px 11px",color:"rgba(255,255,255,0.45)",fontSize:10,fontFamily:"'DM Mono',monospace",cursor:"pointer"}}>Kopiraj vse</button>}
                 {results.length===total&&(
                   <button onClick={handleGenAll} disabled={genAllBusy} style={{display:"flex",alignItems:"center",gap:5,background:genAllBusy?"rgba(255,220,100,0.04)":"rgba(255,220,100,0.12)",border:"1px solid rgba(255,220,100,0.25)",borderRadius:8,padding:"5px 12px",color:genAllBusy?"rgba(255,220,100,0.3)":"#FFDC64",fontSize:10,fontFamily:"'DM Mono',monospace",cursor:genAllBusy?"not-allowed":"pointer"}}>
@@ -845,7 +985,7 @@ ${r.data.thumbnailNotes}`;
             {filtered.map(r=>{
               const gi = results.indexOf(r);
               const id = r.catInfo?.id;
-              return <MockupCard key={id||gi} result={r.data} catInfo={r.catInfo} index={gi} isOpen={openCard===gi} onToggle={()=>setOpenCard(openCard===gi?null:gi)} imgState={imgStates[id]} onGenImage={()=>genImage(id,r.data.fluxPrompt)}/>;
+              return <MockupCard key={id||gi} result={r.data} catInfo={r.catInfo} index={gi} isOpen={openCard===gi} onToggle={()=>setOpenCard(openCard===gi?null:gi)} imgState={imgStates[id]} customPrompt={customPrompts[id]} onCustomPrompt={value=>setCustomPrompt(id,value)} onGenImage={customPrompt=>genImage(id,r.data.fluxPrompt,customPrompt)} onAiFix={()=>aiFixSuggestion(id,r.data)}/>;
             })}
           </div>
         )}
