@@ -27,6 +27,8 @@
 <script type="text/babel">
 const { useState, useRef, useEffect } = React;
 const ADMIN_TOKEN_STORAGE_KEY = "etsy_mockup_admin_token";
+const PROMPT_RATINGS_STORAGE_KEY = "etsy_mockup_prompt_ratings_v1";
+const PROMPT_LEARNING_ENABLED_KEY = "etsy_mockup_prompt_learning_enabled_v1";
 
 // ─── 18 categories split into 3 batches of 6 ─────────────────────────────────
 const ALL_BATCHES = [
@@ -209,6 +211,107 @@ function fileToDataUrl(file) {
     reader.onerror = reject;
     reader.readAsDataURL(file);
   });
+}
+
+function loadJsonStorage(key, fallback) {
+  try {
+    const raw = localStorage.getItem(key);
+    if (!raw) return fallback;
+    const parsed = JSON.parse(raw);
+    return parsed ?? fallback;
+  } catch {
+    return fallback;
+  }
+}
+
+function saveJsonStorage(key, value) {
+  try {
+    localStorage.setItem(key, JSON.stringify(value));
+  } catch {}
+}
+
+function makePromptId() {
+  return `${Date.now()}-${Math.random().toString(36).slice(2, 8)}`;
+}
+
+function loadPromptRatings() {
+  const records = loadJsonStorage(PROMPT_RATINGS_STORAGE_KEY, []);
+  return Array.isArray(records) ? records : [];
+}
+
+function loadLearningEnabled() {
+  return loadJsonStorage(PROMPT_LEARNING_ENABLED_KEY, true) !== false;
+}
+
+function upsertPromptRating(records, next) {
+  const rating = Math.max(0, Math.min(5, Number(next.rating) || 0));
+  const clean = {
+    ...next,
+    rating,
+    promptId: next.promptId,
+    updatedAt: new Date().toISOString(),
+  };
+  const existingIndex = records.findIndex(r => r.promptId === clean.promptId);
+  if (!rating) {
+    return existingIndex >= 0 ? records.filter(r => r.promptId !== clean.promptId) : records;
+  }
+  if (existingIndex >= 0) {
+    const prev = records[existingIndex];
+    const merged = { ...prev, ...clean, createdAt: prev.createdAt || clean.createdAt || new Date().toISOString() };
+    return records.map(r => r.promptId === clean.promptId ? merged : r);
+  }
+  return [...records, { ...clean, createdAt: clean.createdAt || new Date().toISOString() }];
+}
+
+function aggregateRatingGroups(records, key) {
+  const groups = new Map();
+  records.forEach(record => {
+    if (!record.rating) return;
+    const value = (record[key] || "").trim();
+    if (!value) return;
+    const current = groups.get(value) || { label: value, sum: 0, count: 0 };
+    current.sum += Number(record.rating) || 0;
+    current.count += 1;
+    groups.set(value, current);
+  });
+  return Array.from(groups.values())
+    .map(item => ({ ...item, avg: item.count ? item.sum / item.count : 0 }))
+    .sort((a, b) => b.avg - a.avg || b.count - a.count)
+    .slice(0, 3);
+}
+
+function buildLearningStats(records) {
+  const rated = records.filter(r => Number(r.rating) > 0);
+  const learned = records.filter(r => Number(r.rating) >= 4);
+  const total = rated.length;
+  const avg = total ? (rated.reduce((sum, r) => sum + Number(r.rating || 0), 0) / total).toFixed(1) : "0.0";
+  const strong = learned.length;
+  const cat = aggregateRatingGroups(records, "categoryName");
+  const aud = aggregateRatingGroups(records, "audience");
+  const shirt = aggregateRatingGroups(records, "shirtType");
+  const scene = aggregateRatingGroups(records, "sceneDirection");
+
+  const learningContext = learned.length
+    ? [
+        `Use these high-rated patterns as soft preferences only:`,
+        cat.length ? `Top categories: ${cat.map(item => item.label).join(", ")}.` : "",
+        aud.length ? `Best audiences: ${aud.map(item => item.label).join(", ")}.` : "",
+        shirt.length ? `Best shirt types: ${shirt.map(item => item.label).join(", ")}.` : "",
+        scene.length ? `Best scene directions: ${scene.map(item => item.label).join(", ")}.` : "",
+        `Keep the uploaded design, shirt identity, and category brief higher priority than any learned preference.`,
+      ].filter(Boolean).join(" ")
+    : "";
+
+  return {
+    total,
+    avg,
+    strong,
+    cat,
+    aud,
+    shirt,
+    scene,
+    learningContext,
+  };
 }
 
 // ─── Small components ─────────────────────────────────────────────────────────
@@ -463,7 +566,7 @@ function SettingsModal({ onClose, onKeysUpdated }) {
 }
 
 // ─── Mockup card ──────────────────────────────────────────────────────────────
-function MockupCard({ result, catInfo, index, isOpen, onToggle, imgState, customPrompt, onCustomPrompt, onGenImage, onAiFix }) {
+function MockupCard({ result, catInfo, index, isOpen, onToggle, imgState, customPrompt, onCustomPrompt, onGenImage, onAiFix, rating, onRate }) {
   const busy = imgState?.status === "loading";
   const done = imgState?.status === "done";
   const fixing = imgState?.fixing;
@@ -516,6 +619,19 @@ function MockupCard({ result, catInfo, index, isOpen, onToggle, imgState, custom
               <div style={{fontSize:9,color:"rgba(255,255,255,0.25)",fontFamily:"'DM Mono',monospace",marginBottom:4}}>CUSTOM PROMPT FOR CHANGES</div>
               <textarea rows={2} value={customPrompt||""} onChange={e=>onCustomPrompt(e.target.value)} placeholder="change background to beach, make model older, keep design exact..." />
               <button onClick={()=>onGenImage(customPrompt)} disabled={busy||!customPrompt?.trim()} style={{marginTop:7,padding:"7px 11px",borderRadius:8,border:"1px solid rgba(126,232,162,0.25)",background:"rgba(126,232,162,0.08)",color:"#7EE8A2",fontSize:10,cursor:busy||!customPrompt?.trim()?"not-allowed":"pointer"}}>Regenerate with changes</button>
+            </div>
+
+            <div style={{marginTop:12,padding:"10px 11px",borderRadius:10,border:"1px solid rgba(255,255,255,0.06)",background:"rgba(255,255,255,0.03)"}}>
+              <div style={{display:"flex",justifyContent:"space-between",alignItems:"center",gap:10,marginBottom:8}}>
+                <div style={{fontSize:9,color:"rgba(255,255,255,0.25)",fontFamily:"'DM Mono',monospace",letterSpacing:"0.1em",textTransform:"uppercase"}}>Prompt Rating</div>
+                <div style={{fontSize:10,color:"rgba(255,255,255,0.28)"}}>{rating ? `${rating}/5` : "Unrated"}</div>
+              </div>
+              <div style={{display:"flex",alignItems:"center",gap:6,flexWrap:"wrap"}}>
+                {[1,2,3,4,5].map(n=>(
+                  <button key={n} onClick={()=>onRate(n)} style={{width:30,height:30,borderRadius:9,border:`1px solid ${rating>=n?"rgba(255,220,100,0.3)":"rgba(255,255,255,0.08)"}`,background:rating>=n?"rgba(255,220,100,0.09)":"rgba(255,255,255,0.03)",color:rating>=n?"#FFDC64":"rgba(255,255,255,0.28)",fontSize:13,cursor:"pointer",display:"flex",alignItems:"center",justifyContent:"center",fontWeight:700}}>{rating>=n?"★":"☆"}</button>
+                ))}
+                {rating>0&&<button onClick={()=>onRate(0)} style={{marginLeft:4,padding:"6px 10px",borderRadius:8,border:"1px solid rgba(255,255,255,0.08)",background:"rgba(255,255,255,0.03)",color:"rgba(255,255,255,0.35)",fontSize:10,cursor:"pointer"}}>Clear</button>}
+              </div>
             </div>
           </div>
 
@@ -575,6 +691,8 @@ function App() {
   const [imgStates, setImgStates] = useState({});
   const [customPrompts, setCustomPrompts] = useState({});
   const [genAllBusy,setGenAllBusy]= useState(false);
+  const [promptRatings, setPromptRatings] = useState([]);
+  const [learningEnabled, setLearningEnabled] = useState(true);
 
   const fileRef = useRef();
   const refsRef = useRef();
@@ -592,8 +710,27 @@ function App() {
       .catch(()=>{});
   }, []);
 
+  useEffect(() => {
+    setPromptRatings(loadPromptRatings());
+    setLearningEnabled(loadLearningEnabled());
+  }, []);
+
+  useEffect(() => {
+    saveJsonStorage(PROMPT_RATINGS_STORAGE_KEY, promptRatings);
+  }, [promptRatings]);
+
+  useEffect(() => {
+    saveJsonStorage(PROMPT_LEARNING_ENABLED_KEY, learningEnabled);
+  }, [learningEnabled]);
+
   const setImg = (id, patch) => setImgStates(s => ({...s, [id]:{...(s[id]||{}), ...patch}}));
   const setCustomPrompt = (id, value) => setCustomPrompts(s => ({...s, [id]: value}));
+  const setPromptRating = (promptId, rating, meta = {}) => {
+    setPromptRatings(records => {
+      const next = upsertPromptRating(records, { promptId, rating, ...meta });
+      return next;
+    });
+  };
   const resolvedShirtModel = () => {
     const raw = form.shirtModel.trim();
     const custom = form.shirtName.trim();
@@ -607,6 +744,11 @@ function App() {
     for (let i = 0; i < cats.length; i += 6) chunks.push(cats.slice(i, i + 6));
     return chunks;
   };
+  const promptStats = buildLearningStats(promptRatings);
+  const ratingByPromptId = promptRatings.reduce((acc, r) => {
+    if (r?.promptId) acc[r.promptId] = r.rating;
+    return acc;
+  }, {});
 
   const handleFile = e => {
     const f = e.target.files[0]; if (!f) return;
@@ -659,6 +801,7 @@ function App() {
     const all = [];
     try {
       const analysis = form.autoDetect ? (designAnalysis || await analyzeDesign()) : "";
+      const learningContext = learningEnabled ? promptStats.learningContext : "";
       for (let i = 0; i < activeBatches.length; i++) {
         setProgLabel(labels[i] || "Generiram dodatne mockupe…");
         const d = await apiFetch("/api/generate-prompts", {
@@ -672,10 +815,26 @@ function App() {
           designAnalysis: analysis,
           autoDetect: form.autoDetect,
           sceneDirection: form.sceneDirection, mockupCount: form.mockupCount,
+          learningContext,
         });
         const parsed = parseBatch(d.raw);
         activeBatches[i].forEach((cat, j) => all.push({
           catInfo: cat,
+          promptId: makePromptId(),
+          meta: {
+            categoryId: cat.id,
+            categoryName: cat.name,
+            niche: form.niche,
+            audience: form.audience,
+            shirtType: form.shirtType,
+            shirtModel: resolvedShirtModel(),
+            shirtName: form.shirtName,
+            sceneDirection: form.sceneDirection,
+            brandStyle: form.brandStyle,
+            autoDetect: form.autoDetect,
+            designAnalysis: analysis,
+            generatedAt: new Date().toISOString(),
+          },
           data: parsed[j] || { category: cat.name, fluxPrompt:"Napaka — poskusi znova", negativePrompt:"", qaChecklist:"", autoFix:"", thumbnailNotes:"", manualFix:{} },
         }));
         setResults([...all]);
@@ -748,6 +907,10 @@ function App() {
     } catch(e) {
       setImg(id, {fixing:false, error:e.message});
     }
+  };
+
+  const ratePrompt = (promptId, rating, meta = {}) => {
+    setPromptRating(promptId, rating, meta);
   };
 
   const downloadAll = async () => {
@@ -928,6 +1091,62 @@ ${r.data.thumbnailNotes}`;
           </div>
           <div style={{fontSize:9,color:"rgba(255,255,255,0.22)",marginBottom:4,fontFamily:"'DM Mono',monospace"}}>OPCIJSKA NAVODILA ZA SCENO</div>
           <textarea rows={2} placeholder="npr. Prijetna jesenska vzdušje, topla jantarna svetloba…" value={form.sceneDirection} onChange={e=>setForm(f=>({...f,sceneDirection:e.target.value}))}/>
+
+          <div style={{marginTop:12,padding:"12px 12px",borderRadius:12,border:"1px solid rgba(255,220,100,0.12)",background:"rgba(255,220,100,0.03)"}}>
+            <div style={{display:"flex",justifyContent:"space-between",alignItems:"center",gap:10,marginBottom:10}}>
+              <div>
+                <div style={{fontSize:10,color:"rgba(255,255,255,0.28)",fontFamily:"'DM Mono',monospace",letterSpacing:"0.12em",textTransform:"uppercase"}}>Prompt Learning & Stats</div>
+                <div style={{fontSize:11,color:"rgba(255,255,255,0.42)",marginTop:3}}>Local-only ratings are used to bias future prompt generation.</div>
+              </div>
+              <label style={{display:"flex",alignItems:"center",gap:8,fontSize:11,color:"rgba(255,255,255,0.55)",cursor:"pointer",whiteSpace:"nowrap"}}>
+                <input type="checkbox" checked={learningEnabled} onChange={e=>setLearningEnabled(e.target.checked)} style={{width:16}}/>
+                Use learning
+              </label>
+            </div>
+
+            {promptStats.total > 0 ? (
+              <>
+                <div style={{display:"grid",gridTemplateColumns:"repeat(3,1fr)",gap:8,marginBottom:10}}>
+                  <div style={{padding:"9px 10px",borderRadius:10,background:"rgba(0,0,0,0.28)",border:"1px solid rgba(255,255,255,0.06)"}}>
+                    <div style={{fontSize:10,color:"rgba(255,255,255,0.28)",fontFamily:"'DM Mono',monospace"}}>Rated</div>
+                    <div style={{fontSize:16,fontWeight:700,color:"#fff",marginTop:3}}>{promptStats.total}</div>
+                  </div>
+                  <div style={{padding:"9px 10px",borderRadius:10,background:"rgba(0,0,0,0.28)",border:"1px solid rgba(255,255,255,0.06)"}}>
+                    <div style={{fontSize:10,color:"rgba(255,255,255,0.28)",fontFamily:"'DM Mono',monospace"}}>Average</div>
+                    <div style={{fontSize:16,fontWeight:700,color:"#FFDC64",marginTop:3}}>{promptStats.avg}★</div>
+                  </div>
+                  <div style={{padding:"9px 10px",borderRadius:10,background:"rgba(0,0,0,0.28)",border:"1px solid rgba(255,255,255,0.06)"}}>
+                    <div style={{fontSize:10,color:"rgba(255,255,255,0.28)",fontFamily:"'DM Mono',monospace"}}>4-5★</div>
+                    <div style={{fontSize:16,fontWeight:700,color:"#7EE8A2",marginTop:3}}>{promptStats.strong}</div>
+                  </div>
+                </div>
+
+                <div style={{display:"grid",gridTemplateColumns:"1fr",gap:8}}>
+                  <div style={{fontSize:11,color:"rgba(255,255,255,0.42)",lineHeight:1.45}}>
+                    <span style={{color:"rgba(255,255,255,0.55)",fontFamily:"'DM Mono',monospace",fontSize:10,letterSpacing:"0.1em",textTransform:"uppercase"}}>Best categories</span><br/>
+                    {promptStats.cat.length ? promptStats.cat.map(item => `${item.label} (${item.avg.toFixed(1)}★)`).join(" · ") : "No signal yet"}
+                  </div>
+                  <div style={{fontSize:11,color:"rgba(255,255,255,0.42)",lineHeight:1.45}}>
+                    <span style={{color:"rgba(255,255,255,0.55)",fontFamily:"'DM Mono',monospace",fontSize:10,letterSpacing:"0.1em",textTransform:"uppercase"}}>Best audiences</span><br/>
+                    {promptStats.aud.length ? promptStats.aud.map(item => `${item.label} (${item.avg.toFixed(1)}★)`).join(" · ") : "No signal yet"}
+                  </div>
+                  <div style={{fontSize:11,color:"rgba(255,255,255,0.42)",lineHeight:1.45}}>
+                    <span style={{color:"rgba(255,255,255,0.55)",fontFamily:"'DM Mono',monospace",fontSize:10,letterSpacing:"0.1em",textTransform:"uppercase"}}>Best shirt types</span><br/>
+                    {promptStats.shirt.length ? promptStats.shirt.map(item => `${item.label} (${item.avg.toFixed(1)}★)`).join(" · ") : "No signal yet"}
+                  </div>
+                </div>
+
+                <div style={{display:"flex",gap:8,flexWrap:"wrap",marginTop:10}}>
+                  <button onClick={()=>setPromptRatings([])} style={{padding:"7px 11px",borderRadius:8,border:"1px solid rgba(255,80,80,0.22)",background:"rgba(255,80,80,0.07)",color:"#FF8080",fontSize:10,cursor:"pointer"}}>Reset learning data</button>
+                  <span style={{fontSize:10,color:"rgba(255,255,255,0.26)",alignSelf:"center"}}>Last update: {new Date(promptRatings[promptRatings.length - 1]?.updatedAt || promptRatings[promptRatings.length - 1]?.createdAt || Date.now()).toLocaleString()}</span>
+                </div>
+              </>
+            ) : (
+              <div style={{fontSize:11,color:"rgba(255,255,255,0.38)",lineHeight:1.5}}>
+                Rate a few prompts first. The app will then show your best-performing categories, audiences, and shirt types here.
+              </div>
+            )}
+          </div>
         </div>
 
         {error&&<div style={{background:"rgba(255,80,80,0.07)",border:"1px solid rgba(255,80,80,0.18)",borderRadius:9,padding:"10px 14px",color:"#FF8080",fontSize:12,marginBottom:12}}>⚠️ {error}</div>}
@@ -995,7 +1214,8 @@ ${r.data.thumbnailNotes}`;
             {filtered.map(r=>{
               const gi = results.indexOf(r);
               const id = r.catInfo?.id;
-              return <MockupCard key={id||gi} result={r.data} catInfo={r.catInfo} index={gi} isOpen={openCard===gi} onToggle={()=>setOpenCard(openCard===gi?null:gi)} imgState={imgStates[id]} customPrompt={customPrompts[id]} onCustomPrompt={value=>setCustomPrompt(id,value)} onGenImage={customPrompt=>genImage(id,r.data.fluxPrompt,customPrompt)} onAiFix={()=>aiFixSuggestion(id,r.data)}/>;
+              const rating = ratingByPromptId[r.promptId] || 0;
+              return <MockupCard key={id||gi} result={r.data} catInfo={r.catInfo} index={gi} isOpen={openCard===gi} onToggle={()=>setOpenCard(openCard===gi?null:gi)} imgState={imgStates[id]} customPrompt={customPrompts[id]} onCustomPrompt={value=>setCustomPrompt(id,value)} onGenImage={customPrompt=>genImage(id,r.data.fluxPrompt,customPrompt)} onAiFix={()=>aiFixSuggestion(id,r.data)} rating={rating} onRate={nextRating=>ratePrompt(r.promptId, nextRating, r.meta)}/>;
             })}
           </div>
         )}
