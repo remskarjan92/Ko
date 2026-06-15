@@ -743,6 +743,14 @@ function App() {
       return next;
     });
   };
+  const resolveRegenerationPrompt = (id, override = "") => {
+    const pieces = [
+      override,
+      customPrompts[id],
+      imgStates[id]?.fixSuggestion,
+    ].map(v => (v || "").trim()).filter(Boolean);
+    return pieces[0] || "";
+  };
   const resolvedShirtModel = () => {
     const raw = form.shirtModel.trim();
     const custom = form.shirtName.trim();
@@ -858,7 +866,8 @@ function App() {
   };
 
   const genImage = async (id, fluxPrompt, customPrompt = "") => {
-    setImg(id, {status:"loading"});
+    const resolvedCustom = resolveRegenerationPrompt(id, customPrompt);
+    setImg(id, {status:"loading", error:"", lastAction: resolvedCustom ? "regenerate_with_context" : "regenerate"});
     try {
       const compressed = await compressImageDataUrl(imagePreview, {
         maxSize: 1024,
@@ -867,13 +876,13 @@ function App() {
       });
       const d = await apiFetch("/api/generate-image", {
         fluxPrompt,
-        customPrompt,
+        customPrompt: resolvedCustom,
         designAnalysis,
         referenceImages: referenceImages.map(r => ({ imageBase64: r.base64, imageType: r.type, name: r.name })),
         imageBase64: compressed.split(",")[1],
         imageType: "image/webp",
       });
-      setImg(id, {status:"done", url:d.url});
+      setImg(id, {status:"done", url:d.url, lastAction: resolvedCustom ? "regenerate_with_context" : "regenerate"});
     }
     catch(e) { setImg(id, {status:"error", error:e.message}); }
   };
@@ -882,7 +891,8 @@ function App() {
     setGenAllBusy(true);
     for (const r of results) {
       const id = r.catInfo.id;
-      setImg(id, {status:"loading"});
+      const resolvedCustom = resolveRegenerationPrompt(id, customPrompts[id] || "");
+      setImg(id, {status:"loading", error:"", lastAction: resolvedCustom ? "bulk_regenerate_with_context" : "bulk_regenerate"});
       try {
         const compressed = await compressImageDataUrl(imagePreview, {
           maxSize: 1024,
@@ -891,13 +901,13 @@ function App() {
         });
         const d = await apiFetch("/api/generate-image", {
           fluxPrompt: r.data.fluxPrompt,
-          customPrompt: customPrompts[id] || "",
+          customPrompt: resolvedCustom,
           designAnalysis,
           referenceImages: referenceImages.map(ref => ({ imageBase64: ref.base64, imageType: ref.type, name: ref.name })),
           imageBase64: compressed.split(",")[1],
           imageType: "image/webp",
         });
-        setImg(id, {status:"done", url:d.url});
+        setImg(id, {status:"done", url:d.url, lastAction: resolvedCustom ? "bulk_regenerate_with_context" : "bulk_regenerate"});
       }
       catch(e) { setImg(id, {status:"error", error:e.message}); }
     }
@@ -905,7 +915,7 @@ function App() {
   };
 
   const aiFixSuggestion = async (id, result) => {
-    setImg(id, {fixing:true});
+    setImg(id, {fixing:true, error:""});
     try {
       const d = await apiFetch("/api/ai-fix-suggestion", {
         fluxPrompt: result.fluxPrompt,
@@ -914,7 +924,7 @@ function App() {
         imageBase64: imgStates[id]?.url?.split(",")[1] || "",
         imageType: "image/webp",
       });
-      setImg(id, {fixing:false, fixSuggestion:d.suggestion});
+      setImg(id, {fixing:false, fixSuggestion:d.suggestion, lastAction:"ai_fix"});
       if (!customPrompts[id]) setCustomPrompt(id, d.suggestion);
     } catch(e) {
       setImg(id, {fixing:false, error:e.message});

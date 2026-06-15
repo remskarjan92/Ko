@@ -74,6 +74,35 @@ function getGeminiText(data) {
   return data.candidates?.[0]?.content?.parts?.map(p => p.text || "").join("\n").trim() || "";
 }
 
+function sleep(ms) {
+  return new Promise(resolve => setTimeout(resolve, ms));
+}
+
+async function fetchJsonWithRetry(url, options, { retries = 2, delayMs = 900, label = "request" } = {}) {
+  let lastError = null;
+  for (let attempt = 0; attempt <= retries; attempt++) {
+    try {
+      const res = await fetch(url, options);
+      if (!res.ok && (res.status === 429 || res.status >= 500) && attempt < retries) {
+        const body = await res.text().catch(() => "");
+        console.warn(`[${label}] retry ${attempt + 1}/${retries + 1} -> HTTP ${res.status}`, body.slice(0, 160));
+        await sleep(delayMs * (attempt + 1));
+        continue;
+      }
+      return res;
+    } catch (err) {
+      lastError = err;
+      if (attempt < retries) {
+        console.warn(`[${label}] retry ${attempt + 1}/${retries + 1} -> ${err.message}`);
+        await sleep(delayMs * (attempt + 1));
+        continue;
+      }
+      throw err;
+    }
+  }
+  throw lastError || new Error(`${label} failed`);
+}
+
 // ─── Key management ───────────────────────────────────────────────────────────
 app.get("/api/keys", (req, res) => {
   if (!requireAdmin(req, res)) return;
@@ -282,7 +311,7 @@ async function pollPredictionOutput(id, key) {
 }
 
 async function runReplicateVersion(version, input, key) {
-  const r = await fetch("https://api.replicate.com/v1/predictions", {
+  const r = await fetchJsonWithRetry("https://api.replicate.com/v1/predictions", {
     method: "POST",
     headers: {
       Authorization: `Bearer ${key}`,
@@ -290,7 +319,7 @@ async function runReplicateVersion(version, input, key) {
       Prefer: "wait",
     },
     body: JSON.stringify({ version, input }),
-  });
+  }, { retries: 2, delayMs: 800, label: "replicate-version" });
 
   if (!r.ok) {
     const e = await r.json().catch(() => ({}));
@@ -326,22 +355,30 @@ async function toDataUrl(imageUrl) {
   if (!imageUrl) throw new Error("Replicate returned no image");
   if (isDataUrl(imageUrl)) return imageUrl;
 
-  const r = await fetch(imageUrl);
-  if (!r.ok) {
-    throw new Error(`Failed to fetch generated image (${r.status})`);
-  }
+  let lastError = null;
+  for (let attempt = 0; attempt < 3; attempt++) {
+    const r = await fetch(imageUrl);
+    if (r.ok) {
+      const contentType = r.headers.get("content-type") || "";
+      if (!contentType.startsWith("image/")) {
+        const preview = await r.text().catch(() => "");
+        throw new Error(
+          `Generated output was not an image (${contentType || "unknown content-type"}). ` +
+          `Preview: ${preview.slice(0, 160)}`
+        );
+      }
 
-  const contentType = r.headers.get("content-type") || "";
-  if (!contentType.startsWith("image/")) {
-    const preview = await r.text().catch(() => "");
-    throw new Error(
-      `Generated output was not an image (${contentType || "unknown content-type"}). ` +
-      `Preview: ${preview.slice(0, 160)}`
-    );
+      const buffer = Buffer.from(await r.arrayBuffer());
+      return `data:${contentType};base64,${buffer.toString("base64")}`;
+    }
+    lastError = new Error(`Failed to fetch generated image (${r.status})`);
+    if (r.status >= 500 || r.status === 429) {
+      await sleep(500 * (attempt + 1));
+      continue;
+    }
+    throw lastError;
   }
-
-  const buffer = Buffer.from(await r.arrayBuffer());
-  return `data:${contentType};base64,${buffer.toString("base64")}`;
+  throw lastError || new Error("Failed to fetch generated image");
 }
 
 app.post("/api/analyze-shirt", async (req, res) => {
@@ -413,6 +450,14 @@ app.post("/api/generate-image", async (req, res) => {
   if (!imageBase64)
     return res.status(400).json({ error: "Reference image ni poslana." });
 
+  const requestId = `regen-${Date.now().toString(36)}-${Math.random().toString(36).slice(2, 7)}`;
+  console.log(`[generate-image ${requestId}] start`, {
+    prompt: (fluxPrompt || "").slice(0, 90),
+    custom: (customPrompt || "").slice(0, 90),
+    refs: referenceImages.length,
+    analysis: !!designAnalysis,
+  });
+
   try {
     const inputImage = `data:${imageType || "image/png"};base64,${imageBase64}`;
     const referenceNotes = [];
@@ -428,7 +473,7 @@ app.post("/api/generate-image", async (req, res) => {
         referenceNotes.push(`${ref.name || "Reference"}: unavailable (${e.message})`);
       }
     }
-    const r = await fetch("https://api.replicate.com/v1/models/black-forest-labs/flux-kontext-dev/predictions", {
+    const r = await fetchJsonWithRetry("https://api.replicate.com/v1/models/black-forest-labs/flux-kontext-dev/predictions", {
       method: "POST",
       headers: {
         Authorization: `Bearer ${replicate}`,
@@ -456,7 +501,7 @@ app.post("/api/generate-image", async (req, res) => {
           go_fast: true,
         },
       }),
-    });
+    }, { retries: 2, delayMs: 1200, label: `flux-kontext ${requestId}` });
 
     if (!r.ok) {
       const e = await r.json().catch(() => ({}));
@@ -466,8 +511,10 @@ app.post("/api/generate-image", async (req, res) => {
     const d = await r.json();
     const outputUrl = getPredictionOutputUrl(d.output) || (await pollPrediction(d.id, replicate));
     const url = await toDataUrl(outputUrl);
+    console.log(`[generate-image ${requestId}] success`, { hasOutput: !!url, mimeType: "image/webp" });
     res.json({ url, mimeType: "image/webp" });
   } catch (e) {
+    console.error(`[generate-image ${requestId}] error`, e.message);
     res.status(500).json({ error: e.message });
   }
 });
