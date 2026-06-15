@@ -355,8 +355,7 @@ app.post("/api/analyze-shirt", async (req, res) => {
   try {
     const output = await runReplicateVersion(FLORENCE_VERSION, {
       image: `data:${imageType || "image/png"};base64,${imageBase64}`,
-      task_input: "Caption",
-      text_input: "Describe the apparel item in detail: shirt type, color, fit, fabric, graphic placement, visible text, style, model pose, and background.",
+      task_input: "<DETAILED_CAPTION>",
     }, replicate);
     res.json({ analysis: getPredictionText(output) });
   } catch (e) {
@@ -421,8 +420,7 @@ app.post("/api/generate-image", async (req, res) => {
       try {
         const output = await runReplicateVersion(FLORENCE_VERSION, {
           image: `data:${ref.imageType || "image/png"};base64,${ref.imageBase64}`,
-          task_input: "Caption",
-          text_input: "Describe this reference image for mockup styling: pose, setting, background, lighting, camera angle, color mood, and garment styling.",
+          task_input: "<DETAILED_CAPTION>",
         }, replicate);
         referenceNotes.push(`${ref.name || "Reference"}: ${getPredictionText(output)}`);
       } catch (e) {
