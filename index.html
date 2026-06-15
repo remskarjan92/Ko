@@ -571,7 +571,7 @@ function MockupCard({ result, catInfo, index, isOpen, onToggle, imgState, custom
   const done = imgState?.status === "done";
   const fixing = imgState?.fixing;
   const [detailsOpen, setDetailsOpen] = useState(false);
-  const downloadName = `mockup-${String(index+1).padStart(2,"0")}.webp`;
+  const downloadName = `mockup-${String(index+1).padStart(2,"0")}.png`;
 
   return (
     <div style={{background:"rgba(255,255,255,0.022)",border:"1px solid rgba(255,255,255,0.07)",borderRadius:14,overflow:"hidden",marginBottom:8}}>
@@ -601,7 +601,7 @@ function MockupCard({ result, catInfo, index, isOpen, onToggle, imgState, custom
             {busy ? <><Spinner size={11}/><span>Generating</span></> : done ? <>↻ <span>Regenerate</span></> : <>🖼 <span>Generate</span></>}
           </button>
           {done && imgState?.url ? (
-            <a href={imgState.url} download={downloadName} style={{display:"inline-flex",alignItems:"center",gap:4,padding:"6px 11px",borderRadius:999,border:"1px solid rgba(255,220,100,0.22)",background:"rgba(255,220,100,0.06)",color:"rgba(255,220,100,0.75)",fontSize:10,fontFamily:"'DM Mono',monospace",textDecoration:"none",lineHeight:1,whiteSpace:"nowrap"}}>↓ Download</a>
+            <a href={imgState.url} download={downloadName} style={{display:"inline-flex",alignItems:"center",gap:4,padding:"6px 11px",borderRadius:999,border:"1px solid rgba(255,220,100,0.22)",background:"rgba(255,220,100,0.06)",color:"rgba(255,220,100,0.75)",fontSize:10,fontFamily:"'DM Mono',monospace",textDecoration:"none",lineHeight:1,whiteSpace:"nowrap"}}>↓ Download PNG</a>
           ) : (
             <button disabled style={{display:"inline-flex",alignItems:"center",gap:4,padding:"6px 11px",borderRadius:999,border:"1px solid rgba(255,255,255,0.08)",background:"rgba(255,255,255,0.03)",color:"rgba(255,255,255,0.25)",fontSize:10,fontFamily:"'DM Mono',monospace",lineHeight:1,whiteSpace:"nowrap",cursor:"not-allowed"}}>↓ Download</button>
           )}
@@ -785,9 +785,9 @@ function App() {
       const compressed = await compressImageDataUrl(dataUrl, {
         maxSize: 1024,
         quality: 0.86,
-        mimeType: "image/webp",
+        mimeType: "image/png",
       });
-      return { name: file.name, type: "image/webp", dataUrl: compressed, base64: compressed.split(",")[1] };
+      return { name: file.name, type: "image/png", dataUrl: compressed, base64: compressed.split(",")[1] };
     }));
     setReferenceImages(refs);
   };
@@ -872,7 +872,7 @@ function App() {
       const compressed = await compressImageDataUrl(imagePreview, {
         maxSize: 1024,
         quality: 0.88,
-        mimeType: "image/webp",
+        mimeType: "image/png",
       });
       const d = await apiFetch("/api/generate-image", {
         fluxPrompt,
@@ -880,7 +880,7 @@ function App() {
         designAnalysis,
         referenceImages: referenceImages.map(r => ({ imageBase64: r.base64, imageType: r.type, name: r.name })),
         imageBase64: compressed.split(",")[1],
-        imageType: "image/webp",
+        imageType: "image/png",
       });
       setImg(id, {status:"done", url:d.url, lastAction: resolvedCustom ? "regenerate_with_context" : "regenerate"});
     }
@@ -897,7 +897,7 @@ function App() {
         const compressed = await compressImageDataUrl(imagePreview, {
           maxSize: 1024,
           quality: 0.88,
-          mimeType: "image/webp",
+          mimeType: "image/png",
         });
         const d = await apiFetch("/api/generate-image", {
           fluxPrompt: r.data.fluxPrompt,
@@ -905,7 +905,7 @@ function App() {
           designAnalysis,
           referenceImages: referenceImages.map(ref => ({ imageBase64: ref.base64, imageType: ref.type, name: ref.name })),
           imageBase64: compressed.split(",")[1],
-          imageType: "image/webp",
+          imageType: "image/png",
         });
         setImg(id, {status:"done", url:d.url, lastAction: resolvedCustom ? "bulk_regenerate_with_context" : "bulk_regenerate"});
       }
@@ -922,7 +922,7 @@ function App() {
         qaChecklist: result.qaChecklist,
         customPrompt: customPrompts[id] || "",
         imageBase64: imgStates[id]?.url?.split(",")[1] || "",
-        imageType: "image/webp",
+        imageType: "image/png",
       });
       setImg(id, {fixing:false, fixSuggestion:d.suggestion, lastAction:"ai_fix"});
       if (!customPrompts[id]) setCustomPrompt(id, d.suggestion);
@@ -943,7 +943,7 @@ function App() {
 
     const zip = new JSZip();
     done.forEach(({ result, index, image }) => {
-      zip.file(`mockup-${String(index + 1).padStart(2,"0")}-${(result.catInfo?.name||"image").replace(/[^a-z0-9]+/gi,"-").toLowerCase()}.webp`, dataUrlToBlob(image));
+      zip.file(`mockup-${String(index + 1).padStart(2,"0")}-${(result.catInfo?.name||"image").replace(/[^a-z0-9]+/gi,"-").toLowerCase()}.png`, dataUrlToBlob(image));
     });
 
     const blob = await zip.generateAsync({ type:"blob" });

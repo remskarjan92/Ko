@@ -552,7 +552,7 @@ app.post("/api/generate-image", async (req, res) => {
           ].join(" "),
           input_image: inputImage,
           aspect_ratio: "match_input_image",
-          output_format: "webp",
+          output_format: "png",
           output_quality: 85,
           num_inference_steps: 28,
           guidance: 2.5,
@@ -569,8 +569,8 @@ app.post("/api/generate-image", async (req, res) => {
     const d = await r.json();
     const outputUrl = getPredictionOutputUrl(d.output) || (await pollPrediction(d.id, replicate));
     const url = await toDataUrl(outputUrl);
-    console.log(`[generate-image ${requestId}] success`, { hasOutput: !!url, mimeType: "image/webp" });
-    res.json({ url, mimeType: "image/webp" });
+    console.log(`[generate-image ${requestId}] success`, { hasOutput: !!url, mimeType: "image/png" });
+    res.json({ url, mimeType: "image/png" });
   } catch (e) {
     console.error(`[generate-image ${requestId}] error`, e.message);
     res.status(500).json({ error: e.message });
