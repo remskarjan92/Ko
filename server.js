@@ -78,16 +78,43 @@ function sleep(ms) {
   return new Promise(resolve => setTimeout(resolve, ms));
 }
 
+function extractRateLimitWaitMs(res, bodyText = "") {
+  const header = res.headers?.get?.("retry-after") || "";
+  if (header) {
+    const seconds = Number(header);
+    if (Number.isFinite(seconds) && seconds > 0) return seconds * 1000;
+    const dateMs = Date.parse(header);
+    if (!Number.isNaN(dateMs)) return Math.max(0, dateMs - Date.now());
+  }
+
+  const source = `${bodyText} ${res.statusText || ""}`;
+  const patterns = [
+    /reset(?:s)? in ~?(\d+(?:\.\d+)?)s/i,
+    /retry after ~?(\d+(?:\.\d+)?)s/i,
+    /(\d+(?:\.\d+)?)\s*seconds/i,
+  ];
+  for (const pattern of patterns) {
+    const match = source.match(pattern);
+    if (match) return Math.max(0, Math.ceil(Number(match[1]) * 1000));
+  }
+  return 0;
+}
+
 async function fetchJsonWithRetry(url, options, { retries = 2, delayMs = 900, label = "request" } = {}) {
   let lastError = null;
   for (let attempt = 0; attempt <= retries; attempt++) {
     try {
       const res = await fetch(url, options);
-      if (!res.ok && (res.status === 429 || res.status >= 500) && attempt < retries) {
+      if (!res.ok && (res.status === 429 || res.status >= 500)) {
         const body = await res.text().catch(() => "");
-        console.warn(`[${label}] retry ${attempt + 1}/${retries + 1} -> HTTP ${res.status}`, body.slice(0, 160));
-        await sleep(delayMs * (attempt + 1));
-        continue;
+        const retryWait = res.status === 429 ? extractRateLimitWaitMs(res, body) : 0;
+        const wait = retryWait || (delayMs * (attempt + 1));
+        console.warn(`[${label}] retry ${attempt + 1}/${retries + 1} -> HTTP ${res.status} wait=${Math.ceil(wait / 1000)}s`, body.slice(0, 160));
+        if (attempt < retries) {
+          await sleep(wait);
+          continue;
+        }
+        throw new Error(body.slice(0, 240) || `HTTP ${res.status}`);
       }
       return res;
     } catch (err) {
@@ -288,9 +315,25 @@ app.post("/api/generate-prompts", async (req, res) => {
 async function pollPrediction(id, key) {
   for (let i = 0; i < 60; i++) {
     await new Promise(r => setTimeout(r, 2000));
-    const p = await (await fetch(`https://api.replicate.com/v1/predictions/${id}`, {
+    const r = await fetch(`https://api.replicate.com/v1/predictions/${id}`, {
       headers: { Authorization: `Bearer ${key}` },
-    })).json();
+    });
+    if (r.status === 429) {
+      const body = await r.text().catch(() => "");
+      const wait = extractRateLimitWaitMs(r, body) || 3000;
+      console.warn(`[pollPrediction ${id}] rate limited, waiting ${Math.ceil(wait / 1000)}s`);
+      await sleep(wait);
+      continue;
+    }
+    if (!r.ok) {
+      const body = await r.text().catch(() => "");
+      if (r.status >= 500) {
+        console.warn(`[pollPrediction ${id}] HTTP ${r.status}, retrying`, body.slice(0, 140));
+        continue;
+      }
+      throw new Error(body.slice(0, 240) || `HTTP ${r.status}`);
+    }
+    const p = await r.json();
     if (p.status === "succeeded") return getPredictionOutputUrl(p.output);
     if (p.status === "failed")    throw new Error("Replicate prediction failed");
   }
@@ -303,6 +346,21 @@ async function pollPredictionOutput(id, key) {
     const r = await fetch(`https://api.replicate.com/v1/predictions/${id}`, {
       headers: { Authorization: `Bearer ${key}` },
     });
+    if (r.status === 429) {
+      const body = await r.text().catch(() => "");
+      const wait = extractRateLimitWaitMs(r, body) || 3000;
+      console.warn(`[pollPredictionOutput ${id}] rate limited, waiting ${Math.ceil(wait / 1000)}s`);
+      await sleep(wait);
+      continue;
+    }
+    if (!r.ok) {
+      const body = await r.text().catch(() => "");
+      if (r.status >= 500) {
+        console.warn(`[pollPredictionOutput ${id}] HTTP ${r.status}, retrying`, body.slice(0, 140));
+        continue;
+      }
+      throw new Error(body.slice(0, 240) || `HTTP ${r.status}`);
+    }
     const p = await r.json();
     if (p.status === "succeeded") return p.output;
     if (p.status === "failed") throw new Error(p.error || "Replicate prediction failed");
@@ -319,7 +377,7 @@ async function runReplicateVersion(version, input, key) {
       Prefer: "wait",
     },
     body: JSON.stringify({ version, input }),
-  }, { retries: 2, delayMs: 800, label: "replicate-version" });
+  }, { retries: 4, delayMs: 1000, label: "replicate-version" });
 
   if (!r.ok) {
     const e = await r.json().catch(() => ({}));
@@ -501,7 +559,7 @@ app.post("/api/generate-image", async (req, res) => {
           go_fast: true,
         },
       }),
-    }, { retries: 2, delayMs: 1200, label: `flux-kontext ${requestId}` });
+    }, { retries: 4, delayMs: 1500, label: `flux-kontext ${requestId}` });
 
     if (!r.ok) {
       const e = await r.json().catch(() => ({}));
