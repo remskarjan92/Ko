@@ -467,6 +467,7 @@ function MockupCard({ result, catInfo, index, isOpen, onToggle, imgState, custom
   const busy = imgState?.status === "loading";
   const done = imgState?.status === "done";
   const fixing = imgState?.fixing;
+  const [detailsOpen, setDetailsOpen] = useState(false);
 
   return (
     <div style={{background:"rgba(255,255,255,0.022)",border:"1px solid rgba(255,255,255,0.07)",borderRadius:14,overflow:"hidden",marginBottom:8}}>
@@ -504,7 +505,7 @@ function MockupCard({ result, catInfo, index, isOpen, onToggle, imgState, custom
               <div style={{marginTop:10}}>
                 <img src={imgState.url} alt="mockup" style={{width:"100%",borderRadius:10,border:"1px solid rgba(255,255,255,0.08)",display:"block"}}/>
                 <div style={{display:"flex",gap:7,flexWrap:"wrap",alignItems:"center",marginTop:9}}>
-                  <a href={imgState.url} download={`mockup-${String(index+1).padStart(2,"0")}.webp`} style={{display:"inline-block",fontSize:11,color:"rgba(255,220,100,0.7)",fontFamily:"'DM Mono',monospace"}}>↓ prenesi sliko</a>
+                  <a href={imgState.url} download={`mockup-${String(index+1).padStart(2,"0")}.webp`} style={{display:"inline-flex",alignItems:"center",gap:4,padding:"6px 11px",borderRadius:999,border:"1px solid rgba(255,220,100,0.22)",background:"rgba(255,220,100,0.06)",color:"rgba(255,220,100,0.75)",fontSize:10,fontFamily:"'DM Mono',monospace",textDecoration:"none",lineHeight:1,whiteSpace:"nowrap"}}>↓ Prenesi</a>
                   <button onClick={()=>onGenImage()} disabled={busy} style={{padding:"6px 10px",borderRadius:8,border:"1px solid rgba(255,220,100,0.22)",background:"rgba(255,220,100,0.06)",color:"#FFDC64",fontSize:10,cursor:busy?"not-allowed":"pointer"}}>Regenerate</button>
                   <button onClick={onAiFix} disabled={fixing} style={{padding:"6px 10px",borderRadius:8,border:"1px solid rgba(90,180,255,0.25)",background:"rgba(90,180,255,0.08)",color:"rgba(160,210,255,0.95)",fontSize:10,cursor:fixing?"not-allowed":"pointer"}}>{fixing?"Thinking...":"🤖 AI Fix Suggestion"}</button>
                 </div>
@@ -518,15 +519,24 @@ function MockupCard({ result, catInfo, index, isOpen, onToggle, imgState, custom
             </div>
           </div>
 
-          <Field label="Category Research" value={result.categoryResearch} accent="rgba(90,180,255,0.28)"/>
-          <Field label="SEO Keywords"      value={result.categoryKeywords} accent="rgba(90,180,255,0.2)"/>
-          <Field label="Shirt Research"    value={result.shirtResearch}    accent="rgba(126,232,162,0.24)"/>
-          <Field label="Flux Prompt"       value={result.fluxPrompt}       accent="rgba(255,220,100,0.3)"/>
-          <Field label="Negative Prompt"   value={result.negativePrompt}  accent="rgba(255,100,100,0.28)"/>
-          <Field label="QA Checklist"      value={result.qaChecklist}     accent="rgba(126,232,162,0.28)"/>
-          <Field label="Auto Fix Prompt"   value={result.autoFix}         accent="rgba(180,130,255,0.28)"/>
-          <ManualFixCard mf={result.manualFix}/>
-          <Field label="Thumbnail Notes"   value={result.thumbnailNotes}  accent="rgba(255,180,80,0.28)"/>
+          <button onClick={()=>setDetailsOpen(o=>!o)} style={{display:"flex",alignItems:"center",gap:7,width:"100%",background:"rgba(255,255,255,0.03)",border:"1px solid rgba(255,255,255,0.07)",borderRadius:8,padding:"7px 11px",color:"rgba(255,255,255,0.4)",fontSize:10,fontFamily:"'DM Mono',monospace",letterSpacing:"0.08em",textTransform:"uppercase",cursor:"pointer",marginBottom:detailsOpen?10:0,transition:"margin 0.2s"}}>
+            <span style={{display:"inline-flex",alignItems:"center",justifyContent:"center",width:15,height:15,borderRadius:4,background:"rgba(255,255,255,0.06)",fontSize:12,lineHeight:1,transform:detailsOpen?"rotate(45deg)":"none",transition:"transform 0.2s",flexShrink:0}}>+</span>
+            <span>{detailsOpen?"Hide details":"Show details"}</span>
+          </button>
+
+          {detailsOpen&&(
+            <div style={{animation:"fadeUp 0.35s ease"}}>
+              <Field label="Category Research" value={result.categoryResearch} accent="rgba(90,180,255,0.28)"/>
+              <Field label="SEO Keywords"      value={result.categoryKeywords} accent="rgba(90,180,255,0.2)"/>
+              <Field label="Shirt Research"    value={result.shirtResearch}    accent="rgba(126,232,162,0.24)"/>
+              <Field label="Flux Prompt"       value={result.fluxPrompt}       accent="rgba(255,220,100,0.3)"/>
+              <Field label="Negative Prompt"   value={result.negativePrompt}  accent="rgba(255,100,100,0.28)"/>
+              <Field label="QA Checklist"      value={result.qaChecklist}     accent="rgba(126,232,162,0.28)"/>
+              <Field label="Auto Fix Prompt"   value={result.autoFix}         accent="rgba(180,130,255,0.28)"/>
+              <ManualFixCard mf={result.manualFix}/>
+              <Field label="Thumbnail Notes"   value={result.thumbnailNotes}  accent="rgba(255,180,80,0.28)"/>
+            </div>
+          )}
         </div>
       )}
     </div>

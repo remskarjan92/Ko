@@ -355,7 +355,7 @@ app.post("/api/analyze-shirt", async (req, res) => {
   try {
     const output = await runReplicateVersion(FLORENCE_VERSION, {
       image: `data:${imageType || "image/png"};base64,${imageBase64}`,
-      task_input: "<DETAILED_CAPTION>",
+      task_input: "Detailed Caption",
     }, replicate);
     res.json({ analysis: getPredictionText(output) });
   } catch (e) {
@@ -420,7 +420,7 @@ app.post("/api/generate-image", async (req, res) => {
       try {
         const output = await runReplicateVersion(FLORENCE_VERSION, {
           image: `data:${ref.imageType || "image/png"};base64,${ref.imageBase64}`,
-          task_input: "<DETAILED_CAPTION>",
+          task_input: "Detailed Caption",
         }, replicate);
         referenceNotes.push(`${ref.name || "Reference"}: ${getPredictionText(output)}`);
       } catch (e) {
