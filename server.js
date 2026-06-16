@@ -216,53 +216,115 @@ app.post("/api/test/replicate", async (req, res) => {
   }
 });
 
-// ─── System prompt ────────────────────────────────────────────────────────────
-const SYSTEM_PROMPT = `You are an elite Etsy mockup production architect specializing in high-converting apparel mockups.
+// ─── System prompt (KO v2 — Flux Kontext Master) ─────────────────────────────
+const SYSTEM_PROMPT = `You are KO, an elite Etsy POD mockup strategist and Flux Kontext optimization engine.
 
-Analyze the uploaded graphic design carefully — note its colors, style, mood, typography, and theme. Use these observations to select optimal shirt colors, scenes, and styling for maximum Etsy conversion.
+Your purpose is not simply to generate mockup prompts. Your purpose is to maximize: Etsy click-through rate, conversion rate, design visibility, mockup realism, catalog diversity, and brand consistency.
 
-You must think like: top Etsy apparel sellers, fashion product photographers, conversion-focused creative directors, realistic textile rendering specialists, and ecommerce thumbnail optimizers.
+The uploaded image is the user's design. The design image is always the highest priority asset — it must be treated as fixed, pixel-exact content, never a loose style reference.
 
-For EACH of the categories given, return output in this EXACT format with NO deviations:
+PRIMARY OBJECTIVE
+Every concept must: preserve the exact design from the reference image; showcase the design clearly; feel authentic and commercially viable; look like a top-performing Etsy listing; be diverse from every other concept in this batch AND from concepts listed under PREVIOUSLY USED ATTRIBUTES below. Never generate concepts that feel repetitive, generic, AI-generated, or stock-photo-like.
 
----MOCKUP_START---
-CATEGORY: [exact category name]
-SHIRT_COLOR_PRIMARY: [specific color name]
-SHIRT_COLOR_SECONDARY: [specific backup color name]
-COLOR_REASONING: [1 sentence explaining color choice based on design analysis]
-CATEGORY_RESEARCH: [2-4 sentences. Deep category analysis covering buyer intent, visual hook, best-seller angle, and how this design should be positioned in the Etsy market.]
-CATEGORY_KEYWORDS: [8-12 comma-separated SEO phrases that match the niche, audience, and style]
-SHIRT_RESEARCH: [2-4 sentences. Explain the shirt type, silhouette, fit, fabric feel, and why it best matches the uploaded design and reference garment.]
-FLUX_PROMPT: [100-140 word Flux prompt. Must feel like real ecommerce photography — authentic cotton texture, believable natural lighting, preserve uploaded design exactly, no CGI, no AI hands, no warped text, no fake bokeh, candid imperfect energy, social-media-native composition, and clearly respect the chosen shirt type/research.]
-NEGATIVE_PROMPT: [40-50 comma-separated negative terms covering: CGI, plastic fabric, AI hands, warped text, distorted graphics, impossible shadows, fake bokeh, oversaturated colors, symmetrical composition, floating garments, broken seams, glossy fabric, hyper HDR, uncanny faces, mannequin plastic, neon lighting, overdesigned interiors, generic shirt mislabeling, incorrect garment silhouette]
-QA_CHECKLIST: [exactly 5 bullet points checking: print alignment, anatomy/pose, shadow realism, seam integrity, typography legibility, and shirt-model accuracy specific to this shot type]
-AUTO_FIX_PROMPT: [2-3 sentences. Surgical correction prompt that preserves entire composition — only repairs detected anomaly, maintains original lighting, garment texture, pose, design scale, scene continuity, and shirt identity]
-MANUAL_FIX_TEMPLATE:
-Issue: [describe the type of issue this template addresses]
-Target Area: [specific area of the image to target]
-Desired Correction: [what the corrected result should look like]
-Elements To Preserve: [list what must not change during correction]
-Correction Strength: [subtle / moderate / strong — with reasoning]
-THUMBNAIL_NOTES: [2-3 sentences on mobile optimization: design visibility at small size, contrast level, composition crop for Etsy search grid, emotional clickability]
----MOCKUP_END---
+DESIGN VISIBILITY RULES (highest priority after design fidelity)
+- Design fully visible, no hands/hair/jackets/folds/props covering any part of it
+- No cropping into the design, no extreme side angles, no excessive motion blur
+- Score every concept's design_visibility_score 0-10; a concept under 8 must be revised before output
 
-GLOBAL RULES — every FLUX_PROMPT must:
+DIVERSITY ENGINE
+Track the PREVIOUSLY USED ATTRIBUTES list provided in the user message (room/environment, pose, camera angle, model age range, ethnicity, body type, clothing color, lighting). Each concept in this batch must avoid repeating any combination already used. Each concept should feel like a different photoshoot — vary environment, buyer persona, pose, camera lens/angle, and lighting per concept within the batch too.
+
+CAMERA SYSTEM — pick from: lenses 35mm/50mm/85mm; angles straight-on/slight left/slight right/slight high-angle. Avoid extreme angles, fish-eye, dramatic distortion.
+LIGHTING SYSTEM — pick from: natural window light, soft morning sunlight, golden hour, bright indoor daylight, professional studio light. Avoid harsh shadows, overexposure, unrealistic cinematic lighting.
+POSE SYSTEM — pick from: standing relaxed, walking naturally, holding coffee mug, hands in pockets, sitting casually, looking out window, leaning on counter. Avoid influencer poses, fashion runway poses, awkward AI body language.
+
+FLUX KONTEXT PROMPT RULES — every flux_prompt must:
+1) Open with this exact non-negotiable block: "Use the exact design from the reference image. Preserve all typography, colors, linework, proportions, spacing, and graphic elements exactly as shown. Do not redraw, reinterpret, restyle, modify text, change colors, change proportions, remove elements, or add elements to the design."
+2) Then: "Place the design naturally on a premium high-quality t-shirt." followed by model description, pose, environment, lighting, and camera setup (100-140 words total for this section).
+3) Close with: "The design must remain fully visible and unobstructed. No hands covering the artwork. No hair covering the artwork. No folds obscuring important design elements. Professional Etsy bestseller mockup photography. Commercial product photography. Photorealistic. Authentic human appearance. Natural fabric texture. Realistic shadows. High-end ecommerce image."
+Never: redraw, reinterpret, stylize, modify text, change colors, change proportions, remove elements, add elements to the design itself.
+
+For EACH category given, return output as a single JSON object inside the array — no markdown, no prose outside the JSON. Respond with ONLY a JSON array, one object per category, in this EXACT shape:
+
+[
+  {
+    "category": "exact category name",
+    "concept_name": "short evocative concept name",
+    "shirt_color_primary": "specific color name",
+    "shirt_color_secondary": "specific backup color name",
+    "color_reasoning": "1 sentence explaining color choice based on design analysis",
+    "design_analysis": {
+      "niche": "", "sub_niche": "", "target_audience": "", "humor_type": "",
+      "emotional_trigger": "", "graphic_complexity": "", "visual_weight": "",
+      "primary_colors": [], "estimated_buyer_age": "", "gift_potential": "",
+      "seasonality": "", "etsy_fit_score": 0
+    },
+    "category_research": "2-4 sentences: buyer intent, visual hook, best-seller angle, Etsy market positioning",
+    "category_keywords": "8-12 comma-separated SEO phrases",
+    "shirt_research": "2-4 sentences: shirt type, silhouette, fit, fabric feel, why it matches the design",
+    "environment": "specific environment/room used in this concept",
+    "target_buyer": "specific buyer persona used in this concept",
+    "pose": "specific pose used",
+    "camera_setup": "lens + angle used",
+    "lighting": "lighting style used",
+    "flux_prompt": "100-160 word Flux Kontext prompt following the FLUX KONTEXT PROMPT RULES above",
+    "negative_prompt": "40-50 comma-separated negative terms: CGI, plastic fabric, AI hands, warped text, distorted graphics, impossible shadows, fake bokeh, oversaturated colors, symmetrical composition, floating garments, broken seams, glossy fabric, hyper HDR, uncanny faces, mannequin plastic, neon lighting, overdesigned interiors, generic shirt mislabeling, incorrect garment silhouette, extreme angles, fish-eye distortion",
+    "qa_checklist": "exactly 5 bullet points (use \\n between them) checking: print alignment, anatomy/pose, shadow realism, seam integrity, typography legibility, shirt-model accuracy",
+    "auto_fix_prompt": "2-3 sentences: surgical correction prompt that fixes only the detected anomaly. Must state 'Use the exact design from the reference image, unchanged' and list what to preserve: composition, lighting, garment texture, pose, design scale/typography/colors, scene continuity, shirt identity",
+    "manual_fix_template": {
+      "issue": "type of issue this template addresses",
+      "target_area": "specific area of the image to target",
+      "desired_correction": "what the corrected result should look like",
+      "elements_to_preserve": "what must not change during correction",
+      "correction_strength": "subtle / moderate / strong — with reasoning"
+    },
+    "thumbnail_notes": "2-3 sentences: mobile optimization, design visibility at small size, contrast, Etsy search-grid crop, emotional clickability",
+    "design_visibility_score": 0,
+    "etsy_conversion_score": 0,
+    "realism_score": 0,
+    "scroll_stop_score": 0,
+    "giftability_score": 0,
+    "overall_score": 0
+  }
+]
+
+GLOBAL RULES — every flux_prompt must:
+- ALWAYS open with the exact non-negotiable preservation instruction before any scene/photography description
+- Treat the uploaded design as fixed pixel-perfect content, never a "style reference"
 - Feel like real ecommerce or UGC photography, never AI-generated or CGI
-- Preserve the uploaded design exactly with full print readability
+- Keep full print readability and the design 100% unobstructed
 - Use authentic cotton/fabric texture with believable natural wrinkles
 - Apply candid imperfect energy — asymmetrical, lived-in, not studio-perfect
 - Match the scene to the niche and target audience emotionally
 - Respect the chosen shirt type or, when asked to match the picture, infer the garment from the uploaded reference with maximum realism
-- Keep the shirt silhouette, collar, sleeve length, and fit believable for the named garment
-- Avoid: glossy fabric, fake depth blur, hyper-HDR, symmetrical AI composition, floating garments, broken seams, oversaturated colors, synthetic facial expressions, repetitive layouts`;
+- Keep the shirt silhouette, collar, sleeve length, and fit believable
+- Avoid: glossy fabric, fake depth blur, hyper-HDR, symmetrical AI composition, floating garments, broken seams, oversaturated colors, synthetic facial expressions, repetitive layouts, extreme angles, fish-eye distortion
+
+Respond with ONLY the JSON array. No markdown code fences, no commentary before or after.`;
 
 // ─── Prompt generation ────────────────────────────────────────────────────────
+function extractJsonArray(text) {
+  if (!text) return [];
+  let cleaned = text.trim();
+  cleaned = cleaned.replace(/^```(?:json)?\s*/i, "").replace(/```\s*$/, "").trim();
+  const start = cleaned.indexOf("[");
+  const end = cleaned.lastIndexOf("]");
+  if (start === -1 || end === -1 || end < start) return [];
+  const slice = cleaned.slice(start, end + 1);
+  try {
+    const parsed = JSON.parse(slice);
+    return Array.isArray(parsed) ? parsed : [];
+  } catch {
+    return [];
+  }
+}
+
 app.post("/api/generate-prompts", async (req, res) => {
   if (!requireAdmin(req, res)) return;
   const {
     batch, imageBase64, imageType,
     brandStyle, niche, audience, shirtModel, shirtName, shirtMode, designAnalysis, autoDetect, sceneDirection, mockupCount,
-    learningContext
+    learningContext, usedAttributes
   } = req.body;
 
   const { gemini } = loadKeys();
@@ -275,7 +337,13 @@ app.post("/api/generate-prompts", async (req, res) => {
     ? `Match the shirt in the uploaded picture as closely as possible. If the garment is not a common catalog item, infer the most accurate silhouette, fabric weight, sleeve length, and fit from the reference image.`
     : `Use this shirt type as the main research anchor: ${shirtModel || "Unisex Classic Tee"}.${shirtName ? ` Additional shirt name for research: ${shirtName}.` : ""}`;
 
-  const userMessage = `Generate mockup prompts for these ${batch.length} categories:\n${list}\n\nDesign Details:\n- Brand Style: ${brandStyle || "Modern, clean, approachable"}\n- Niche: ${niche || "General apparel"}\n- Target Audience: ${audience || "General buyers"}\n- Shirt Type Mode: ${shirtMode === "__match_picture__" ? "Match the picture" : "Catalog shirt"}\n- Shirt Model: ${shirtModel || "Unisex Classic Tee"}\n- Shirt Name for Research: ${shirtName || "Not provided"}\n- Autodetect Enabled: ${autoDetect ? "Yes" : "No"}\n- Replicate Image-to-Text Analysis: ${designAnalysis || "Not provided"}\n- Shirt Research Instruction: ${shirtContext}\n- Scene Direction: ${sceneDirection || "Natural authentic lifestyle scenes"}\n- Total mockups requested: ${mockupCount || batch.length}\n- Learning Memory: ${learningContext || "None yet"}\n\nAnalyze the uploaded design deeply and generate all ${batch.length} mockup prompts now. Use the Replicate image-to-text analysis when present. Do category research first, then shirt research, then write the prompt outputs. Follow the format exactly.`;
+  const diversitySummary = Array.isArray(usedAttributes) && usedAttributes.length
+    ? usedAttributes.slice(-30).map(a =>
+        `env:${a.environment||"?"} | pose:${a.pose||"?"} | camera:${a.camera||"?"} | age:${a.age||"?"} | ethnicity:${a.ethnicity||"?"} | clothingColor:${a.clothingColor||"?"}`
+      ).join("\n")
+    : "None yet — this is the first batch.";
+
+  const userMessage = `Generate mockup prompts for these ${batch.length} categories:\n${list}\n\nDesign Details:\n- Brand Style: ${brandStyle || "Modern, clean, approachable"}\n- Niche: ${niche || "General apparel"}\n- Target Audience: ${audience || "General buyers"}\n- Shirt Type Mode: ${shirtMode === "__match_picture__" ? "Match the picture" : "Catalog shirt"}\n- Shirt Model: ${shirtModel || "Unisex Classic Tee"}\n- Shirt Name for Research: ${shirtName || "Not provided"}\n- Autodetect Enabled: ${autoDetect ? "Yes" : "No"}\n- Replicate Image-to-Text Analysis: ${designAnalysis || "Not provided"}\n- Shirt Research Instruction: ${shirtContext}\n- Scene Direction: ${sceneDirection || "Natural authentic lifestyle scenes"}\n- Total mockups requested: ${mockupCount || batch.length}\n- Learning Memory: ${learningContext || "None yet"}\n\nPREVIOUSLY USED ATTRIBUTES (avoid repeating these combinations — pick different environment/pose/camera/age/ethnicity/clothing color for each new concept):\n${diversitySummary}\n\nAnalyze the uploaded design deeply and generate all ${batch.length} mockup concepts now. Use the Replicate image-to-text analysis when present. Respond with ONLY a JSON array as specified — no markdown, no commentary.`;
 
   try {
     const r = await fetch("https://generativelanguage.googleapis.com/v1beta/models/gemini-2.5-flash:generateContent", {
@@ -286,7 +354,7 @@ app.post("/api/generate-prompts", async (req, res) => {
       },
       body: JSON.stringify({
         systemInstruction: { parts: [{ text: SYSTEM_PROMPT }] },
-        generationConfig: { maxOutputTokens: 8000 },
+        generationConfig: { maxOutputTokens: 8000, responseMimeType: "application/json" },
         contents: [{
           role: "user",
           parts: [
@@ -305,7 +373,8 @@ app.post("/api/generate-prompts", async (req, res) => {
     const d = await r.json();
     if (d.error) throw new Error(d.error.message);
     const raw = getGeminiText(d);
-    res.json({ raw });
+    const concepts = extractJsonArray(raw);
+    res.json({ raw, concepts });
   } catch (e) {
     res.status(500).json({ error: e.message });
   }
@@ -468,7 +537,27 @@ app.post("/api/ai-fix-suggestion", async (req, res) => {
 
   try {
     const parts = [
-      { text: `You are an ecommerce mockup QA editor. Suggest one concise corrective prompt for regenerating this mockup. Preserve the garment design exactly.\n\nOriginal Flux prompt:\n${fluxPrompt || ""}\n\nQA checklist:\n${qaChecklist || ""}\n\nUser requested change:\n${customPrompt || "No custom change provided."}\n\nReturn only the improved correction prompt, 1-3 sentences.` },
+      { text: `You are an ecommerce mockup QA editor performing a SURGICAL correction, not a redo.
+
+Non-negotiable rules:
+- The uploaded design (typography, colors, linework, proportions, spacing, graphic elements) must remain pixel-exact. Never redraw, restyle, or reinterpret it.
+- Fix ONLY the specific anomaly described below. Do not touch lighting, pose, garment, background, or composition unless that IS the anomaly.
+- The design must stay fully visible and unobstructed in the corrected result.
+
+Original Flux prompt (for context — preserve everything in it that isn't the flagged issue):
+${fluxPrompt || ""}
+
+QA checklist flags:
+${qaChecklist || ""}
+
+User requested change:
+${customPrompt || "No custom change provided — infer the single most likely defect from the QA checklist and image."}
+
+Return ONLY a corrective instruction (2-3 sentences) in this shape:
+1) Name the exact defect to fix.
+2) State the precise correction.
+3) State explicitly what must remain unchanged (design fidelity, lighting, pose, garment, scene).
+No preamble, no extra commentary — just the correction prompt.` },
     ];
     if (imageBase64) {
       parts.unshift({

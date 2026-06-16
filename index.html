@@ -29,6 +29,7 @@ const { useState, useRef, useEffect } = React;
 const ADMIN_TOKEN_STORAGE_KEY = "etsy_mockup_admin_token";
 const PROMPT_RATINGS_STORAGE_KEY = "etsy_mockup_prompt_ratings_v1";
 const PROMPT_LEARNING_ENABLED_KEY = "etsy_mockup_prompt_learning_enabled_v1";
+const DIVERSITY_HISTORY_STORAGE_KEY = "etsy_mockup_diversity_history_v1";
 
 // ─── 18 categories split into 3 batches of 6 ─────────────────────────────────
 const ALL_BATCHES = [
@@ -88,52 +89,64 @@ const TABS = [
 
 // ─── Parse batch output ───────────────────────────────────────────────────────
 // FIX: now parses MANUAL_FIX_TEMPLATE as a multi-line block
-function parseBatch(raw) {
-  return raw.split("---MOCKUP_START---").slice(1).map(block => {
-    const s = block.split("---MOCKUP_END---")[0].trim();
+function parseBatch(raw, concepts) {
+  // Prefer pre-parsed concepts array from the server; fall back to parsing raw JSON text.
+  const list = Array.isArray(concepts) && concepts.length ? concepts : safeParseConceptsJson(raw);
+  return list.map(c => ({
+    category:         c.category || "",
+    conceptName:      c.concept_name || "",
+    primaryColor:     c.shirt_color_primary || "",
+    secondaryColor:   c.shirt_color_secondary || "",
+    colorReasoning:   c.color_reasoning || "",
+    designAnalysis:   c.design_analysis || null,
+    categoryResearch: c.category_research || "",
+    categoryKeywords: c.category_keywords || "",
+    shirtResearch:    c.shirt_research || "",
+    environment:      c.environment || "",
+    targetBuyer:      c.target_buyer || "",
+    pose:             c.pose || "",
+    cameraSetup:      c.camera_setup || "",
+    lighting:         c.lighting || "",
+    fluxPrompt:       c.flux_prompt || "",
+    negativePrompt:   c.negative_prompt || "",
+    qaChecklist:      c.qa_checklist || "",
+    autoFix:          c.auto_fix_prompt || "",
+    thumbnailNotes:   c.thumbnail_notes || "",
+    manualFix: {
+      issue:       c.manual_fix_template?.issue || "",
+      targetArea:  c.manual_fix_template?.target_area || "",
+      correction:  c.manual_fix_template?.desired_correction || "",
+      preserve:    c.manual_fix_template?.elements_to_preserve || "",
+      strength:    c.manual_fix_template?.correction_strength || "",
+    },
+    scores: {
+      designVisibility: numOr0(c.design_visibility_score),
+      etsyConversion:   numOr0(c.etsy_conversion_score),
+      realism:          numOr0(c.realism_score),
+      scrollStop:       numOr0(c.scroll_stop_score),
+      giftability:      numOr0(c.giftability_score),
+      overall:          numOr0(c.overall_score),
+    },
+  }));
+}
 
-    // For single-line fields
-    const getLine = k => {
-      const m = s.match(new RegExp(`^${k}:\\s*(.+)$`, "m"));
-      return m ? m[1].trim() : "";
-    };
+function numOr0(v) {
+  const n = Number(v);
+  return Number.isFinite(n) ? n : 0;
+}
 
-    // For multi-line fields (up to next ALL_CAPS field or end)
-    const getBlock = k => {
-      const m = s.match(new RegExp(`${k}:\\s*([\\s\\S]*?)(?=\\n[A-Z_]+:|---MOCKUP_END---|$)`));
-      return m ? m[1].trim() : "";
-    };
-
-    // Manual fix template: parse its sub-fields
-    const mftRaw = getBlock("MANUAL_FIX_TEMPLATE");
-    const mftField = k => {
-      const m = mftRaw.match(new RegExp(`${k}:\\s*(.+)`));
-      return m ? m[1].trim() : "";
-    };
-
-    return {
-      category:         getLine("CATEGORY"),
-      primaryColor:     getLine("SHIRT_COLOR_PRIMARY"),
-      secondaryColor:   getLine("SHIRT_COLOR_SECONDARY"),
-      colorReasoning:   getLine("COLOR_REASONING"),
-      categoryResearch: getBlock("CATEGORY_RESEARCH"),
-      categoryKeywords: getBlock("CATEGORY_KEYWORDS"),
-      shirtResearch:    getBlock("SHIRT_RESEARCH"),
-      fluxPrompt:       getBlock("FLUX_PROMPT"),
-      negativePrompt:   getBlock("NEGATIVE_PROMPT"),
-      qaChecklist:      getBlock("QA_CHECKLIST"),
-      autoFix:          getBlock("AUTO_FIX_PROMPT"),
-      thumbnailNotes:   getBlock("THUMBNAIL_NOTES"),
-      // FIX: Manual fix template now parsed and stored
-      manualFix: {
-        issue:       mftField("Issue"),
-        targetArea:  mftField("Target Area"),
-        correction:  mftField("Desired Correction"),
-        preserve:    mftField("Elements To Preserve"),
-        strength:    mftField("Correction Strength"),
-      },
-    };
-  });
+function safeParseConceptsJson(raw) {
+  if (!raw) return [];
+  let cleaned = raw.trim().replace(/^```(?:json)?\s*/i, "").replace(/```\s*$/, "").trim();
+  const start = cleaned.indexOf("[");
+  const end = cleaned.lastIndexOf("]");
+  if (start === -1 || end === -1 || end < start) return [];
+  try {
+    const parsed = JSON.parse(cleaned.slice(start, end + 1));
+    return Array.isArray(parsed) ? parsed : [];
+  } catch {
+    return [];
+  }
 }
 
 // ─── API helpers ──────────────────────────────────────────────────────────────
@@ -234,6 +247,27 @@ function makePromptId() {
   return `${Date.now()}-${Math.random().toString(36).slice(2, 8)}`;
 }
 
+function loadDiversityHistory() {
+  const records = loadJsonStorage(DIVERSITY_HISTORY_STORAGE_KEY, []);
+  return Array.isArray(records) ? records : [];
+}
+
+function appendDiversityHistory(history, entries) {
+  const next = [...history, ...entries];
+  return next.slice(-60); // keep a rolling window; no DB needed
+}
+
+function extractAttributesFromConcept(data) {
+  return {
+    environment: data.environment || "",
+    pose: data.pose || "",
+    camera: data.cameraSetup || "",
+    age: data.designAnalysis?.estimated_buyer_age || "",
+    ethnicity: "", // not collected from model output; reserved for future expansion
+    clothingColor: data.primaryColor || "",
+  };
+}
+
 function loadPromptRatings() {
   const records = loadJsonStorage(PROMPT_RATINGS_STORAGE_KEY, []);
   return Array.isArray(records) ? records : [];
@@ -252,12 +286,22 @@ function upsertPromptRating(records, next) {
     updatedAt: new Date().toISOString(),
   };
   const existingIndex = records.findIndex(r => r.promptId === clean.promptId);
-  if (!rating) {
-    return existingIndex >= 0 ? records.filter(r => r.promptId !== clean.promptId) : records;
+  const hasInteractionFlags = clean.regenerated || clean.selected || clean.exported;
+  if (!rating && !hasInteractionFlags) {
+    return existingIndex >= 0 && !records[existingIndex].regenerated && !records[existingIndex].selected && !records[existingIndex].exported
+      ? records.filter(r => r.promptId !== clean.promptId)
+      : records;
   }
   if (existingIndex >= 0) {
     const prev = records[existingIndex];
-    const merged = { ...prev, ...clean, createdAt: prev.createdAt || clean.createdAt || new Date().toISOString() };
+    const merged = {
+      ...prev, ...clean,
+      rating: rating || prev.rating || 0,
+      regenerated: prev.regenerated || clean.regenerated || false,
+      selected: prev.selected || clean.selected || false,
+      exported: prev.exported || clean.exported || false,
+      createdAt: prev.createdAt || clean.createdAt || new Date().toISOString(),
+    };
     return records.map(r => r.promptId === clean.promptId ? merged : r);
   }
   return [...records, { ...clean, createdAt: clean.createdAt || new Date().toISOString() }];
@@ -266,26 +310,34 @@ function upsertPromptRating(records, next) {
 function aggregateRatingGroups(records, key) {
   const groups = new Map();
   records.forEach(record => {
-    if (!record.rating) return;
     const value = (record[key] || "").trim();
     if (!value) return;
-    const current = groups.get(value) || { label: value, sum: 0, count: 0 };
-    current.sum += Number(record.rating) || 0;
+    // Composite score: explicit star rating is primary signal, but selections/exports
+    // (the KO v2 "selected/exported" learning signals) count even without a star rating.
+    const signalScore = Number(record.rating) || 0;
+    const interactionBoost = (record.selected ? 1 : 0) + (record.exported ? 1.5 : 0) + (record.regenerated ? -0.5 : 0);
+    if (!signalScore && !interactionBoost) return;
+    const current = groups.get(value) || { label: value, sum: 0, count: 0, interactions: 0 };
+    current.sum += signalScore;
+    current.interactions += interactionBoost;
     current.count += 1;
     groups.set(value, current);
   });
   return Array.from(groups.values())
-    .map(item => ({ ...item, avg: item.count ? item.sum / item.count : 0 }))
-    .sort((a, b) => b.avg - a.avg || b.count - a.count)
+    .map(item => ({ ...item, avg: item.count ? item.sum / item.count : 0, weighted: (item.sum + item.interactions) }))
+    .sort((a, b) => b.weighted - a.weighted || b.count - a.count)
     .slice(0, 3);
 }
 
 function buildLearningStats(records) {
   const rated = records.filter(r => Number(r.rating) > 0);
-  const learned = records.filter(r => Number(r.rating) >= 4);
+  const learned = records.filter(r => Number(r.rating) >= 4 || r.selected || r.exported);
   const total = rated.length;
   const avg = total ? (rated.reduce((sum, r) => sum + Number(r.rating || 0), 0) / total).toFixed(1) : "0.0";
   const strong = learned.length;
+  const selectedCount = records.filter(r => r.selected).length;
+  const exportedCount = records.filter(r => r.exported).length;
+  const regeneratedCount = records.filter(r => r.regenerated).length;
   const cat = aggregateRatingGroups(records, "categoryName");
   const aud = aggregateRatingGroups(records, "audience");
   const shirt = aggregateRatingGroups(records, "shirtType");
@@ -293,11 +345,12 @@ function buildLearningStats(records) {
 
   const learningContext = learned.length
     ? [
-        `Use these high-rated patterns as soft preferences only:`,
+        `Use these high-performing patterns (rated, selected, or exported by the user) as soft preferences only:`,
         cat.length ? `Top categories: ${cat.map(item => item.label).join(", ")}.` : "",
         aud.length ? `Best audiences: ${aud.map(item => item.label).join(", ")}.` : "",
         shirt.length ? `Best shirt types: ${shirt.map(item => item.label).join(", ")}.` : "",
         scene.length ? `Best scene directions: ${scene.map(item => item.label).join(", ")}.` : "",
+        regeneratedCount ? `Note: ${regeneratedCount} prior concepts were regenerated due to quality issues — favor design-fidelity and visibility above all else.` : "",
         `Keep the uploaded design, shirt identity, and category brief higher priority than any learned preference.`,
       ].filter(Boolean).join(" ")
     : "";
@@ -310,6 +363,9 @@ function buildLearningStats(records) {
     aud,
     shirt,
     scene,
+    selectedCount,
+    exportedCount,
+    regeneratedCount,
     learningContext,
   };
 }
@@ -369,6 +425,20 @@ function ManualFixCard({ mf }) {
           </div>
         ) : null)}
       </div>
+    </div>
+  );
+}
+
+function ScoreBar({ label, value }) {
+  const v = Math.max(0, Math.min(10, Number(value) || 0));
+  const color = v >= 8 ? "#7EE8A2" : v >= 5 ? "#FFDC64" : "#FF8A8A";
+  return (
+    <div style={{display:"flex",alignItems:"center",gap:8,marginBottom:5}}>
+      <span style={{fontSize:9,color:"rgba(255,255,255,0.4)",width:92,flexShrink:0,fontFamily:"'DM Mono',monospace",textTransform:"uppercase",letterSpacing:"0.04em"}}>{label}</span>
+      <div style={{flex:1,height:5,borderRadius:3,background:"rgba(255,255,255,0.06)",overflow:"hidden"}}>
+        <div style={{width:`${v*10}%`,height:"100%",background:color,borderRadius:3,transition:"width 0.3s"}}/>
+      </div>
+      <span style={{fontSize:10,color,width:24,textAlign:"right",fontFamily:"'DM Mono',monospace",flexShrink:0}}>{v.toFixed(1)}</span>
     </div>
   );
 }
@@ -566,7 +636,7 @@ function SettingsModal({ onClose, onKeysUpdated }) {
 }
 
 // ─── Mockup card ──────────────────────────────────────────────────────────────
-function MockupCard({ result, catInfo, index, isOpen, onToggle, imgState, customPrompt, onCustomPrompt, onGenImage, onAiFix, rating, onRate }) {
+function MockupCard({ result, catInfo, index, isOpen, onToggle, imgState, customPrompt, onCustomPrompt, onGenImage, onAiFix, rating, onRate, onMarkSelected }) {
   const busy = imgState?.status === "loading";
   const done = imgState?.status === "done";
   const fixing = imgState?.fixing;
@@ -601,7 +671,7 @@ function MockupCard({ result, catInfo, index, isOpen, onToggle, imgState, custom
             {busy ? <><Spinner size={11}/><span>Generating</span></> : done ? <>↻ <span>Regenerate</span></> : <>🖼 <span>Generate</span></>}
           </button>
           {done && imgState?.url ? (
-            <a href={imgState.url} download={downloadName} style={{display:"inline-flex",alignItems:"center",gap:4,padding:"6px 11px",borderRadius:999,border:"1px solid rgba(255,220,100,0.22)",background:"rgba(255,220,100,0.06)",color:"rgba(255,220,100,0.75)",fontSize:10,fontFamily:"'DM Mono',monospace",textDecoration:"none",lineHeight:1,whiteSpace:"nowrap"}}>↓ Download PNG</a>
+            <a href={imgState.url} download={downloadName} onClick={onMarkSelected} style={{display:"inline-flex",alignItems:"center",gap:4,padding:"6px 11px",borderRadius:999,border:"1px solid rgba(255,220,100,0.22)",background:"rgba(255,220,100,0.06)",color:"rgba(255,220,100,0.75)",fontSize:10,fontFamily:"'DM Mono',monospace",textDecoration:"none",lineHeight:1,whiteSpace:"nowrap"}}>↓ Download PNG</a>
           ) : (
             <button disabled style={{display:"inline-flex",alignItems:"center",gap:4,padding:"6px 11px",borderRadius:999,border:"1px solid rgba(255,255,255,0.08)",background:"rgba(255,255,255,0.03)",color:"rgba(255,255,255,0.25)",fontSize:10,fontFamily:"'DM Mono',monospace",lineHeight:1,whiteSpace:"nowrap",cursor:"not-allowed"}}>↓ Download</button>
           )}
@@ -654,6 +724,26 @@ function MockupCard({ result, catInfo, index, isOpen, onToggle, imgState, custom
 
           {detailsOpen&&(
             <div style={{animation:"fadeUp 0.35s ease"}}>
+              {result.scores&&(
+                <div style={{background:"rgba(255,255,255,0.025)",border:"1px solid rgba(255,255,255,0.06)",borderRadius:10,padding:"10px 12px",marginBottom:9}}>
+                  <ScoreBar label="Visibility"  value={result.scores.designVisibility}/>
+                  <ScoreBar label="Conversion"  value={result.scores.etsyConversion}/>
+                  <ScoreBar label="Realism"     value={result.scores.realism}/>
+                  <ScoreBar label="Scroll-stop" value={result.scores.scrollStop}/>
+                  <ScoreBar label="Giftability" value={result.scores.giftability}/>
+                  <div style={{height:1,background:"rgba(255,255,255,0.07)",margin:"7px 0"}}/>
+                  <ScoreBar label="Overall"     value={result.scores.overall}/>
+                </div>
+              )}
+              {(result.environment||result.targetBuyer||result.pose||result.cameraSetup)&&(
+                <div style={{display:"flex",flexWrap:"wrap",gap:6,marginBottom:9}}>
+                  {result.environment&&<Tag>📍 {result.environment}</Tag>}
+                  {result.targetBuyer&&<Tag>👤 {result.targetBuyer}</Tag>}
+                  {result.pose&&<Tag>🧍 {result.pose}</Tag>}
+                  {result.cameraSetup&&<Tag>📷 {result.cameraSetup}</Tag>}
+                  {result.lighting&&<Tag>💡 {result.lighting}</Tag>}
+                </div>
+              )}
               <Field label="Category Research" value={result.categoryResearch} accent="rgba(90,180,255,0.28)"/>
               <Field label="SEO Keywords"      value={result.categoryKeywords} accent="rgba(90,180,255,0.2)"/>
               <Field label="Shirt Research"    value={result.shirtResearch}    accent="rgba(126,232,162,0.24)"/>
@@ -705,6 +795,7 @@ function App() {
   const [genAllBusy,setGenAllBusy]= useState(false);
   const [promptRatings, setPromptRatings] = useState([]);
   const [learningEnabled, setLearningEnabled] = useState(true);
+  const [diversityHistory, setDiversityHistory] = useState([]);
 
   const fileRef = useRef();
   const refsRef = useRef();
@@ -725,6 +816,7 @@ function App() {
   useEffect(() => {
     setPromptRatings(loadPromptRatings());
     setLearningEnabled(loadLearningEnabled());
+    setDiversityHistory(loadDiversityHistory());
   }, []);
 
   useEffect(() => {
@@ -734,6 +826,10 @@ function App() {
   useEffect(() => {
     saveJsonStorage(PROMPT_LEARNING_ENABLED_KEY, learningEnabled);
   }, [learningEnabled]);
+
+  useEffect(() => {
+    saveJsonStorage(DIVERSITY_HISTORY_STORAGE_KEY, diversityHistory);
+  }, [diversityHistory]);
 
   const setImg = (id, patch) => setImgStates(s => ({...s, [id]:{...(s[id]||{}), ...patch}}));
   const setCustomPrompt = (id, value) => setCustomPrompts(s => ({...s, [id]: value}));
@@ -822,6 +918,7 @@ function App() {
     try {
       const analysis = form.autoDetect ? (designAnalysis || await analyzeDesign()) : "";
       const learningContext = learningEnabled ? promptStats.learningContext : "";
+      let runningHistory = diversityHistory;
       for (let i = 0; i < activeBatches.length; i++) {
         setProgLabel(labels[i] || "Generiram dodatne mockupe…");
         const d = await apiFetch("/api/generate-prompts", {
@@ -836,8 +933,9 @@ function App() {
           autoDetect: form.autoDetect,
           sceneDirection: form.sceneDirection, mockupCount: form.mockupCount,
           learningContext,
+          usedAttributes: runningHistory,
         });
-        const parsed = parseBatch(d.raw);
+        const parsed = parseBatch(d.raw, d.concepts);
         activeBatches[i].forEach((cat, j) => all.push({
           catInfo: cat,
           promptId: makePromptId(),
@@ -855,11 +953,14 @@ function App() {
             designAnalysis: analysis,
             generatedAt: new Date().toISOString(),
           },
-          data: parsed[j] || { category: cat.name, fluxPrompt:"Napaka — poskusi znova", negativePrompt:"", qaChecklist:"", autoFix:"", thumbnailNotes:"", manualFix:{} },
+          data: parsed[j] || { category: cat.name, fluxPrompt:"Napaka — poskusi znova", negativePrompt:"", qaChecklist:"", autoFix:"", thumbnailNotes:"", manualFix:{}, scores:{} },
         }));
+        const newAttrs = parsed.filter(Boolean).map(extractAttributesFromConcept);
+        runningHistory = appendDiversityHistory(runningHistory, newAttrs);
         setResults([...all]);
         setProgress(((i+1)/activeBatches.length)*100);
       }
+      setDiversityHistory(runningHistory);
       setProgLabel(`Vseh ${form.mockupCount} promptov je pripravljenih!`);
     } catch(e) { setError("Napaka: "+e.message); }
     finally    { setLoading(false); }
@@ -868,6 +969,8 @@ function App() {
   const genImage = async (id, fluxPrompt, customPrompt = "") => {
     const resolvedCustom = resolveRegenerationPrompt(id, customPrompt);
     setImg(id, {status:"loading", error:"", lastAction: resolvedCustom ? "regenerate_with_context" : "regenerate"});
+    const target = results.find(r => r.catInfo.id === id);
+    if (target?.promptId) setPromptRating(target.promptId, ratingByPromptId[target.promptId] || 0, { regenerated: true, categoryName: target.meta?.categoryName, audience: target.meta?.audience, shirtType: target.meta?.shirtType, sceneDirection: target.meta?.sceneDirection });
     try {
       const compressed = await compressImageDataUrl(imagePreview, {
         maxSize: 1024,
@@ -944,6 +1047,10 @@ function App() {
     const zip = new JSZip();
     done.forEach(({ result, index, image }) => {
       zip.file(`mockup-${String(index + 1).padStart(2,"0")}-${(result.catInfo?.name||"image").replace(/[^a-z0-9]+/gi,"-").toLowerCase()}.png`, dataUrlToBlob(image));
+    });
+
+    done.forEach(({ result }) => {
+      ratePrompt(result.promptId, ratingByPromptId[result.promptId] || 0, { ...result.meta, exported: true });
     });
 
     const blob = await zip.generateAsync({ type:"blob" });
@@ -1237,7 +1344,7 @@ ${r.data.thumbnailNotes}`;
               const gi = results.indexOf(r);
               const id = r.catInfo?.id;
               const rating = ratingByPromptId[r.promptId] || 0;
-              return <MockupCard key={id||gi} result={r.data} catInfo={r.catInfo} index={gi} isOpen={openCard===gi} onToggle={()=>setOpenCard(openCard===gi?null:gi)} imgState={imgStates[id]} customPrompt={customPrompts[id]} onCustomPrompt={value=>setCustomPrompt(id,value)} onGenImage={customPrompt=>genImage(id,r.data.fluxPrompt,customPrompt)} onAiFix={()=>aiFixSuggestion(id,r.data)} rating={rating} onRate={nextRating=>ratePrompt(r.promptId, nextRating, r.meta)}/>;
+              return <MockupCard key={id||gi} result={r.data} catInfo={r.catInfo} index={gi} isOpen={openCard===gi} onToggle={()=>setOpenCard(openCard===gi?null:gi)} imgState={imgStates[id]} customPrompt={customPrompts[id]} onCustomPrompt={value=>setCustomPrompt(id,value)} onGenImage={customPrompt=>genImage(id,r.data.fluxPrompt,customPrompt)} onAiFix={()=>aiFixSuggestion(id,r.data)} rating={rating} onRate={nextRating=>ratePrompt(r.promptId, nextRating, r.meta)} onMarkSelected={()=>ratePrompt(r.promptId, rating||0, {...r.meta, selected:true})}/>;
             })}
           </div>
         )}
