@@ -219,6 +219,28 @@ try {
     value: "Long Sleeve",
     label: "Long Sleeve"
   }];
+  const PRINT_VISIBILITY_OPTIONS = [{
+    value: "front_only",
+    label: "Front only",
+    description: "Show the print on front views. Back picks stay blank."
+  }, {
+    value: "back_only",
+    label: "Back only",
+    description: "Show the print on back views. Front picks stay blank."
+  }, {
+    value: "both_sides",
+    label: "Both sides",
+    description: "Allow the print on both sides when the concept needs it."
+  }];
+  const MOCKUP_STYLE_OPTIONS = [{
+    value: "presets",
+    label: "Preset mockup styles",
+    description: "Use the current preset category-based style system."
+  }, {
+    value: "custom",
+    label: "Custom style brief",
+    description: "Use a custom styling direction for the prompt."
+  }];
   const TABS = [{
     id: "all",
     label: "All",
@@ -256,6 +278,9 @@ try {
       categoryResearch: c.category_research || "",
       categoryKeywords: c.category_keywords || "",
       shirtResearch: c.shirt_research || "",
+      printVisibility: c.print_visibility || "",
+      mockupStyleMode: c.mockup_style_mode || "",
+      mockupStyleBrief: c.mockup_style_brief || "",
       environment: c.environment || "",
       targetBuyer: c.target_buyer || "",
       pose: c.pose || "",
@@ -1741,7 +1766,10 @@ try {
       shirtName: "",
       sceneDirection: "",
       mockupCount: 18,
-      autoDetect: true
+      autoDetect: true,
+      printVisibility: "front_only",
+      mockupStyleMode: "presets",
+      mockupStyleBrief: ""
     });
     const [imageFile, setImageFile] = useState(null);
     const [imagePreview, setImagePreview] = useState(null);
@@ -1825,6 +1853,8 @@ try {
       if (form.shirtType === "__match_picture__") return custom || "Match the picture";
       return custom || raw || "Unisex Classic Tee";
     };
+    const resolvedMockupStyleMode = () => form.mockupStyleMode || "presets";
+    const resolvedMockupStyleBrief = () => form.mockupStyleBrief.trim();
     const selectedCategories = () => ALL_BATCHES.flat().slice(0, form.mockupCount);
     const selectedBatches = () => {
       const cats = selectedCategories();
@@ -1915,6 +1945,9 @@ try {
             autoDetect: form.autoDetect,
             sceneDirection: form.sceneDirection,
             mockupCount: form.mockupCount,
+            printVisibility: form.printVisibility,
+            mockupStyleMode: resolvedMockupStyleMode(),
+            mockupStyleBrief: resolvedMockupStyleBrief(),
             learningContext,
             usedAttributes: runningHistory
           });
@@ -1933,6 +1966,9 @@ try {
               sceneDirection: form.sceneDirection,
               brandStyle: form.brandStyle,
               autoDetect: form.autoDetect,
+              printVisibility: form.printVisibility,
+              mockupStyleMode: resolvedMockupStyleMode(),
+              mockupStyleBrief: resolvedMockupStyleBrief(),
               designAnalysis: analysis,
               generatedAt: new Date().toISOString()
             },
@@ -1960,7 +1996,7 @@ try {
         setLoading(false);
       }
     };
-    const genImage = async (id, fluxPrompt, customPrompt = "") => {
+    const genImage = async (id, fluxPrompt, customPrompt = "", meta = {}) => {
       const resolvedCustom = resolveRegenerationPrompt(id, customPrompt);
       setImg(id, {
         status: "loading",
@@ -1985,6 +2021,9 @@ try {
           fluxPrompt,
           customPrompt: resolvedCustom,
           designAnalysis,
+          printVisibility: meta.printVisibility || form.printVisibility,
+          mockupStyleMode: meta.mockupStyleMode || resolvedMockupStyleMode(),
+          mockupStyleBrief: meta.mockupStyleBrief || resolvedMockupStyleBrief(),
           referenceImages: referenceImages.map(r => ({
             imageBase64: r.base64,
             imageType: r.type,
@@ -2025,6 +2064,9 @@ try {
             fluxPrompt: r.data.fluxPrompt,
             customPrompt: resolvedCustom,
             designAnalysis,
+            printVisibility: r.meta?.printVisibility || form.printVisibility,
+            mockupStyleMode: r.meta?.mockupStyleMode || resolvedMockupStyleMode(),
+            mockupStyleBrief: r.meta?.mockupStyleBrief || resolvedMockupStyleBrief(),
             referenceImages: referenceImages.map(ref => ({
               imageBase64: ref.base64,
               imageType: ref.type,
@@ -2057,6 +2099,9 @@ try {
           fluxPrompt: result.fluxPrompt,
           qaChecklist: result.qaChecklist,
           customPrompt: customPrompts[id] || "",
+          printVisibility: result.printVisibility || form.printVisibility,
+          mockupStyleMode: result.mockupStyleMode || resolvedMockupStyleMode(),
+          mockupStyleBrief: result.mockupStyleBrief || resolvedMockupStyleBrief(),
           imageBase64: imgStates[id]?.url?.split(",")[1] || "",
           imageType: "image/png"
         });
@@ -2613,7 +2658,65 @@ ${r.data.thumbnailNotes}`;
     }, COUNT_OPTIONS.map(o => React.createElement("option", {
       key: o.value,
       value: o.value
-    }, o.label))))), React.createElement("label", {
+    }, o.label))), React.createElement("div", {
+      style: {
+        display: "grid",
+        gridTemplateColumns: "1fr 1fr",
+        gap: 10,
+        marginBottom: 10
+      }
+    }, React.createElement("div", null, React.createElement("div", {
+      style: {
+        fontSize: 9,
+        color: "rgba(255,255,255,0.22)",
+        marginBottom: 4,
+        fontFamily: "'DM Mono',monospace"
+      }
+    }, "KJE JE VIDEN TISK"), React.createElement("select", {
+      value: form.printVisibility,
+      onChange: e => setForm(f => ({
+        ...f,
+        printVisibility: e.target.value
+      }))
+    }, PRINT_VISIBILITY_OPTIONS.map(o => React.createElement("option", {
+      key: o.value,
+      value: o.value
+    }, o.label)))), React.createElement("div", null, React.createElement("div", {
+      style: {
+        fontSize: 9,
+        color: "rgba(255,255,255,0.22)",
+        marginBottom: 4,
+        fontFamily: "'DM Mono',monospace"
+      }
+    }, "MOCKUP STYLE"), React.createElement("select", {
+      value: form.mockupStyleMode,
+      onChange: e => setForm(f => ({
+        ...f,
+        mockupStyleMode: e.target.value
+      }))
+    }, MOCKUP_STYLE_OPTIONS.map(o => React.createElement("option", {
+      key: o.value,
+      value: o.value
+    }, o.label)))), form.mockupStyleMode === "custom" && React.createElement("div", {
+      style: {
+        gridColumn: "1 / -1"
+      }
+    }, React.createElement("div", {
+      style: {
+        fontSize: 9,
+        color: "rgba(255,255,255,0.22)",
+        marginBottom: 4,
+        fontFamily: "'DM Mono',monospace"
+      }
+    }, "CUSTOM MOCKUP STYLE BRIEF"), React.createElement("input", {
+      type: "text",
+      placeholder: "npr. clean premium studio, lifestyle, slightly warm, minimal props",
+      value: form.mockupStyleBrief,
+      onChange: e => setForm(f => ({
+        ...f,
+        mockupStyleBrief: e.target.value
+      }))
+      })))), React.createElement("label", {
       style: {
         display: "flex",
         alignItems: "center",
@@ -2672,7 +2775,7 @@ ${r.data.thumbnailNotes}`;
         ...f,
         brandStyle: e.target.value
       }))
-    }))), React.createElement("div", {
+    })))), React.createElement("div", {
       style: {
         fontSize: 9,
         color: "rgba(255,255,255,0.22)",
@@ -3124,7 +3227,7 @@ ${r.data.thumbnailNotes}`;
         imgState: imgStates[id],
         customPrompt: customPrompts[id],
         onCustomPrompt: value => setCustomPrompt(id, value),
-        onGenImage: customPrompt => genImage(id, r.data.fluxPrompt, customPrompt),
+        onGenImage: customPrompt => genImage(id, r.data.fluxPrompt, customPrompt, r.meta),
         onAiFix: () => aiFixSuggestion(id, r.data),
         rating: rating,
         onRate: nextRating => ratePrompt(r.promptId, nextRating, r.meta),

@@ -278,6 +278,9 @@ For EACH category given, return output as a single JSON object inside the array 
     "category_research": "2-4 sentences: buyer intent, visual hook, best-seller angle, Etsy market positioning",
     "category_keywords": "8-12 comma-separated SEO phrases",
     "shirt_research": "2-4 sentences: shirt type, silhouette, fit, fabric feel, why it matches the design",
+    "print_visibility": "one short phrase: front_only, back_only, or both_sides based on the user's print visibility choice",
+    "mockup_style_mode": "one short phrase describing whether this concept uses preset mockup styles or a custom style brief",
+    "mockup_style_brief": "1-2 sentences describing the style direction used for this concept when custom style mode is selected",
     "environment": "specific environment/room used in this concept",
     "target_buyer": "specific buyer persona used in this concept",
     "pose": "specific pose used",
@@ -366,13 +369,23 @@ app.post("/api/generate-prompts", async (req, res) => {
     ? `Match the shirt in the uploaded picture as closely as possible. If the garment is not a common catalog item, infer the most accurate silhouette, fabric weight, sleeve length, and fit from the reference image.`
     : `Use this shirt type as the main research anchor: ${shirtModel || "Unisex Classic Tee"}.${shirtName ? ` Additional shirt name for research: ${shirtName}.` : ""}`;
 
+  const printVisibilityContext = {
+    front_only: "Print visibility mode: front only. Front-facing concepts may show the design, but back-view concepts must show a clean blank back with no visible print, no mirrored print, and no partial artwork peeking through.",
+    back_only: "Print visibility mode: back only. Back-facing concepts may show the design, but front-view concepts must show a clean plain front with no visible print.",
+    both_sides: "Print visibility mode: both sides. If the concept shows front and back, the design may appear on both sides in a realistic garment-appropriate way."
+  }[printVisibility] || "Print visibility mode: match the concept's view naturally, but keep the design placement coherent and intentional.";
+
+  const mockupStyleContext = mockupStyleMode === "custom"
+    ? `Mockup style mode: custom. Use this style brief as the visual direction: ${mockupStyleBrief || "No custom style brief provided."}`
+    : "Mockup style mode: preset styles. Use the current preset mockup style system and choose the best-fitting preset visual direction for each concept.";
+
   const diversitySummary = Array.isArray(usedAttributes) && usedAttributes.length
     ? usedAttributes.slice(-30).map(a =>
         `env:${a.environment||"?"} | pose:${a.pose||"?"} | camera:${a.camera||"?"} | age:${a.age||"?"} | ethnicity:${a.ethnicity||"?"} | clothingColor:${a.clothingColor||"?"}`
       ).join("\n")
     : "None yet — this is the first batch.";
 
-  const userMessage = `Generate mockup prompts for these ${batch.length} categories:\n${list}\n\nDesign Details:\n- Brand Style: ${brandStyle || "Modern, clean, approachable"}\n- Niche: ${niche || "General apparel"}\n- Target Audience: ${audience || "General buyers"}\n- Shirt Type Mode: ${shirtMode === "__match_picture__" ? "Match the picture" : "Catalog shirt"}\n- Shirt Model: ${shirtModel || "Unisex Classic Tee"}\n- Shirt Name for Research: ${shirtName || "Not provided"}\n- Autodetect Enabled: ${autoDetect ? "Yes" : "No"}\n- Replicate Image-to-Text Analysis: ${designAnalysis || "Not provided"}\n- Shirt Research Instruction: ${shirtContext}\n- Scene Direction: ${sceneDirection || "Natural authentic lifestyle scenes"}\n- Total mockups requested: ${mockupCount || batch.length}\n- Learning Memory: ${learningContext || "None yet"}\n\nPREVIOUSLY USED ATTRIBUTES (avoid repeating these combinations — pick different environment/pose/camera/age/ethnicity/clothing color for each new concept):\n${diversitySummary}\n\nAnalyze the uploaded design deeply and generate all ${batch.length} mockup concepts now. Use the Replicate image-to-text analysis when present. Respond with ONLY a JSON array as specified — no markdown, no commentary.`;
+  const userMessage = `Generate mockup prompts for these ${batch.length} categories:\n${list}\n\nDesign Details:\n- Brand Style: ${brandStyle || "Modern, clean, approachable"}\n- Niche: ${niche || "General apparel"}\n- Target Audience: ${audience || "General buyers"}\n- Shirt Type Mode: ${shirtMode === "__match_picture__" ? "Match the picture" : "Catalog shirt"}\n- Shirt Model: ${shirtModel || "Unisex Classic Tee"}\n- Shirt Name for Research: ${shirtName || "Not provided"}\n- Autodetect Enabled: ${autoDetect ? "Yes" : "No"}\n- Replicate Image-to-Text Analysis: ${designAnalysis || "Not provided"}\n- Shirt Research Instruction: ${shirtContext}\n- ${printVisibilityContext}\n- ${mockupStyleContext}\n- Scene Direction: ${sceneDirection || "Natural authentic lifestyle scenes"}\n- Total mockups requested: ${mockupCount || batch.length}\n- Learning Memory: ${learningContext || "None yet"}\n\nPREVIOUSLY USED ATTRIBUTES (avoid repeating these combinations — pick different environment/pose/camera/age/ethnicity/clothing color for each new concept):\n${diversitySummary}\n\nAnalyze the uploaded design deeply and generate all ${batch.length} mockup concepts now. Use the Replicate image-to-text analysis when present. Respond with ONLY a JSON array as specified — no markdown, no commentary.`;
 
   try {
     const r = await fetch("https://generativelanguage.googleapis.com/v1beta/models/gemini-2.5-flash:generateContent", {
@@ -577,7 +590,7 @@ app.post("/api/analyze-shirt", async (req, res) => {
 
 app.post("/api/ai-fix-suggestion", async (req, res) => {
   if (!requireAdmin(req, res)) return;
-  const { fluxPrompt, qaChecklist, customPrompt, imageBase64, imageType } = req.body;
+  const { fluxPrompt, qaChecklist, customPrompt, imageBase64, imageType, printVisibility, mockupStyleMode, mockupStyleBrief } = req.body;
   const { gemini } = loadKeys();
   if (!gemini)
     return res.status(400).json({ error: "Gemini API ključ ni nastavljen. Pojdi v Nastavitve." });
@@ -599,6 +612,12 @@ ${qaChecklist || ""}
 
 User requested change:
 ${customPrompt || "No custom change provided — infer the single most likely defect from the QA checklist and image."}
+
+Print visibility context:
+${printVisibility || "Not provided"}
+
+Mockup style context:
+${mockupStyleMode === "custom" && mockupStyleBrief ? mockupStyleBrief : mockupStyleMode || "Not provided"}
 
 Return ONLY a corrective instruction (2-3 sentences) in this shape:
 1) Name the exact defect to fix.
@@ -637,7 +656,7 @@ No preamble, no extra commentary — just the correction prompt.` },
 
 app.post("/api/generate-image", async (req, res) => {
   if (!requireAdmin(req, res)) return;
-  const { fluxPrompt, customPrompt, designAnalysis, referenceImages = [], imageBase64, imageType } = req.body;
+  const { fluxPrompt, customPrompt, designAnalysis, referenceImages = [], imageBase64, imageType, printVisibility, mockupStyleMode, mockupStyleBrief } = req.body;
   const { replicate } = loadKeys();
   if (!replicate)
     return res.status(400).json({ error: "Replicate API ključ ni nastavljen. Pojdi v Nastavitve." });
@@ -650,6 +669,8 @@ app.post("/api/generate-image", async (req, res) => {
     custom: (customPrompt || "").slice(0, 90),
     refs: referenceImages.length,
     analysis: !!designAnalysis,
+    printVisibility: printVisibility || "",
+    mockupStyleMode: mockupStyleMode || "",
   });
 
   try {
@@ -680,6 +701,16 @@ app.post("/api/generate-image", async (req, res) => {
             "Use the attached reference image as the exact source of truth for the garment design.",
             fluxPrompt,
             designAnalysis ? `Detected shirt/design analysis: ${designAnalysis}` : "",
+            printVisibility === "front_only"
+              ? "Print placement rule: show the print only on the front-facing side. Back-view concepts must remain blank on the back and never show the graphic."
+              : printVisibility === "back_only"
+                ? "Print placement rule: show the print only on the back-facing side. Front-view concepts must remain blank on the front and never show the graphic."
+                : printVisibility === "both_sides"
+                  ? "Print placement rule: the design may appear on both sides when the concept naturally requires it."
+                  : "",
+            mockupStyleMode === "custom" && mockupStyleBrief
+              ? `Mockup style direction: ${mockupStyleBrief}`
+              : "Mockup style direction: use the current preset mockup style system and keep the output aligned with the concept's preset visual language.",
             referenceNotes.length ? `Use these additional reference image notes for style, pose, lighting, and background only; do not replace the source garment design: ${referenceNotes.join(" | ")}` : "",
             customPrompt ? `User requested change for this regeneration: ${customPrompt}. Apply it while preserving the original design exactly.` : "",
           ].filter(Boolean).join(" "),
