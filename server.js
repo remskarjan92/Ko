@@ -437,6 +437,7 @@ app.post("/api/generate-prompts", async (req, res) => {
   const {
     batch, imageBase64, imageType,
     brandStyle, niche, audience, shirtModel, shirtName, shirtMode, designAnalysis, autoDetect, sceneDirection, mockupCount,
+    printVisibility, mockupStyleMode, mockupStyleBrief,
     learningContext, usedAttributes
   } = req.body;
 
@@ -493,7 +494,7 @@ app.post("/api/generate-prompts", async (req, res) => {
           ],
         }],
       }),
-    }, { retries: 3, delayMs: 1500, label: "gemini ai-fix" });
+    }, { retries: 3, delayMs: 1500, label: "gemini generate-prompts" });
 
     const d = await r.json();
     if (d.error) throw new Error(d.error.message);
@@ -512,6 +513,7 @@ app.post("/api/generate-prompts", async (req, res) => {
     });
     res.json({ raw, concepts, warning: !concepts.length && raw ? "Gemini response could not be parsed into concepts — check server logs for raw output." : undefined });
   } catch (e) {
+    console.error("[generate-prompts] failed:", e.message);
     logPromptGeneration({
       systemPrompt: SYSTEM_PROMPT,
       userMessage,
@@ -519,7 +521,7 @@ app.post("/api/generate-prompts", async (req, res) => {
       error: e.message,
       ok: false,
     });
-    res.status(500).json({ error: e.message });
+    res.status(500).json({ error: `[generate-prompts] ${e.message}` });
   }
 });
 
@@ -667,7 +669,8 @@ app.post("/api/analyze-shirt", async (req, res) => {
     }, replicate);
     res.json({ analysis: getPredictionText(output) });
   } catch (e) {
-    res.status(500).json({ error: e.message });
+    console.error("[ai-fix-suggestion] failed:", e.message);
+    res.status(500).json({ error: `[ai-fix-suggestion] ${e.message}` });
   }
 });
 
@@ -824,7 +827,7 @@ app.post("/api/generate-image", async (req, res) => {
     res.json({ url, mimeType: "image/png" });
   } catch (e) {
     console.error(`[generate-image ${requestId}] error`, e.message);
-    res.status(500).json({ error: e.message });
+    res.status(500).json({ error: `[generate-image ${requestId}] ${e.message}` });
   }
 });
 
