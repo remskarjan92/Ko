@@ -245,6 +245,43 @@ try {
     label: "Custom style brief",
     description: "Use a custom styling direction for the prompt."
   }];
+  const LISTING_ROLE_OPTIONS = [{
+    value: "thumbnail",
+    label: "Thumbnail",
+    description: "Search-grid scroll stopper"
+  }, {
+    value: "proof",
+    label: "Proof",
+    description: "Credibility and design clarity"
+  }, {
+    value: "ugc_review",
+    label: "UGC Review",
+    description: "Customer trust and social proof"
+  }, {
+    value: "fit",
+    label: "Fit",
+    description: "Body and garment fit confidence"
+  }, {
+    value: "lifestyle",
+    label: "Lifestyle",
+    description: "Believable everyday ownership"
+  }, {
+    value: "gift",
+    label: "Gift",
+    description: "Occasion-ready buyer intent"
+  }, {
+    value: "color_variant",
+    label: "Color Variant",
+    description: "Alternative color conversion"
+  }, {
+    value: "detail_closeup",
+    label: "Detail Closeup",
+    description: "Print texture and typography proof"
+  }, {
+    value: "back_view",
+    label: "Back View",
+    description: "Back-print or blank-back validation"
+  }];
   const TABS = [{
     id: "all",
     label: "All",
@@ -272,45 +309,59 @@ try {
   }];
   function parseBatch(raw, concepts) {
     const list = Array.isArray(concepts) && concepts.length ? concepts : safeParseConceptsJson(raw);
-    return list.map(c => ({
-      category: c.category || "",
-      conceptName: c.concept_name || "",
-      primaryColor: c.shirt_color_primary || "",
-      secondaryColor: c.shirt_color_secondary || "",
-      colorReasoning: c.color_reasoning || "",
-      designAnalysis: c.design_analysis || null,
-      categoryResearch: c.category_research || "",
-      categoryKeywords: c.category_keywords || "",
-      shirtResearch: c.shirt_research || "",
-      printVisibility: c.print_visibility || "",
-      mockupStyleMode: c.mockup_style_mode || "",
-      mockupStyleBrief: c.mockup_style_brief || "",
-      environment: c.environment || "",
-      targetBuyer: c.target_buyer || "",
-      pose: c.pose || "",
-      cameraSetup: c.camera_setup || "",
-      lighting: c.lighting || "",
-      fluxPrompt: c.flux_prompt || "",
-      negativePrompt: c.negative_prompt || "",
-      qaChecklist: c.qa_checklist || "",
-      autoFix: c.auto_fix_prompt || "",
-      thumbnailNotes: c.thumbnail_notes || "",
-      manualFix: {
-        issue: c.manual_fix_template?.issue || "",
-        targetArea: c.manual_fix_template?.target_area || "",
-        correction: c.manual_fix_template?.desired_correction || "",
-        preserve: c.manual_fix_template?.elements_to_preserve || "",
-        strength: c.manual_fix_template?.correction_strength || ""
-      },
-      scores: {
-        designVisibility: numOr0(c.design_visibility_score),
-        etsyConversion: numOr0(c.etsy_conversion_score),
-        realism: numOr0(c.realism_score),
-        scrollStop: numOr0(c.scroll_stop_score),
-        giftability: numOr0(c.giftability_score),
-        overall: numOr0(c.overall_score)
-      }
-    }));
+    return list.map((c, index) => {
+      const listingRole = c.listing_role || inferListingRoleFromCategory(c.category || "", index);
+      const visiblePrint = typeof c.visible_print === "boolean" ? c.visible_print : true;
+      const riskAnalysis = parseRiskAnalysis(c.risk_analysis);
+      const businessScores = parseBusinessScores(c.business_scores);
+      return {
+        category: c.category || "",
+        listingRole,
+        listingRolePhase: c.listing_role_phase || (index < LISTING_ROLE_OPTIONS.length ? "primary" : "supporting"),
+        listingRoleSlot: numOr0(c.listing_role_slot) || index + 1,
+        listingRoleVariant: c.listing_role_variant || "",
+        conceptName: c.concept_name || "",
+        primaryColor: c.shirt_color_primary || "",
+        secondaryColor: c.shirt_color_secondary || "",
+        colorReasoning: c.color_reasoning || "",
+        designAnalysis: c.design_analysis || null,
+        categoryResearch: c.category_research || "",
+        categoryKeywords: c.category_keywords || "",
+        shirtResearch: c.shirt_research || "",
+        printVisibility: c.print_visibility || "",
+        mockupStyleMode: c.mockup_style_mode || "",
+        mockupStyleBrief: c.mockup_style_brief || "",
+        visiblePrint,
+        environment: c.environment || "",
+        targetBuyer: c.target_buyer || "",
+        pose: c.pose || "",
+        cameraSetup: c.camera_setup || "",
+        lighting: c.lighting || "",
+        fluxPrompt: c.flux_prompt || "",
+        negativePrompt: c.negative_prompt || "",
+        qaChecklist: c.qa_checklist || "",
+        autoFix: c.auto_fix_prompt || "",
+        thumbnailNotes: c.thumbnail_notes || "",
+        riskAnalysis,
+        businessScores,
+        promptWordCount: numOr0(c.prompt_word_count),
+        manualFix: {
+          issue: c.manual_fix_template?.issue || "",
+          targetArea: c.manual_fix_template?.target_area || "",
+          correction: c.manual_fix_template?.desired_correction || "",
+          preserve: c.manual_fix_template?.elements_to_preserve || "",
+          strength: c.manual_fix_template?.correction_strength || ""
+        },
+        scores: {
+          designVisibility: numOr0(c.design_visibility_score),
+          etsyConversion: numOr0(c.etsy_conversion_score),
+          realism: numOr0(c.realism_score),
+          scrollStop: numOr0(c.scroll_stop_score),
+          giftability: numOr0(c.giftability_score),
+          overall: numOr0(c.overall_score)
+        }
+      };
+    });
   }
   function numOr0(v) {
     const n = Number(v);
@@ -328,6 +379,60 @@ try {
     } catch {
       return [];
     }
+  }
+  function inferListingRoleFromCategory(category = "", index = 0) {
+    const text = String(category).toLowerCase();
+    if (/back/i.test(text)) return "back_view";
+    if (/close\s*up|close-up|detail|macro|texture/i.test(text)) return "detail_closeup";
+    if (/selfie|ugc|phone/i.test(text)) return "ugc_review";
+    if (/mirror/i.test(text)) return "fit";
+    if (/gift|holiday|occasion/i.test(text)) return "gift";
+    if (/color|variant|palette/i.test(text)) return "color_variant";
+    if (/proof|product|hanger|folded|stack|mannequin/i.test(text)) return "proof";
+    if (/hero|thumbnail|flat lay|flatlay|clean white/i.test(text)) return "thumbnail";
+    if (/lifestyle|coffee|walk|street|home|outdoor|vacation|family/i.test(text)) return "lifestyle";
+    return LISTING_ROLE_OPTIONS[index % LISTING_ROLE_OPTIONS.length].value;
+  }
+  function roleLabel(role) {
+    return LISTING_ROLE_OPTIONS.find(r => r.value === role)?.label || role || "";
+  }
+  function parseRiskAnalysis(value) {
+    const base = {
+      text_distortion_risk: "low",
+      print_coverage_risk: "low",
+      hand_anatomy_risk: "low",
+      face_realism_risk: "low",
+      fabric_warp_risk: "low",
+      background_distraction_risk: "low"
+    };
+    if (!value || typeof value !== "object") return base;
+    return {
+      text_distortion_risk: value.text_distortion_risk || base.text_distortion_risk,
+      print_coverage_risk: value.print_coverage_risk || base.print_coverage_risk,
+      hand_anatomy_risk: value.hand_anatomy_risk || base.hand_anatomy_risk,
+      face_realism_risk: value.face_realism_risk || base.face_realism_risk,
+      fabric_warp_risk: value.fabric_warp_risk || base.fabric_warp_risk,
+      background_distraction_risk: value.background_distraction_risk || base.background_distraction_risk
+    };
+  }
+  function parseBusinessScores(value) {
+    const base = {
+      business_value_score: 0,
+      thumbnail_strength_score: 0,
+      trust_score: 0,
+      design_visibility_score: 0,
+      realism_score: 0,
+      generation_risk_score: 0
+    };
+    if (!value || typeof value !== "object") return base;
+    return {
+      business_value_score: numOr0(value.business_value_score),
+      thumbnail_strength_score: numOr0(value.thumbnail_strength_score),
+      trust_score: numOr0(value.trust_score),
+      design_visibility_score: numOr0(value.design_visibility_score),
+      realism_score: numOr0(value.realism_score),
+      generation_risk_score: numOr0(value.generation_risk_score)
+    };
   }
   function slugifyName(value) {
     return (value || "").toLowerCase().normalize("NFKD").replace(/[\u0300-\u036f]/g, "").replace(/[^a-z0-9]+/g, "-").replace(/^-+|-+$/g, "").slice(0, 80);
@@ -454,7 +559,9 @@ try {
       camera: data.cameraSetup || "",
       age: data.designAnalysis?.estimated_buyer_age || "",
       ethnicity: "",
-      clothingColor: data.primaryColor || ""
+      clothingColor: data.primaryColor || "",
+      listingRole: data.listingRole || "",
+      visiblePrint: data.visiblePrint ? "yes" : "no"
     };
   }
   function loadPromptRatings() {
@@ -530,14 +637,16 @@ try {
     const exportedCount = records.filter(r => r.exported).length;
     const regeneratedCount = records.filter(r => r.regenerated).length;
     const cat = aggregateRatingGroups(records, "categoryName");
+    const role = aggregateRatingGroups(records, "listingRole");
     const aud = aggregateRatingGroups(records, "audience");
     const shirt = aggregateRatingGroups(records, "shirtType");
     const scene = aggregateRatingGroups(records, "sceneDirection");
-    const learningContext = learned.length ? [`Use these high-performing patterns (rated, selected, or exported by the user) as soft preferences only:`, cat.length ? `Top categories: ${cat.map(item => item.label).join(", ")}.` : "", aud.length ? `Best audiences: ${aud.map(item => item.label).join(", ")}.` : "", shirt.length ? `Best shirt types: ${shirt.map(item => item.label).join(", ")}.` : "", scene.length ? `Best scene directions: ${scene.map(item => item.label).join(", ")}.` : "", regeneratedCount ? `Note: ${regeneratedCount} prior concepts were regenerated due to quality issues — favor design-fidelity and visibility above all else.` : "", `Keep the uploaded design, shirt identity, and category brief higher priority than any learned preference.`].filter(Boolean).join(" ") : "";
+    const learningContext = learned.length ? [`Use these high-performing patterns (rated, selected, or exported by the user) as soft preferences only:`, role.length ? `Best listing roles: ${role.map(item => item.label).join(", ")}.` : "", cat.length ? `Top categories: ${cat.map(item => item.label).join(", ")}.` : "", aud.length ? `Best audiences: ${aud.map(item => item.label).join(", ")}.` : "", shirt.length ? `Best shirt types: ${shirt.map(item => item.label).join(", ")}.` : "", scene.length ? `Best scene directions: ${scene.map(item => item.label).join(", ")}.` : "", regeneratedCount ? `Note: ${regeneratedCount} prior concepts were regenerated due to quality issues — favor design-fidelity and visibility above all else.` : "", `Keep the uploaded design, shirt identity, and category brief higher priority than any learned preference.`].filter(Boolean).join(" ") : "";
     return {
       total,
       avg,
       strong,
+      role,
       cat,
       aud,
       shirt,
@@ -1408,7 +1517,17 @@ try {
       style: {
         color: "rgba(255,220,100,0.45)"
       }
-    }, result.secondaryColor))), done && React.createElement("span", {
+    }, result.secondaryColor), result.listingRole && React.createElement("div", {
+      style: {
+        fontSize: 10,
+        color: "rgba(255,255,255,0.35)",
+        marginTop: 2
+      }
+    }, "Role: ", React.createElement("span", {
+      style: {
+        color: "#FFDC64"
+      }
+    }, roleLabel(result.listingRole)), result.listingRolePhase ? React.createElement(React.Fragment, null, " · ", result.listingRolePhase) : null, result.promptWordCount ? React.createElement(React.Fragment, null, " · ", result.promptWordCount, " words") : null))), done && React.createElement("span", {
       style: {
         fontSize: 13,
         flexShrink: 0
@@ -1724,14 +1843,18 @@ try {
     }), React.createElement(ScoreBar, {
       label: "Overall",
       value: result.scores.overall
-    })), (result.environment || result.targetBuyer || result.pose || result.cameraSetup) && React.createElement("div", {
+    })), (result.listingRole || result.listingRolePhase || result.environment || result.targetBuyer || result.pose || result.cameraSetup) && React.createElement("div", {
       style: {
         display: "flex",
         flexWrap: "wrap",
         gap: 6,
         marginBottom: 9
       }
-    }, result.environment && React.createElement(Tag, null, "\uD83D\uDCCD ", result.environment), result.targetBuyer && React.createElement(Tag, null, "\uD83D\uDC64 ", result.targetBuyer), result.pose && React.createElement(Tag, null, "\uD83E\uDDCD ", result.pose), result.cameraSetup && React.createElement(Tag, null, "\uD83D\uDCF7 ", result.cameraSetup), result.lighting && React.createElement(Tag, null, "\uD83D\uDCA1 ", result.lighting)), React.createElement(Field, {
+    }, result.listingRole && React.createElement(Tag, null, "\uD83D\uDD39 ", roleLabel(result.listingRole)), result.listingRolePhase && React.createElement(Tag, null, result.listingRolePhase === "supporting" ? "Supporting pass" : "Primary pass"), result.visiblePrint !== undefined && React.createElement(Tag, null, result.visiblePrint ? "\u2705 Print visible" : "\u26AB Hidden print"), result.environment && React.createElement(Tag, null, "\uD83D\uDCCD ", result.environment), result.targetBuyer && React.createElement(Tag, null, "\uD83D\uDC64 ", result.targetBuyer), result.pose && React.createElement(Tag, null, "\uD83E\uDDCD ", result.pose), result.cameraSetup && React.createElement(Tag, null, "\uD83D\uDCF7 ", result.cameraSetup), result.lighting && React.createElement(Tag, null, "\uD83D\uDCA1 ", result.lighting), result.promptWordCount ? React.createElement(Tag, null, "\uD83D\uDCDD ", `${result.promptWordCount} words`) : null), React.createElement(Field, {
+      label: "Listing Role Variant",
+      value: result.listingRoleVariant,
+      accent: "rgba(255,220,100,0.22)"
+    }), React.createElement(Field, {
       label: "Category Research",
       value: result.categoryResearch,
       accent: "rgba(90,180,255,0.28)"
@@ -1751,6 +1874,14 @@ try {
       label: "Negative Prompt",
       value: result.negativePrompt,
       accent: "rgba(255,100,100,0.28)"
+    }), React.createElement(Field, {
+      label: "Risk Analysis",
+      value: JSON.stringify(result.riskAnalysis || {}, null, 2),
+      accent: "rgba(255,120,120,0.22)"
+    }), React.createElement(Field, {
+      label: "Business Scores",
+      value: JSON.stringify(result.businessScores || {}, null, 2),
+      accent: "rgba(255,180,80,0.22)"
     }), React.createElement(Field, {
       label: "QA Checklist",
       value: result.qaChecklist,
@@ -1983,15 +2114,43 @@ try {
               mockupStyleMode: resolvedMockupStyleMode(),
               mockupStyleBrief: resolvedMockupStyleBrief(),
               designAnalysis: analysis,
+              listingRole: parsed[j]?.listingRole || inferListingRoleFromCategory(cat.name || "", j),
+              listingRolePhase: parsed[j]?.listingRolePhase || (j < LISTING_ROLE_OPTIONS.length ? "primary" : "supporting"),
+              listingRoleSlot: parsed[j]?.listingRoleSlot || j + 1,
+              listingRoleVariant: parsed[j]?.listingRoleVariant || "",
+              visiblePrint: parsed[j]?.visiblePrint ?? true,
+              riskAnalysis: parsed[j]?.riskAnalysis || null,
+              businessScores: parsed[j]?.businessScores || null,
+              promptWordCount: parsed[j]?.promptWordCount || 0,
+              categoryResearch: parsed[j]?.categoryResearch || "",
+              shirtResearch: parsed[j]?.shirtResearch || "",
+              environment: parsed[j]?.environment || "",
+              targetBuyer: parsed[j]?.targetBuyer || "",
+              pose: parsed[j]?.pose || "",
+              cameraSetup: parsed[j]?.cameraSetup || "",
+              lighting: parsed[j]?.lighting || "",
               generatedAt: new Date().toISOString()
             },
             data: parsed[j] || {
               category: cat.name,
+              listingRole: inferListingRoleFromCategory(cat.name || "", j),
+              listingRolePhase: j < LISTING_ROLE_OPTIONS.length ? "primary" : "supporting",
+              listingRoleSlot: j + 1,
+              listingRoleVariant: "",
+              visiblePrint: true,
+              environment: "",
+              targetBuyer: "",
+              pose: "",
+              cameraSetup: "",
+              lighting: "",
               fluxPrompt: "Napaka — poskusi znova",
               negativePrompt: "",
               qaChecklist: "",
               autoFix: "",
               thumbnailNotes: "",
+              riskAnalysis: parseRiskAnalysis(null),
+              businessScores: parseBusinessScores(null),
+              promptWordCount: 0,
               manualFix: {},
               scores: {}
             }
@@ -2037,6 +2196,19 @@ try {
           printVisibility: meta.printVisibility || form.printVisibility,
           mockupStyleMode: meta.mockupStyleMode || resolvedMockupStyleMode(),
           mockupStyleBrief: meta.mockupStyleBrief || resolvedMockupStyleBrief(),
+          listingRole: meta.listingRole || inferListingRoleFromCategory(target?.catInfo?.name || "", 0),
+          listingRolePhase: meta.listingRolePhase || target?.data?.listingRolePhase || "",
+          listingRoleVariant: meta.listingRoleVariant || target?.data?.listingRoleVariant || "",
+          visiblePrint: meta.visiblePrint ?? true,
+          riskAnalysis: meta.riskAnalysis || null,
+          businessScores: meta.businessScores || null,
+          categoryResearch: meta.categoryResearch || "",
+          shirtResearch: meta.shirtResearch || "",
+          environment: meta.environment || target?.data?.environment || "",
+          targetBuyer: meta.targetBuyer || target?.data?.targetBuyer || "",
+          pose: meta.pose || target?.data?.pose || "",
+          cameraSetup: meta.cameraSetup || target?.data?.cameraSetup || "",
+          lighting: meta.lighting || target?.data?.lighting || "",
           referenceImages: referenceImages.map(r => ({
             imageBase64: r.base64,
             imageType: r.type,
@@ -2080,6 +2252,19 @@ try {
             printVisibility: r.meta?.printVisibility || form.printVisibility,
             mockupStyleMode: r.meta?.mockupStyleMode || resolvedMockupStyleMode(),
             mockupStyleBrief: r.meta?.mockupStyleBrief || resolvedMockupStyleBrief(),
+            listingRole: r.meta?.listingRole || r.data?.listingRole || inferListingRoleFromCategory(r.catInfo?.name || "", 0),
+            listingRolePhase: r.meta?.listingRolePhase || r.data?.listingRolePhase || "",
+            listingRoleVariant: r.meta?.listingRoleVariant || r.data?.listingRoleVariant || "",
+            visiblePrint: r.meta?.visiblePrint ?? r.data?.visiblePrint ?? true,
+            riskAnalysis: r.meta?.riskAnalysis || r.data?.riskAnalysis || null,
+            businessScores: r.meta?.businessScores || r.data?.businessScores || null,
+            categoryResearch: r.meta?.categoryResearch || r.data?.categoryResearch || "",
+            shirtResearch: r.meta?.shirtResearch || r.data?.shirtResearch || "",
+            environment: r.meta?.environment || r.data?.environment || "",
+            targetBuyer: r.meta?.targetBuyer || r.data?.targetBuyer || "",
+            pose: r.meta?.pose || r.data?.pose || "",
+            cameraSetup: r.meta?.cameraSetup || r.data?.cameraSetup || "",
+            lighting: r.meta?.lighting || r.data?.lighting || "",
             referenceImages: referenceImages.map(ref => ({
               imageBase64: ref.base64,
               imageType: ref.type,
@@ -2115,6 +2300,12 @@ try {
           printVisibility: result.printVisibility || form.printVisibility,
           mockupStyleMode: result.mockupStyleMode || resolvedMockupStyleMode(),
           mockupStyleBrief: result.mockupStyleBrief || resolvedMockupStyleBrief(),
+          listingRole: result.listingRole || "",
+          listingRolePhase: result.listingRolePhase || "",
+          listingRoleVariant: result.listingRoleVariant || "",
+          visiblePrint: result.visiblePrint ?? true,
+          riskAnalysis: result.riskAnalysis || null,
+          businessScores: result.businessScores || null,
           imageBase64: imgStates[id]?.url?.split(",")[1] || "",
           imageType: "image/png"
         });
@@ -2169,8 +2360,19 @@ try {
     };
     const copyAll = () => navigator.clipboard.writeText(results.map((r, i) => {
       const mf = r.data.manualFix;
-      return `=== #${i + 1}: ${r.catInfo?.name} ===
+return `=== #${i + 1}: ${r.catInfo?.name} ===
 SHIRT: ${r.data.primaryColor} / ${r.data.secondaryColor}
+LISTING ROLE: ${r.data.listingRole || ""}
+ROLE PHASE: ${r.data.listingRolePhase || ""}
+ROLE VARIANT: ${r.data.listingRoleVariant || ""}
+VISIBLE PRINT: ${r.data.visiblePrint ? "true" : "false"}
+PROMPT WORD COUNT: ${r.data.promptWordCount || 0}
+
+RISK ANALYSIS:
+${JSON.stringify(r.data.riskAnalysis || {}, null, 2)}
+
+BUSINESS SCORES:
+${JSON.stringify(r.data.businessScores || {}, null, 2)}
 
 CATEGORY RESEARCH:
 ${r.data.categoryResearch}
@@ -2924,6 +3126,20 @@ ${r.data.thumbnailNotes}`;
         gap: 8
       }
     }, React.createElement("div", {
+      style: {
+        fontSize: 11,
+        color: "rgba(255,255,255,0.42)",
+        lineHeight: 1.45
+      }
+    }, React.createElement("span", {
+      style: {
+        color: "rgba(255,255,255,0.55)",
+        fontFamily: "'DM Mono',monospace",
+        fontSize: 10,
+        letterSpacing: "0.1em",
+        textTransform: "uppercase"
+      }
+    }, "Best listing roles"), React.createElement("br", null), promptStats.role.length ? promptStats.role.map(item => `${item.label} (${item.avg.toFixed(1)}★)`).join(" · ") : "No signal yet"), React.createElement("div", {
       style: {
         fontSize: 11,
         color: "rgba(255,255,255,0.42)",

@@ -223,18 +223,440 @@ app.post("/api/test/replicate", async (req, res) => {
   }
 });
 
+const LISTING_ROLE_SEQUENCE = [
+  { value: "thumbnail", label: "Thumbnail", purpose: "Search-grid scroll stopper" },
+  { value: "proof", label: "Proof", purpose: "Credibility and design clarity" },
+  { value: "ugc_review", label: "UGC Review", purpose: "Customer trust and social proof" },
+  { value: "fit", label: "Fit", purpose: "Body and garment fit confidence" },
+  { value: "lifestyle", label: "Lifestyle", purpose: "Believable everyday ownership" },
+  { value: "gift", label: "Gift", purpose: "Occasion-ready buyer intent" },
+  { value: "color_variant", label: "Color Variant", purpose: "Alternative color conversion" },
+  { value: "detail_closeup", label: "Detail Closeup", purpose: "Print texture and typography proof" },
+  { value: "back_view", label: "Back View", purpose: "Back-print or blank-back validation" },
+];
+
+const DESIGN_LOCK = `DESIGN LOCK:
+Use the uploaded artwork as a protected object.
+Preserve exactly:
+- wording
+- typography
+- colors
+- spacing
+- proportions
+- linework
+- placement
+- scale
+Do not:
+- redraw
+- reinterpret
+- restyle
+- simplify
+- translate
+- replace
+- modify
+Printed text must remain perfectly readable.
+Every letter must remain unchanged.
+No warped typography.
+No melted text.
+No missing characters.
+No altered wording.`;
+
+const SHIRT_LOCK = `SHIRT LOCK:
+Preserve:
+- garment identity
+- neckline
+- sleeve length
+- fit
+- fabric weight appearance
+- garment proportions
+- natural fabric texture
+Only allow color changes when explicitly requested by the concept.`;
+
+function clamp(value, min, max) {
+  return Math.max(min, Math.min(max, value));
+}
+
+function countWords(text) {
+  return (text || "").trim().split(/\s+/).filter(Boolean).length;
+}
+
+function normalizeRiskLevel(score) {
+  if (score >= 0.67) return "high";
+  if (score >= 0.34) return "medium";
+  return "low";
+}
+
+function getRoleMeta(role) {
+  return LISTING_ROLE_SEQUENCE.find(item => item.value === role) || LISTING_ROLE_SEQUENCE[0];
+}
+
+function getRoleAssignment(index) {
+  const role = LISTING_ROLE_SEQUENCE[index % LISTING_ROLE_SEQUENCE.length];
+  const phase = index < LISTING_ROLE_SEQUENCE.length ? "primary" : "supporting";
+  const slot = index + 1;
+  const supportVariant = phase === "primary"
+    ? `${role.purpose}.`
+    : {
+        thumbnail: "Alternate crop or mobile-first preview that still reads instantly in a search grid.",
+        proof: "Alternate proof angle that emphasizes material clarity, print fidelity, or product confidence.",
+        ugc_review: "Different everyday-customer angle that feels like a separate real review photo.",
+        fit: "Different body type, posture, or framing that stresses garment drape and fit confidence.",
+        lifestyle: "Different scene or routine moment that sells a distinct ownership story.",
+        gift: "Different gift occasion, recipient, or gifting context without repeating the earlier angle.",
+        color_variant: "Different shirt color or palette alternative that supports conversion variety.",
+        detail_closeup: "Different crop or macro emphasis that highlights print texture or typography.",
+        back_view: "Different rear-view or blank-back validation angle with clean separation from the first pass.",
+      }[role.value] || "Distinct second-pass variant that should not repeat the earlier concept's framing.";
+  return { role, phase, slot, supportVariant };
+}
+
+function buildRolePlan(batchLength) {
+  return Array.from({ length: batchLength }, (_, i) => {
+    const { role, phase, slot, supportVariant } = getRoleAssignment(i);
+    const phaseLabel = phase === "primary" ? "primary pass" : "supporting pass";
+    return `${slot}. ${role.label} (${role.value}) — ${phaseLabel}: ${supportVariant}`;
+  }).join("\n");
+}
+
+function inferListingRole(category = "", index = 0) {
+  const text = String(category).toLowerCase();
+  if (/back/i.test(text)) return "back_view";
+  if (/close\s*up|close-up|detail|macro|texture/i.test(text)) return "detail_closeup";
+  if (/selfie|ugc|phone/i.test(text)) return "ugc_review";
+  if (/mirror/i.test(text)) return "fit";
+  if (/gift|holiday|occasion/i.test(text)) return "gift";
+  if (/color|variant|palette/i.test(text)) return "color_variant";
+  if (/proof|product|hanger|folded|stack|mannequin/i.test(text)) return "proof";
+  if (/hero|thumbnail|flat lay|flatlay|clean white/i.test(text)) return "thumbnail";
+  if (/lifestyle|coffee|walk|street|home|outdoor|vacation|family/i.test(text)) return "lifestyle";
+  return LISTING_ROLE_SEQUENCE[index % LISTING_ROLE_SEQUENCE.length].value;
+}
+
+function visiblePrintForRole(printVisibility, listingRole) {
+  if (printVisibility === "both_sides") return true;
+  const backFacing = listingRole === "back_view";
+  if (printVisibility === "back_only") return backFacing;
+  if (printVisibility === "front_only") return !backFacing;
+  return !backFacing;
+}
+
+function buildVisibilityLogic(printVisibility, listingRole, visiblePrint) {
+  if (visiblePrint) {
+    return printVisibility === "back_only"
+      ? "VISIBILITY LOGIC: the print must be fully visible, centered, unobstructed, and readable on the back-facing side."
+      : printVisibility === "both_sides"
+        ? "VISIBILITY LOGIC: the print may appear on both sides when the concept calls for it, but the visible artwork must remain fully readable."
+        : "VISIBILITY LOGIC: the print must be fully visible, centered, unobstructed, and readable on the front-facing side.";
+  }
+  if (listingRole === "back_view" || printVisibility === "front_only") {
+    return "VISIBILITY LOGIC: the uploaded artwork exists only on the unseen side. The visible garment side must remain blank, clean, and realistic. No ghost print, no mirrored artwork, no partial artwork, no bleed-through.";
+  }
+  return "VISIBILITY LOGIC: the uploaded artwork exists only on the unseen side. The visible garment side must stay realistic and unobstructed without showing the print.";
+}
+
+function buildRiskAnalysis({ category = "", scene = "", props = "", pose = "", cameraAngle = "", listingRole = "", visiblePrint = true, printVisibility = "" }) {
+  const text = `${category} ${scene} ${props} ${pose} ${cameraAngle} ${listingRole}`.toLowerCase();
+  const points = {
+    text_distortion_risk: 0.1,
+    print_coverage_risk: 0.1,
+    hand_anatomy_risk: 0.1,
+    face_realism_risk: 0.1,
+    fabric_warp_risk: 0.1,
+    background_distraction_risk: 0.1,
+  };
+
+  if (/detail|close.?up|macro|text/i.test(text)) {
+    points.text_distortion_risk += 0.35;
+    points.fabric_warp_risk += 0.2;
+  }
+  if (/back/i.test(text) || printVisibility === "back_only" || listingRole === "back_view") {
+    points.print_coverage_risk += visiblePrint ? 0.15 : 0.7;
+  }
+  if (/hand|holding|grab|tuck|folded|stack/i.test(text)) {
+    points.hand_anatomy_risk += 0.55;
+    points.fabric_warp_risk += 0.25;
+  }
+  if (/selfie|ugc|mirror|face|portrait/i.test(text)) {
+    points.face_realism_risk += 0.5;
+    points.hand_anatomy_risk += 0.25;
+  }
+  if (/lifestyle|coffee|walk|street|home|outdoor|vacation|family|party|event/i.test(text)) {
+    points.background_distraction_risk += 0.45;
+  }
+  if (/flat lay|flatlay|proof|thumbnail|hanger|mannequin/i.test(text)) {
+    points.text_distortion_risk -= 0.05;
+    points.background_distraction_risk -= 0.05;
+  }
+  if (/three-quarter|slight|angled|side/i.test(text)) {
+    points.text_distortion_risk += 0.15;
+    points.print_coverage_risk += 0.15;
+  }
+  if (!visiblePrint) {
+    points.print_coverage_risk += 0.4;
+  }
+
+  return Object.fromEntries(Object.entries(points).map(([k, v]) => [k, normalizeRiskLevel(clamp(v, 0, 1))]));
+}
+
+function riskLevelToNumeric(level) {
+  return level === "high" ? 9 : level === "medium" ? 6 : 3;
+}
+
+function buildBusinessScores({ concept = "", riskAnalysis = {}, visiblePrint = true, listingRole = "" }) {
+  const rawVisibility = Number(concept.design_visibility_score || 0);
+  const rawConversion = Number(concept.etsy_conversion_score || 0);
+  const rawRealism = Number(concept.realism_score || 0);
+  const rawScrollStop = Number(concept.scroll_stop_score || 0);
+  const visibilityBoost = visiblePrint ? 1.1 : -0.8;
+  const roleBoost = ["thumbnail", "proof", "detail_closeup"].includes(listingRole) ? 0.7 : listingRole === "gift" ? 0.35 : 0.1;
+  const generationRisk = Math.max(
+    riskLevelToNumeric(riskAnalysis.text_distortion_risk || "low"),
+    riskLevelToNumeric(riskAnalysis.print_coverage_risk || "low"),
+    riskLevelToNumeric(riskAnalysis.hand_anatomy_risk || "low"),
+    riskLevelToNumeric(riskAnalysis.face_realism_risk || "low"),
+    riskLevelToNumeric(riskAnalysis.fabric_warp_risk || "low"),
+    riskLevelToNumeric(riskAnalysis.background_distraction_risk || "low")
+  );
+  const designVisibility = clamp(Math.round((rawVisibility || (visiblePrint ? 8 : 4)) + visibilityBoost), 1, 10);
+  const thumbnailStrength = clamp(Math.round((rawScrollStop || 6) + roleBoost + (visiblePrint ? 0.8 : -1)), 1, 10);
+  const trustScore = clamp(Math.round(((rawRealism || 6) + designVisibility + (visiblePrint ? 1 : -1) + (riskAnalysis.face_realism_risk === "high" ? -1.5 : 0)) / 2), 1, 10);
+  const realismScore = clamp(Math.round((rawRealism || 6) + (listingRole === "ugc_review" || listingRole === "lifestyle" ? 0.4 : 0)), 1, 10);
+  const businessValueScore = clamp(Math.round(((designVisibility + thumbnailStrength + trustScore + realismScore + (rawConversion || 6)) / 5) - (generationRisk >= 9 ? 1.2 : generationRisk >= 6 ? 0.6 : 0)), 1, 10);
+  return {
+    business_value_score: businessValueScore,
+    thumbnail_strength_score: thumbnailStrength,
+    trust_score: trustScore,
+    design_visibility_score: designVisibility,
+    realism_score: realismScore,
+    generation_risk_score: generationRisk,
+  };
+}
+
+function buildNegativePromptModules({ concept = {}, listingRole = "", visiblePrint = true, riskAnalysis = {} }) {
+  const modules = [];
+  const role = listingRole || inferListingRole(concept.category || "");
+  if (riskAnalysis.text_distortion_risk !== "low") {
+    modules.push("TEXT DISTORTION: warped text, unreadable typography, changed wording, melted letters, missing characters");
+  }
+  if (riskAnalysis.hand_anatomy_risk !== "low") {
+    modules.push("HAND RISK: extra fingers, fused fingers, broken wrists, malformed hands, awkward hand placement");
+  }
+  if (role === "back_view" || !visiblePrint || riskAnalysis.print_coverage_risk !== "low") {
+    modules.push("BACK VIEW: visible back print, mirrored artwork, ghost print, partial artwork, bleed-through");
+  }
+  if (/flat\s*lay|flatlay|proof|thumbnail/i.test(concept.category || role)) {
+    modules.push("FLAT LAY: crooked shirt, uneven sleeves, warped print, twisted hem, off-center garment");
+  }
+  if (/ghost|mannequin/i.test(concept.category || role)) {
+    modules.push("GHOST MANNEQUIN: floating garment, visible mannequin, broken collar, unnatural drape");
+  }
+  if (riskAnalysis.background_distraction_risk !== "low") {
+    modules.push("BACKGROUND: clutter, busy props, signage, distracting patterns, messy depth-of-field");
+  }
+  return modules;
+}
+
+function buildFluxPrompt({
+  concept = {},
+  listingRole = "",
+  visiblePrint = true,
+  printVisibility = "",
+  mockupStyleMode = "",
+  mockupStyleBrief = "",
+  fluxPrompt = "",
+  sceneText = "",
+  designAnalysis = "",
+  referenceNotes = [],
+  customPrompt = "",
+  riskAnalysis = {},
+  categoryResearch = "",
+  shirtResearch = "",
+  listingRolePhase = "",
+  listingRoleVariant = "",
+}) {
+  const roleMeta = getRoleMeta(listingRole);
+  const visibilityLine = buildVisibilityLogic(printVisibility, roleMeta.value, visiblePrint);
+  const styleLine = mockupStyleMode === "ugc_review"
+    ? "STYLE: candid UGC/review photo, smartphone energy, everyday customer vibe, not a catalog shot."
+    : mockupStyleMode === "custom"
+      ? `STYLE: ${mockupStyleBrief || "Use the custom style brief with realism first."}`
+      : "STYLE: use the preset mockup style direction for this execution style.";
+  const sceneLine = sceneText || `SCENE: ${concept.environment || concept.category || "clean lifestyle setting"}; pose: ${concept.pose || "natural relaxed posture"}; camera: ${concept.cameraSetup || "straight-on handheld"}; lighting: ${concept.lighting || "natural light"}.`;
+  const phaseText = listingRolePhase ? ` ${listingRolePhase} pass.` : "";
+  const variantText = listingRoleVariant ? ` Variant goal: ${listingRoleVariant}` : "";
+  const roleLine = `LISTING ROLE: ${roleMeta.label} (${roleMeta.purpose}).${phaseText}${variantText}`;
+  const riskLine = `RISK WATCH: ${Object.entries(riskAnalysis).map(([k, v]) => `${k.replace(/_/g, " ")} ${v}`).join(", ")}.`;
+  const extraNotes = [
+    fluxPrompt ? `Concept prompt: ${fluxPrompt}` : "",
+    designAnalysis ? `Analysis note: ${designAnalysis}` : "",
+    categoryResearch ? `Category research: ${categoryResearch}` : "",
+    shirtResearch ? `Shirt research: ${shirtResearch}` : "",
+    referenceNotes.length ? `Additional reference notes: ${referenceNotes.join(" | ")}` : "",
+    customPrompt ? `Regeneration change: ${customPrompt}.` : "",
+  ].filter(Boolean).join(" ");
+  return [
+    DESIGN_LOCK,
+    SHIRT_LOCK,
+    visibilityLine,
+    roleLine,
+    sceneLine,
+    styleLine,
+    riskLine,
+    extraNotes,
+    "Keep the print sharp, readable, and tightly integrated with the fabric. Use natural wrinkles, realistic shadows, natural skin texture, and authentic ecommerce or customer-photo realism.",
+  ].filter(Boolean).join(" ");
+}
+
+function enrichConceptData(concept, {
+  batchIndex = 0,
+  printVisibility = "",
+  mockupStyleMode = "",
+  mockupStyleBrief = "",
+  categoryInfo = {},
+} = {}) {
+  const category = concept.category || categoryInfo.name || "";
+  const assignment = getRoleAssignment(batchIndex);
+  const listingRole = concept.listing_role || inferListingRole(category, batchIndex);
+  const listingRolePhase = concept.listing_role_phase || assignment.phase;
+  const listingRoleSlot = Number(concept.listing_role_slot) || assignment.slot;
+  const listingRoleVariant = concept.listing_role_variant || assignment.supportVariant;
+  const visiblePrint = typeof concept.visible_print === "boolean" ? concept.visible_print : visiblePrintForRole(printVisibility, listingRole);
+  const riskAnalysis = concept.risk_analysis && typeof concept.risk_analysis === "object"
+    ? {
+        text_distortion_risk: concept.risk_analysis.text_distortion_risk || "low",
+        print_coverage_risk: concept.risk_analysis.print_coverage_risk || "low",
+        hand_anatomy_risk: concept.risk_analysis.hand_anatomy_risk || "low",
+        face_realism_risk: concept.risk_analysis.face_realism_risk || "low",
+        fabric_warp_risk: concept.risk_analysis.fabric_warp_risk || "low",
+        background_distraction_risk: concept.risk_analysis.background_distraction_risk || "low",
+      }
+    : buildRiskAnalysis({
+        category,
+        scene: concept.environment || concept.category_research || "",
+        props: concept.category_keywords || "",
+        pose: concept.pose || "",
+        cameraAngle: concept.camera_setup || "",
+        listingRole,
+        visiblePrint,
+        printVisibility,
+      });
+  const businessScores = concept.business_scores && typeof concept.business_scores === "object"
+    ? {
+        business_value_score: Number(concept.business_scores.business_value_score) || 0,
+        thumbnail_strength_score: Number(concept.business_scores.thumbnail_strength_score) || 0,
+        trust_score: Number(concept.business_scores.trust_score) || 0,
+        design_visibility_score: Number(concept.business_scores.design_visibility_score) || 0,
+        realism_score: Number(concept.business_scores.realism_score) || 0,
+        generation_risk_score: Number(concept.business_scores.generation_risk_score) || 0,
+      }
+    : buildBusinessScores({ concept, riskAnalysis, visiblePrint, listingRole });
+  const negativeModules = buildNegativePromptModules({ concept, listingRole, visiblePrint, riskAnalysis });
+  const promptWordCount = Number(concept.prompt_word_count) || countWords(concept.flux_prompt || "");
+  return {
+    ...concept,
+    category,
+    listing_role: listingRole,
+    listing_role_phase: listingRolePhase,
+    listing_role_slot: listingRoleSlot,
+    listing_role_variant: listingRoleVariant,
+    print_visibility: concept.print_visibility || printVisibility || "",
+    visible_print: visiblePrint,
+    mockup_style_mode: concept.mockup_style_mode || mockupStyleMode || "",
+    mockup_style_brief: concept.mockup_style_brief || mockupStyleBrief || "",
+    risk_analysis: riskAnalysis,
+    business_scores: businessScores,
+    prompt_word_count: promptWordCount,
+    negative_prompt: concept.negative_prompt || negativeModules.join(" | "),
+    debug: {
+      listing_role: listingRole,
+      listing_role_phase: listingRolePhase,
+      listing_role_slot: listingRoleSlot,
+      listing_role_variant: listingRoleVariant,
+      visible_print: visiblePrint,
+      risk_analysis: riskAnalysis,
+      business_scores: businessScores,
+      prompt_word_count: promptWordCount,
+    },
+  };
+}
+
+function buildUserMessage({
+  batchLength,
+  list,
+  rolePlan,
+  brandStyle,
+  niche,
+  audience,
+  shirtMode,
+  shirtModel,
+  shirtName,
+  autoDetect,
+  designAnalysis,
+  shirtContext,
+  printVisibilityContext,
+  mockupStyleContext,
+  sceneDirection,
+  mockupCount,
+  learningContext,
+  diversitySummary,
+}) {
+  return `Generate mockup concepts for these ${batchLength} execution-style categories:
+${list}
+
+Etsy Listing Strategy (listing_role first):
+${rolePlan}
+
+Design Details:
+- Brand Style: ${brandStyle || "Modern, clean, approachable"}
+- Niche: ${niche || "General apparel"}
+- Target Audience: ${audience || "General buyers"}
+- Shirt Type Mode: ${shirtMode === "__match_picture__" ? "Match the picture" : "Catalog shirt"}
+- Shirt Model: ${shirtModel || "Unisex Classic Tee"}
+- Shirt Name for Research: ${shirtName || "Not provided"}
+- Autodetect Enabled: ${autoDetect ? "Yes" : "No"}
+- Replicate Image-to-Text Analysis: ${designAnalysis || "Not provided"}
+- Shirt Research Instruction: ${shirtContext}
+- ${printVisibilityContext}
+- ${mockupStyleContext}
+- Scene Direction: ${sceneDirection || "Natural authentic lifestyle scenes"}
+- Total mockups requested: ${mockupCount || batchLength}
+- Learning Memory: ${learningContext || "None yet"}
+- Prompt Word Target: 120-220 words for the final Flux prompt after reusable modules are injected
+
+PREVIOUSLY USED ATTRIBUTES (avoid repeating these combinations by changing environment, pose, camera, age, ethnicity, and clothing color):
+${diversitySummary}
+
+CATEGORY ROLE GUIDANCE:
+- Categories are execution styles; listing_role is the business purpose.
+- Use unique listing_role values where possible.
+- Keep the first nine concepts aligned to the primary role sequence.
+- If more than nine concepts are requested, treat concepts 10+ as a supporting pass: same role family, but different crop, buyer story, pose, camera angle, or conversion emphasis.
+- Make the flux_prompt concise and high-signal because reusable modules are injected later.
+- Return listing_role_phase, listing_role_slot, listing_role_variant, prompt_word_count, visible_print, risk_analysis, and business_scores for every concept.
+
+Analyze the uploaded design deeply and generate all ${batchLength} mockup concepts now. Use the Replicate image-to-text analysis when present. Respond with ONLY a JSON array as specified, with no markdown and no commentary.`;
+}
+
 // ─── System prompt (KO v2 — Flux Kontext Master) ─────────────────────────────
 const SYSTEM_PROMPT = `You are KO v3, an Etsy Mockup Creation Engine and Flux Kontext refinement system.
 
 Your purpose is not simply to generate mockup prompts. Your purpose is to transform one uploaded design into a diverse set of realistic, high-converting Etsy mockup concepts that maximize: Etsy click-through rate, conversion rate, design visibility, mockup realism, catalog diversity, and brand consistency.
 
-<design_fidelity_rule>
-The uploaded image is the user's design and must be treated as fixed, pixel-exact content — never a loose style reference. Every flux_prompt you write must open with this exact non-negotiable block before any scene/photography description: "Use the exact design from the reference image. Preserve all typography, colors, linework, proportions, spacing, and graphic elements exactly as shown. Do not redraw, reinterpret, restyle, modify text, change colors, change proportions, remove elements, or add elements to the design." This rule overrides all other instructions if any conflict arises.
-</design_fidelity_rule>
+Reusable prompt modules:
+${DESIGN_LOCK}
+
+${SHIRT_LOCK}
 
 CORE PHILOSOPHY
 You are not a prompt generator. You are a mockup production system.
 Every concept must preserve the exact design per the rule above; showcase the design clearly; feel authentic and commercially viable; look like a top-performing Etsy listing; be diverse from every other concept in this batch AND from concepts listed under PREVIOUSLY USED ATTRIBUTES below. Never generate concepts that feel repetitive, generic, AI-generated, or stock-photo-like.
+
+ROLE-FIRST STRATEGY
+- listing_role is the primary business job of the image
+- category is the execution style used to perform that job
+- allowed listing_role values are: thumbnail, proof, ugc_review, fit, lifestyle, gift, color_variant, detail_closeup, back_view
+- prioritize unique listing_role values within the batch; keep the first nine aligned to the primary role sequence and treat any overflow concepts as a supporting pass with distinct crop, buyer story, pose, camera angle, or conversion emphasis
+- the listing strategy should feel like a complete Etsy image set, not random standalone categories
 
 NEW GENERATION PIPELINE
 Step 1 - Design Analysis
@@ -253,6 +675,7 @@ Return structured metadata.
 Step 2 - Mockup Concept Generation
 Generate mockup concepts rather than image prompts.
 Each concept should contain:
+- listing_role
 - concept name
 - buyer persona
 - environment
@@ -327,10 +750,12 @@ LIGHTING SYSTEM — pick from: natural window light, soft morning sunlight, gold
 POSE SYSTEM — pick from: standing relaxed, walking naturally, holding coffee mug, hands in pockets, sitting casually, looking out window, leaning on counter. Avoid influencer poses, fashion runway poses, awkward AI body language.
 
 FLUX KONTEXT PROMPT RULES — every flux_prompt must:
-1) Open with the exact design_fidelity_rule block above.
-2) Then: "Place the design naturally on a premium high-quality t-shirt." followed by model description, pose, environment, lighting, and camera setup (100-140 words total for this section).
-3) Bias the scene toward UGC / review-photo authenticity: smartphone look, candid framing, everyday buyer energy, casual lifestyle context, and believable imperfect real-world moments.
-4) Close with: "The design must remain fully visible and unobstructed. No hands covering the artwork. No hair covering the artwork. No folds obscuring important design elements. Professional Etsy bestseller mockup photography. Commercial product photography. Photorealistic. Authentic human appearance. Natural fabric texture. Realistic shadows. High-end ecommerce image."
+1) Keep the prompt concise and high-signal.
+2) Begin with the exact Design Lock module above.
+3) Use the Shirt Lock and visibility logic exactly as provided in the concept context.
+4) Then describe only the scene, role, pose, camera, and lighting in 40-80 words.
+5) Bias the scene toward UGC / review-photo authenticity: smartphone look, candid framing, everyday buyer energy, casual lifestyle context, and believable imperfect real-world moments.
+6) Close with a short realism reminder that keeps the print readable and the garment believable.
 
 SCORING RUBRICS — use these anchors for every numeric score (0-10). Do not default to 8-9; score honestly against these descriptions:
 - design_visibility_score: 3 = design obscured by heavy mock shadows, low contrast, or fabric folds. 7 = legible design with minor loss of detail in textures or background lighting. 10 = perfectly sharp, high-contrast, centered design with full readability.
@@ -345,6 +770,10 @@ For EACH category given, return output as a single JSON object inside the array 
 [
   {
     "category": "exact category name",
+    "listing_role": "one of the allowed listing roles",
+    "listing_role_phase": "primary or supporting",
+    "listing_role_slot": 1,
+    "listing_role_variant": "short phrase explaining this slot's unique conversion angle",
     "concept_name": "short evocative concept name",
     "shirt_color_primary": "specific color name",
     "shirt_color_secondary": "specific backup color name",
@@ -359,6 +788,7 @@ For EACH category given, return output as a single JSON object inside the array 
     "category_keywords": "8-12 comma-separated SEO phrases",
     "shirt_research": "2-4 sentences: shirt type, silhouette, fit, fabric feel, why it matches the design",
     "print_visibility": "one short phrase: front_only, back_only, or both_sides based on the user's print visibility choice",
+    "visible_print": true,
     "mockup_style_mode": "one short phrase describing whether this concept uses preset mockup styles or a custom style brief",
     "mockup_style_brief": "1-2 sentences describing the style direction used for this concept when custom style mode is selected",
     "environment": "specific environment/room used in this concept",
@@ -366,7 +796,7 @@ For EACH category given, return output as a single JSON object inside the array 
     "pose": "specific pose used",
     "camera_setup": "lens + angle used",
     "lighting": "lighting style used",
-    "flux_prompt": "100-160 word Flux Kontext prompt following the FLUX KONTEXT PROMPT RULES above",
+    "flux_prompt": "40-80 word Flux Kontext prompt following the FLUX KONTEXT PROMPT RULES above",
     "negative_prompt": "5-10 comma-separated negative terms specific to THIS concept's likely failure modes (e.g. given the chosen pose/environment/lighting, what could plausibly go wrong) — not a generic boilerplate list",
     "qa_checklist": "exactly 5 bullet points (use \\n between them) checking: print alignment, anatomy/pose, shadow realism, seam integrity, typography legibility, shirt-model accuracy",
     "auto_fix_prompt": "2-3 sentences: surgical correction prompt that fixes only the detected anomaly. Must state 'Use the exact design from the reference image, unchanged' and list what to preserve: composition, lighting, garment texture, pose, design scale/typography/colors, scene continuity, shirt identity",
@@ -378,6 +808,23 @@ For EACH category given, return output as a single JSON object inside the array 
       "correction_strength": "subtle / moderate / strong — with reasoning"
     },
     "thumbnail_notes": "2-3 sentences: mobile optimization, design visibility at small size, contrast, Etsy search-grid crop, emotional clickability",
+    "risk_analysis": {
+      "text_distortion_risk": "low|medium|high",
+      "print_coverage_risk": "low|medium|high",
+      "hand_anatomy_risk": "low|medium|high",
+      "face_realism_risk": "low|medium|high",
+      "fabric_warp_risk": "low|medium|high",
+      "background_distraction_risk": "low|medium|high"
+    },
+    "business_scores": {
+      "business_value_score": 0,
+      "thumbnail_strength_score": 0,
+      "trust_score": 0,
+      "design_visibility_score": 0,
+      "realism_score": 0,
+      "generation_risk_score": 0
+    },
+    "prompt_word_count": 0,
     "design_visibility_score": 0,
     "etsy_conversion_score": 0,
     "realism_score": 0,
@@ -396,6 +843,8 @@ GLOBAL RULES — every flux_prompt must:
 - Respect the chosen shirt type or, when asked to match the picture, infer the garment from the uploaded reference with maximum realism
 - Keep the shirt silhouette, collar, sleeve length, and fit believable
 - Treat Flux as a refinement layer that improves realism rather than a design generator
+- Prefer the role sequence: thumbnail, proof, ugc_review, fit, lifestyle, gift, color_variant, detail_closeup, back_view
+- Keep category as execution style, not as the primary business job
 - Avoid: glossy fabric, fake depth blur, hyper-HDR, symmetrical AI composition, floating garments, broken seams, oversaturated colors, synthetic facial expressions, repetitive layouts, extreme angles, fish-eye distortion
 
 Respond with ONLY the JSON array. No markdown code fences, no commentary before or after.`;
@@ -468,8 +917,28 @@ app.post("/api/generate-prompts", async (req, res) => {
         `env:${a.environment||"?"} | pose:${a.pose||"?"} | camera:${a.camera||"?"} | age:${a.age||"?"} | ethnicity:${a.ethnicity||"?"} | clothingColor:${a.clothingColor||"?"}`
       ).join("\n")
     : "None yet — this is the first batch.";
+  const rolePlan = buildRolePlan(batch.length);
 
-  const userMessage = `Generate mockup prompts for these ${batch.length} categories:\n${list}\n\nDesign Details:\n- Brand Style: ${brandStyle || "Modern, clean, approachable"}\n- Niche: ${niche || "General apparel"}\n- Target Audience: ${audience || "General buyers"}\n- Shirt Type Mode: ${shirtMode === "__match_picture__" ? "Match the picture" : "Catalog shirt"}\n- Shirt Model: ${shirtModel || "Unisex Classic Tee"}\n- Shirt Name for Research: ${shirtName || "Not provided"}\n- Autodetect Enabled: ${autoDetect ? "Yes" : "No"}\n- Replicate Image-to-Text Analysis: ${designAnalysis || "Not provided"}\n- Shirt Research Instruction: ${shirtContext}\n- ${printVisibilityContext}\n- ${mockupStyleContext}\n- Scene Direction: ${sceneDirection || "Natural authentic lifestyle scenes"}\n- Total mockups requested: ${mockupCount || batch.length}\n- Learning Memory: ${learningContext || "None yet"}\n\nPREVIOUSLY USED ATTRIBUTES (avoid repeating these combinations — pick different environment/pose/camera/age/ethnicity/clothing color for each new concept):\n${diversitySummary}\n\nAnalyze the uploaded design deeply and generate all ${batch.length} mockup concepts now. Use the Replicate image-to-text analysis when present. Respond with ONLY a JSON array as specified — no markdown, no commentary.`;
+  const roleAwareUserMessage = buildUserMessage({
+    batchLength: batch.length,
+    list,
+    rolePlan,
+    brandStyle,
+    niche,
+    audience,
+    shirtMode,
+    shirtModel,
+    shirtName,
+    autoDetect,
+    designAnalysis,
+    shirtContext,
+    printVisibilityContext,
+    mockupStyleContext,
+    sceneDirection,
+    mockupCount,
+    learningContext,
+    diversitySummary,
+  });
 
   try {
     const r = await fetchJsonWithRetry("https://generativelanguage.googleapis.com/v1beta/models/gemini-2.5-flash:generateContent", {
@@ -490,7 +959,7 @@ app.post("/api/generate-prompts", async (req, res) => {
                 data: imageBase64,
               },
             },
-            { text: userMessage },
+            { text: roleAwareUserMessage },
           ],
         }],
       }),
@@ -500,23 +969,30 @@ app.post("/api/generate-prompts", async (req, res) => {
     if (d.error) throw new Error(d.error.message);
     const raw = getGeminiText(d);
     const concepts = extractJsonArray(raw);
-    if (!concepts.length && raw) {
+    const enrichedConcepts = concepts.map((concept, index) => enrichConceptData(concept, {
+      batchIndex: index,
+      printVisibility,
+      mockupStyleMode,
+      mockupStyleBrief,
+      categoryInfo: batch[index] || {},
+    }));
+    if (!enrichedConcepts.length && raw) {
       console.error("[generate-prompts] Gemini returned text but 0 concepts parsed. finishReason:", d?.candidates?.[0]?.finishReason);
     }
     logPromptGeneration({
       systemPrompt: SYSTEM_PROMPT,
-      userMessage,
+      userMessage: roleAwareUserMessage,
       rawResponse: raw,
-      conceptsCount: concepts.length,
+      conceptsCount: enrichedConcepts.length,
       finishReason: d?.candidates?.[0]?.finishReason || null,
-      ok: concepts.length > 0,
+      ok: enrichedConcepts.length > 0,
     });
-    res.json({ raw, concepts, warning: !concepts.length && raw ? "Gemini response could not be parsed into concepts — check server logs for raw output." : undefined });
+    res.json({ raw, concepts: enrichedConcepts, warning: !enrichedConcepts.length && raw ? "Gemini response could not be parsed into concepts — check server logs for raw output." : undefined });
   } catch (e) {
     console.error("[generate-prompts] failed:", e.message);
     logPromptGeneration({
       systemPrompt: SYSTEM_PROMPT,
-      userMessage,
+      userMessage: roleAwareUserMessage,
       rawResponse: null,
       error: e.message,
       ok: false,
@@ -669,14 +1145,14 @@ app.post("/api/analyze-shirt", async (req, res) => {
     }, replicate);
     res.json({ analysis: getPredictionText(output) });
   } catch (e) {
-    console.error("[ai-fix-suggestion] failed:", e.message);
-    res.status(500).json({ error: `[ai-fix-suggestion] ${e.message}` });
+    console.error("[analyze-shirt] failed:", e.message);
+    res.status(500).json({ error: `[analyze-shirt] ${e.message}` });
   }
 });
 
 app.post("/api/ai-fix-suggestion", async (req, res) => {
   if (!requireAdmin(req, res)) return;
-  const { fluxPrompt, qaChecklist, customPrompt, imageBase64, imageType, printVisibility, mockupStyleMode, mockupStyleBrief } = req.body;
+  const { fluxPrompt, qaChecklist, customPrompt, imageBase64, imageType, printVisibility, mockupStyleMode, mockupStyleBrief, listingRole = "", listingRolePhase = "", listingRoleVariant = "", visiblePrint, riskAnalysis = {}, businessScores = {}, categoryResearch = "", shirtResearch = "" } = req.body;
   const { gemini } = loadKeys();
   if (!gemini)
     return res.status(400).json({ error: "Gemini API ključ ni nastavljen. Pojdi v Nastavitve." });
@@ -700,10 +1176,20 @@ User requested change:
 ${customPrompt || "No custom change provided — infer the single most likely defect from the QA checklist and image."}
 
 Print visibility context:
-${printVisibility || "Not provided"}
+${printVisibility || "Not provided"} | visible_print: ${typeof visiblePrint === "boolean" ? String(visiblePrint) : "not provided"} | listing_role: ${listingRole || "not provided"} | listing_role_phase: ${listingRolePhase || "not provided"} | listing_role_variant: ${listingRoleVariant || "not provided"}
 
 Mockup style context:
 ${mockupStyleMode === "custom" && mockupStyleBrief ? mockupStyleBrief : mockupStyleMode || "Not provided"}
+
+Risk context:
+${JSON.stringify(riskAnalysis || {}, null, 2)}
+
+Business context:
+${JSON.stringify(businessScores || {}, null, 2)}
+
+Research context:
+${categoryResearch || "No category research provided."}
+${shirtResearch || "No shirt research provided."}
 
 Return ONLY a corrective instruction (2-3 sentences) in this shape:
 1) Name the exact defect to fix.
@@ -742,7 +1228,30 @@ No preamble, no extra commentary — just the correction prompt.` },
 
 app.post("/api/generate-image", async (req, res) => {
   if (!requireAdmin(req, res)) return;
-  const { fluxPrompt, customPrompt, designAnalysis, referenceImages = [], imageBase64, imageType, printVisibility, mockupStyleMode, mockupStyleBrief } = req.body;
+  const {
+    fluxPrompt,
+    customPrompt,
+    designAnalysis,
+    referenceImages = [],
+    imageBase64,
+    imageType,
+    printVisibility,
+    mockupStyleMode,
+    mockupStyleBrief,
+    listingRole = "",
+    listingRolePhase = "",
+    listingRoleVariant = "",
+    visiblePrint,
+    riskAnalysis = {},
+    businessScores = {},
+    categoryResearch = "",
+    shirtResearch = "",
+    environment = "",
+    targetBuyer = "",
+    pose = "",
+    cameraSetup = "",
+    lighting = "",
+  } = req.body;
   const { replicate } = loadKeys();
   if (!replicate)
     return res.status(400).json({ error: "Replicate API ključ ni nastavljen. Pojdi v Nastavitve." });
@@ -750,6 +1259,8 @@ app.post("/api/generate-image", async (req, res) => {
     return res.status(400).json({ error: "Reference image ni poslana." });
 
   const requestId = `regen-${Date.now().toString(36)}-${Math.random().toString(36).slice(2, 7)}`;
+  const resolvedListingRole = listingRole || inferListingRole(fluxPrompt || "", 0);
+  const resolvedVisiblePrint = typeof visiblePrint === "boolean" ? visiblePrint : visiblePrintForRole(printVisibility, resolvedListingRole);
   console.log(`[generate-image ${requestId}] start`, {
     prompt: (fluxPrompt || "").slice(0, 90),
     custom: (customPrompt || "").slice(0, 90),
@@ -757,6 +1268,10 @@ app.post("/api/generate-image", async (req, res) => {
     analysis: !!designAnalysis,
     printVisibility: printVisibility || "",
     mockupStyleMode: mockupStyleMode || "",
+    listingRole: resolvedListingRole,
+    listingRolePhase: listingRolePhase || "",
+    listingRoleVariant: listingRoleVariant || "",
+    visiblePrint: resolvedVisiblePrint,
   });
 
   try {
@@ -774,6 +1289,36 @@ app.post("/api/generate-image", async (req, res) => {
         referenceNotes.push(`${ref.name || "Reference"}: unavailable (${e.message})`);
       }
     }
+    const finalPrompt = buildFluxPrompt({
+      concept: {
+        category: resolvedListingRole,
+        environment,
+        pose,
+        cameraSetup,
+        lighting,
+      },
+      listingRole: resolvedListingRole,
+    visiblePrint: resolvedVisiblePrint,
+    printVisibility,
+    mockupStyleMode,
+    mockupStyleBrief,
+    fluxPrompt,
+    designAnalysis,
+    referenceNotes,
+    customPrompt,
+    riskAnalysis,
+    categoryResearch,
+    shirtResearch,
+    listingRolePhase,
+    listingRoleVariant,
+    sceneText: [
+      environment ? `SCENE: ${environment}` : "",
+      targetBuyer ? `TARGET BUYER: ${targetBuyer}` : "",
+      pose ? `POSE: ${pose}` : "",
+      cameraSetup ? `CAMERA: ${cameraSetup}` : "",
+      lighting ? `LIGHTING: ${lighting}` : "",
+    ].filter(Boolean).join("; "),
+  });
     const r = await fetchJsonWithRetry("https://api.replicate.com/v1/models/black-forest-labs/flux-kontext-dev/predictions", {
       method: "POST",
       headers: {
@@ -783,27 +1328,7 @@ app.post("/api/generate-image", async (req, res) => {
       },
       body: JSON.stringify({
         input: {
-          prompt: [
-            "Use the attached reference image as the exact source of truth for the garment design.",
-            "Make the result feel like a real customer lifestyle photo or social media post, not a catalog shot or ad. The subject should look like an everyday buyer, not a professional model.",
-            "Use natural imperfections: slight fabric tension, realistic folds, casual posture, real-world lighting, minor camera imperfections, and authentic perspective.",
-            fluxPrompt,
-            designAnalysis ? `Detected shirt/design analysis: ${designAnalysis}` : "",
-            printVisibility === "front_only"
-              ? "Print placement rule: show the print only on the front-facing side. Back-view concepts must remain blank on the back and never show the graphic."
-              : printVisibility === "back_only"
-                ? "Print placement rule: show the print only on the back-facing side. Front-view concepts must remain blank on the front and never show the graphic."
-                : printVisibility === "both_sides"
-                  ? "Print placement rule: the design may appear on both sides when the concept naturally requires it."
-                  : "",
-            mockupStyleMode === "ugc_review"
-              ? "Mockup style direction: UGC / review photo. Make the result feel like a real customer photo or casual social post: candid framing, smartphone energy, informal crop, everyday buyer vibe, and believable imperfections."
-              : mockupStyleMode === "custom" && mockupStyleBrief
-                ? `Mockup style direction: ${mockupStyleBrief}`
-                : "Mockup style direction: use the current preset mockup style system and keep the output aligned with the concept's preset visual language.",
-            referenceNotes.length ? `Use these additional reference image notes for style, pose, lighting, and background only; do not replace the source garment design: ${referenceNotes.join(" | ")}` : "",
-            customPrompt ? `User requested change for this regeneration: ${customPrompt}. Apply it while preserving the original design exactly.` : "",
-          ].filter(Boolean).join(" "),
+          prompt: finalPrompt,
           input_image: inputImage,
           aspect_ratio: "match_input_image",
           output_format: "png",
@@ -823,7 +1348,12 @@ app.post("/api/generate-image", async (req, res) => {
     const d = await r.json();
     const outputUrl = getPredictionOutputUrl(d.output) || (await pollPrediction(d.id, replicate));
     const url = await toDataUrl(outputUrl);
-    console.log(`[generate-image ${requestId}] success`, { hasOutput: !!url, mimeType: "image/png" });
+    console.log(`[generate-image ${requestId}] success`, {
+      hasOutput: !!url,
+      mimeType: "image/png",
+      promptWordCount: countWords(finalPrompt),
+      businessScores,
+    });
     res.json({ url, mimeType: "image/png" });
   } catch (e) {
     console.error(`[generate-image ${requestId}] error`, e.message);
