@@ -49,7 +49,7 @@
   </script>
   <script src="https://unpkg.com/react@18/umd/react.development.js" onload="diagLog('React loaded', true)" onerror="diagLog('FAILED to load React from unpkg.com — CDN may be blocked on this network'); showDiagIfNeeded()"></script>
   <script src="https://unpkg.com/react-dom@18/umd/react-dom.development.js" onload="diagLog('ReactDOM loaded', true)" onerror="diagLog('FAILED to load ReactDOM from unpkg.com — CDN may be blocked on this network'); showDiagIfNeeded()"></script>
-  <script src="https://unpkg.com/@babel/standalone/babel.min.js" onload="diagLog('Babel loaded', true)" onerror="diagLog('FAILED to load Babel from unpkg.com — CDN may be blocked on this network'); showDiagIfNeeded()"></script>
+  <script src="https://unpkg.com/@babel/standalone@7.24.7/babel.min.js" onload="diagLog('Babel loaded', true)" onerror="diagLog('FAILED to load Babel from unpkg.com — CDN may be blocked on this network'); showDiagIfNeeded()"></script>
   <script src="https://cdn.jsdelivr.net/npm/jszip@3.10.1/dist/jszip.min.js" onload="diagLog('JSZip loaded', true)" onerror="diagLog('FAILED to load JSZip from jsdelivr.net — CDN may be blocked on this network'); showDiagIfNeeded()"></script>
   <link href="https://fonts.googleapis.com/css2?family=DM+Sans:wght@300;400;500;600&family=DM+Mono:wght@400;500&family=Playfair+Display:wght@700&display=swap" rel="stylesheet"/>
   <style>
@@ -68,7 +68,7 @@
 <body>
 <div id="root"></div>
 <div id="diag-overlay"></div>
-<script type="text/babel">
+<script type="text/babel" data-presets="react" data-type="script">
   try {
 const { useState, useRef, useEffect } = React;
 const ADMIN_TOKEN_STORAGE_KEY = "etsy_mockup_admin_token";
@@ -192,6 +192,25 @@ function safeParseConceptsJson(raw) {
   } catch {
     return [];
   }
+}
+
+function slugifyName(value) {
+  return (value || "")
+    .toLowerCase()
+    .normalize("NFKD")
+    .replace(/[\u0300-\u036f]/g, "")
+    .replace(/[^a-z0-9]+/g, "-")
+    .replace(/^-+|-+$/g, "")
+    .slice(0, 80);
+}
+
+function mockupFileName(result, catInfo, index) {
+  const parts = [
+    `mockup-${String(index + 1).padStart(2, "0")}`,
+    slugifyName(result?.conceptName),
+    slugifyName(result?.category || catInfo?.name),
+  ].filter(Boolean);
+  return `${parts.join("-")}.png`;
 }
 
 // ─── API helpers ──────────────────────────────────────────────────────────────
@@ -686,7 +705,7 @@ function MockupCard({ result, catInfo, index, isOpen, onToggle, imgState, custom
   const done = imgState?.status === "done";
   const fixing = imgState?.fixing;
   const [detailsOpen, setDetailsOpen] = useState(false);
-  const downloadName = `mockup-${String(index+1).padStart(2,"0")}.png`;
+  const downloadName = mockupFileName(result, catInfo, index);
 
   return (
     <div style={{background:"rgba(255,255,255,0.022)",border:"1px solid rgba(255,255,255,0.07)",borderRadius:14,overflow:"hidden",marginBottom:8}}>
@@ -1091,7 +1110,7 @@ function App() {
 
     const zip = new JSZip();
     done.forEach(({ result, index, image }) => {
-      zip.file(`mockup-${String(index + 1).padStart(2,"0")}-${(result.catInfo?.name||"image").replace(/[^a-z0-9]+/gi,"-").toLowerCase()}.png`, dataUrlToBlob(image));
+      zip.file(mockupFileName(result.data, result.catInfo, index), dataUrlToBlob(image));
     });
 
     done.forEach(({ result }) => {
