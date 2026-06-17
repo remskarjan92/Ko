@@ -188,7 +188,7 @@ app.post("/api/test/gemini", async (req, res) => {
   const { gemini } = loadKeys();
   if (!gemini) return res.json({ ok: false, message: "Ključ ni nastavljen." });
   try {
-    const r = await fetch("https://generativelanguage.googleapis.com/v1beta/models/gemini-2.5-flash:generateContent", {
+    const r = await fetchJsonWithRetry("https://generativelanguage.googleapis.com/v1beta/models/gemini-2.5-flash:generateContent", {
       method: "POST",
       headers: {
         "Content-Type": "application/json",
@@ -197,7 +197,7 @@ app.post("/api/test/gemini", async (req, res) => {
       body: JSON.stringify({
         contents: [{ parts: [{ text: "hi" }] }],
       }),
-    });
+    }, { retries: 3, delayMs: 1500, label: "gemini generate-prompts" });
     const d = await r.json();
     if (d.error) throw new Error(d.error.message);
     const text = d.candidates?.[0]?.content?.parts?.map(p => p.text || "").join("") || "";
@@ -471,7 +471,7 @@ app.post("/api/generate-prompts", async (req, res) => {
   const userMessage = `Generate mockup prompts for these ${batch.length} categories:\n${list}\n\nDesign Details:\n- Brand Style: ${brandStyle || "Modern, clean, approachable"}\n- Niche: ${niche || "General apparel"}\n- Target Audience: ${audience || "General buyers"}\n- Shirt Type Mode: ${shirtMode === "__match_picture__" ? "Match the picture" : "Catalog shirt"}\n- Shirt Model: ${shirtModel || "Unisex Classic Tee"}\n- Shirt Name for Research: ${shirtName || "Not provided"}\n- Autodetect Enabled: ${autoDetect ? "Yes" : "No"}\n- Replicate Image-to-Text Analysis: ${designAnalysis || "Not provided"}\n- Shirt Research Instruction: ${shirtContext}\n- ${printVisibilityContext}\n- ${mockupStyleContext}\n- Scene Direction: ${sceneDirection || "Natural authentic lifestyle scenes"}\n- Total mockups requested: ${mockupCount || batch.length}\n- Learning Memory: ${learningContext || "None yet"}\n\nPREVIOUSLY USED ATTRIBUTES (avoid repeating these combinations — pick different environment/pose/camera/age/ethnicity/clothing color for each new concept):\n${diversitySummary}\n\nAnalyze the uploaded design deeply and generate all ${batch.length} mockup concepts now. Use the Replicate image-to-text analysis when present. Respond with ONLY a JSON array as specified — no markdown, no commentary.`;
 
   try {
-    const r = await fetch("https://generativelanguage.googleapis.com/v1beta/models/gemini-2.5-flash:generateContent", {
+    const r = await fetchJsonWithRetry("https://generativelanguage.googleapis.com/v1beta/models/gemini-2.5-flash:generateContent", {
       method: "POST",
       headers: {
         "Content-Type": "application/json",
@@ -493,7 +493,7 @@ app.post("/api/generate-prompts", async (req, res) => {
           ],
         }],
       }),
-    });
+    }, { retries: 3, delayMs: 1500, label: "gemini ai-fix" });
 
     const d = await r.json();
     if (d.error) throw new Error(d.error.message);

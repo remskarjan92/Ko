@@ -390,8 +390,17 @@ try {
       },
       body: JSON.stringify(body)
     });
-    const d = await res.json();
-    if (!res.ok) throw new Error(d.error || `Server error ${res.status}`);
+    const text = await res.text();
+    let d = {};
+    try {
+      d = text ? JSON.parse(text) : {};
+    } catch {
+      d = {};
+    }
+    if (!res.ok) {
+      const detail = d?.error || d?.message || text.trim();
+      throw new Error(detail || `Server error ${res.status}`);
+    }
     return d;
   }
   function dataUrlToBlob(dataUrl) {
