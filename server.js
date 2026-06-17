@@ -241,6 +241,10 @@ CUSTOMER LIFESTYLE REALISM
 - Use natural imperfections: slight fabric tension, realistic folds, casual posture, real-world lighting, minor camera imperfections, authentic perspective
 - The scene should tell a believable story such as a morning walk, dog owner at a coffee shop, casual selfie, weekend outing, vacation moment, family gathering, or relaxing at home
 - Keep the uploaded shirt design as the focal point and maintain print realism at all times
+- Lean harder into UGC and review-photo styling than catalog styling
+- Prefer smartphone-shot energy, handheld framing, informal crops, and small human imperfections
+- Make the image feel like someone naturally snapped it for an Etsy review, Instagram post, or casual message to a friend
+- Avoid any composition that feels like a posed brand campaign, polished ad, or showroom product listing
 
 DESIGN VISIBILITY RULES (highest priority after design fidelity)
 - Design fully visible, no hands/hair/jackets/folds/props covering any part of it
@@ -257,7 +261,8 @@ POSE SYSTEM — pick from: standing relaxed, walking naturally, holding coffee m
 FLUX KONTEXT PROMPT RULES — every flux_prompt must:
 1) Open with the exact design_fidelity_rule block above.
 2) Then: "Place the design naturally on a premium high-quality t-shirt." followed by model description, pose, environment, lighting, and camera setup (100-140 words total for this section).
-3) Close with: "The design must remain fully visible and unobstructed. No hands covering the artwork. No hair covering the artwork. No folds obscuring important design elements. Professional Etsy bestseller mockup photography. Commercial product photography. Photorealistic. Authentic human appearance. Natural fabric texture. Realistic shadows. High-end ecommerce image."
+3) Bias the scene toward UGC / review-photo authenticity: smartphone look, candid framing, everyday buyer energy, casual lifestyle context, and believable imperfect real-world moments.
+4) Close with: "The design must remain fully visible and unobstructed. No hands covering the artwork. No hair covering the artwork. No folds obscuring important design elements. Professional Etsy bestseller mockup photography. Commercial product photography. Photorealistic. Authentic human appearance. Natural fabric texture. Realistic shadows. High-end ecommerce image."
 
 SCORING RUBRICS — use these anchors for every numeric score (0-10). Do not default to 8-9; score honestly against these descriptions:
 - design_visibility_score: 3 = design obscured by heavy mock shadows, low contrast, or fabric folds. 7 = legible design with minor loss of detail in textures or background lighting. 10 = perfectly sharp, high-contrast, centered design with full readability.
