@@ -61,7 +61,6 @@
   </script>
   <script src="https://unpkg.com/react@18/umd/react.development.js" onload="diagLog('React loaded', true)" onerror="diagLog('FAILED to load React from unpkg.com — CDN may be blocked on this network'); showDiagIfNeeded()"></script>
   <script src="https://unpkg.com/react-dom@18/umd/react-dom.development.js" onload="diagLog('ReactDOM loaded', true)" onerror="diagLog('FAILED to load ReactDOM from unpkg.com — CDN may be blocked on this network'); showDiagIfNeeded()"></script>
-  <script src="https://unpkg.com/@babel/standalone@7.24.7/babel.min.js" onload="diagLog('Babel loaded', true)" onerror="diagLog('FAILED to load Babel from unpkg.com — CDN may be blocked on this network'); showDiagIfNeeded()"></script>
   <script src="https://cdn.jsdelivr.net/npm/jszip@3.10.1/dist/jszip.min.js" onload="diagLog('JSZip loaded', true)" onerror="diagLog('FAILED to load JSZip from jsdelivr.net — CDN may be blocked on this network'); showDiagIfNeeded()"></script>
   <link href="https://fonts.googleapis.com/css2?family=DM+Sans:wght@300;400;500;600&family=DM+Mono:wght@400;500&family=Playfair+Display:wght@700&display=swap" rel="stylesheet"/>
   <style>
@@ -80,1072 +79,2039 @@
 <body>
 <div id="root"></div>
 <div id="diag-overlay"></div>
-<script type="text/babel" data-presets="react" data-type="script">
-  try {
-const { useState, useRef, useEffect } = React;
-const ADMIN_TOKEN_STORAGE_KEY = "etsy_mockup_admin_token";
-const PROMPT_RATINGS_STORAGE_KEY = "etsy_mockup_prompt_ratings_v1";
-const PROMPT_LEARNING_ENABLED_KEY = "etsy_mockup_prompt_learning_enabled_v1";
-const DIVERSITY_HISTORY_STORAGE_KEY = "etsy_mockup_diversity_history_v1";
-
-// ─── 18 categories split into 3 batches of 6 ─────────────────────────────────
-const ALL_BATCHES = [
-  [
-    {id:1,  emoji:"🤍", name:"Hero Flat Lay — Clean White Background",      desc:"Thumbnail-ready, high contrast, design-first"},
-    {id:2,  emoji:"☕", name:"Styled Flat Lay — Coffee & Lifestyle Props",   desc:"Pinterest-worthy, warm mood, curated scene"},
-    {id:3,  emoji:"🌿", name:"Boho Flat Lay — Natural Surface",              desc:"Wood grain, stone, linen — earthy authenticity"},
-    {id:4,  emoji:"🤲", name:"Folded Stack — Hand-Held Product Shot",        desc:"Hands holding folded tee, design facing out"},
-    {id:5,  emoji:"👻", name:"Ghost Mannequin — Studio White",               desc:"Invisible body, 3D garment shape, clean bg"},
-    {id:6,  emoji:"🪝", name:"Hanger Shot — Wall or Door Hook",              desc:"Tee on hanger, lifestyle wall backdrop"},
-  ],
-  [
-    {id:7,  emoji:"👕", name:"Cropped Torso — Front View Model",             desc:"Classic front close-crop, design-forward"},
-    {id:8,  emoji:"🔙", name:"Back View Model — Full Body",                  desc:"Full back shot, lifestyle environment"},
-    {id:9,  emoji:"↗️", name:"Cropped Torso — Three-Quarter Angle",          desc:"Diagonal crop, dynamic but readable"},
-    {id:10, emoji:"🪞", name:"Mirror Selfie — Full Length",                  desc:"Full body mirror, natural bedroom/bathroom"},
-    {id:11, emoji:"📱", name:"Mirror Selfie — Phone Visible Gen Z Style",    desc:"Phone in frame, authentic UGC selfie energy"},
-    {id:12, emoji:"🌞", name:"Candid Outdoor — Natural Daylight Walk",       desc:"Person mid-movement, golden light, candid"},
-  ],
-  [
-    {id:13, emoji:"🏠", name:"Cozy Lifestyle — Home or Coffee Shop",         desc:"Sitting, warm ambient light, lived-in feel"},
-    {id:14, emoji:"🛋️", name:"Relaxed Lifestyle — Bed or Couch",             desc:"Lounging, soft light, aspirational comfort"},
-    {id:15, emoji:"🏙️", name:"Urban Streetwear — City Scene",                desc:"Street backdrop, editorial energy, day or dusk"},
-    {id:16, emoji:"🔍", name:"Close-Up Print Detail — Texture Shot",         desc:"Macro on design, cotton fabric texture visible"},
-    {id:17, emoji:"🤳", name:"UGC Influencer — Arm Grab or Tuck",            desc:"Casual self-shot feel, shirt tucked or grabbed"},
-    {id:18, emoji:"🌄", name:"Outdoor Nature — Golden Hour",                 desc:"Field, forest, or beach — warm bokeh scene"},
-  ],
-];
-
-// FIX: mockup count maps to how many batches to run
-const COUNT_OPTIONS = [6, 9, 12, 15, 18].map(value => ({ value, label: `${value} mockups` }));
-
-const NICHE    = ["Funny / Humor","Dog / Pet Lover","Cat Lover","Spiritual / Wellness","Vintage / Retro","Streetwear","Rave / Festival","Motivational","Outdoors / Nature","Music / Band","Gaming","Cottagecore","Dark / Gothic","Minimalist","Anime / Pop Culture","Sports / Gym","Baby / Family","Boho"];
-const AUDIENCE = ["Women 18–34","Men 18–34","Women 35–55","Teens / Gen Z","Pet Owners","Gym / Fitness","Couples","Parents","Creatives","Streetwear Fans"];
-const TARGET_AUDIENCES = ["Women 18-35","Dog Lovers","Funny Gifts","Men 25-45","Moms","Teachers","Nurses","Gen Z","Pet Parents","Fitness Fans","Couples","Holiday Shoppers"];
-const SHIRT_TYPES = [
-  { value: "__match_picture__", label: "Match the picture" },
-  { value: "Bella+Canvas 3001", label: "Bella+Canvas 3001" },
-  { value: "Comfort Colors 1717", label: "Comfort Colors 1717" },
-  { value: "Gildan 5000", label: "Gildan 5000" },
-  { value: "Unisex Classic Tee", label: "Unisex Classic Tee" },
-  { value: "Oversized Drop Shoulder", label: "Oversized Drop Shoulder" },
-  { value: "Women's Fitted", label: "Women's Fitted" },
-  { value: "Heavyweight Tee", label: "Heavyweight Tee" },
-  { value: "Crop Top", label: "Crop Top" },
-  { value: "Long Sleeve", label: "Long Sleeve" },
-];
-
-const TABS = [
-  {id:"all",       label:"All",        ids:null},
-  {id:"flatlay",   label:"Flat Lays",  ids:[1,2,3,6]},
-  {id:"product",   label:"Product",    ids:[4,5,16]},
-  {id:"model",     label:"On Model",   ids:[7,8,9]},
-  {id:"selfie",    label:"Selfie/UGC", ids:[10,11,17]},
-  {id:"lifestyle", label:"Lifestyle",  ids:[12,13,14,15,18]},
-];
-
-// ─── Parse batch output ───────────────────────────────────────────────────────
-// FIX: now parses MANUAL_FIX_TEMPLATE as a multi-line block
-function parseBatch(raw, concepts) {
-  // Prefer pre-parsed concepts array from the server; fall back to parsing raw JSON text.
-  const list = Array.isArray(concepts) && concepts.length ? concepts : safeParseConceptsJson(raw);
-  return list.map(c => ({
-    category:         c.category || "",
-    conceptName:      c.concept_name || "",
-    primaryColor:     c.shirt_color_primary || "",
-    secondaryColor:   c.shirt_color_secondary || "",
-    colorReasoning:   c.color_reasoning || "",
-    designAnalysis:   c.design_analysis || null,
-    categoryResearch: c.category_research || "",
-    categoryKeywords: c.category_keywords || "",
-    shirtResearch:    c.shirt_research || "",
-    environment:      c.environment || "",
-    targetBuyer:      c.target_buyer || "",
-    pose:             c.pose || "",
-    cameraSetup:      c.camera_setup || "",
-    lighting:         c.lighting || "",
-    fluxPrompt:       c.flux_prompt || "",
-    negativePrompt:   c.negative_prompt || "",
-    qaChecklist:      c.qa_checklist || "",
-    autoFix:          c.auto_fix_prompt || "",
-    thumbnailNotes:   c.thumbnail_notes || "",
-    manualFix: {
-      issue:       c.manual_fix_template?.issue || "",
-      targetArea:  c.manual_fix_template?.target_area || "",
-      correction:  c.manual_fix_template?.desired_correction || "",
-      preserve:    c.manual_fix_template?.elements_to_preserve || "",
-      strength:    c.manual_fix_template?.correction_strength || "",
-    },
-    scores: {
-      designVisibility: numOr0(c.design_visibility_score),
-      etsyConversion:   numOr0(c.etsy_conversion_score),
-      realism:          numOr0(c.realism_score),
-      scrollStop:       numOr0(c.scroll_stop_score),
-      giftability:      numOr0(c.giftability_score),
-      overall:          numOr0(c.overall_score),
-    },
+<script>
+try {
+  const {
+    useState,
+    useRef,
+    useEffect
+  } = React;
+  const ADMIN_TOKEN_STORAGE_KEY = "etsy_mockup_admin_token";
+  const PROMPT_RATINGS_STORAGE_KEY = "etsy_mockup_prompt_ratings_v1";
+  const PROMPT_LEARNING_ENABLED_KEY = "etsy_mockup_prompt_learning_enabled_v1";
+  const DIVERSITY_HISTORY_STORAGE_KEY = "etsy_mockup_diversity_history_v1";
+  const ALL_BATCHES = [[{
+    id: 1,
+    emoji: "🤍",
+    name: "Hero Flat Lay — Clean White Background",
+    desc: "Thumbnail-ready, high contrast, design-first"
+  }, {
+    id: 2,
+    emoji: "☕",
+    name: "Styled Flat Lay — Coffee & Lifestyle Props",
+    desc: "Pinterest-worthy, warm mood, curated scene"
+  }, {
+    id: 3,
+    emoji: "🌿",
+    name: "Boho Flat Lay — Natural Surface",
+    desc: "Wood grain, stone, linen — earthy authenticity"
+  }, {
+    id: 4,
+    emoji: "🤲",
+    name: "Folded Stack — Hand-Held Product Shot",
+    desc: "Hands holding folded tee, design facing out"
+  }, {
+    id: 5,
+    emoji: "👻",
+    name: "Ghost Mannequin — Studio White",
+    desc: "Invisible body, 3D garment shape, clean bg"
+  }, {
+    id: 6,
+    emoji: "🪝",
+    name: "Hanger Shot — Wall or Door Hook",
+    desc: "Tee on hanger, lifestyle wall backdrop"
+  }], [{
+    id: 7,
+    emoji: "👕",
+    name: "Cropped Torso — Front View Model",
+    desc: "Classic front close-crop, design-forward"
+  }, {
+    id: 8,
+    emoji: "🔙",
+    name: "Back View Model — Full Body",
+    desc: "Full back shot, lifestyle environment"
+  }, {
+    id: 9,
+    emoji: "↗️",
+    name: "Cropped Torso — Three-Quarter Angle",
+    desc: "Diagonal crop, dynamic but readable"
+  }, {
+    id: 10,
+    emoji: "🪞",
+    name: "Mirror Selfie — Full Length",
+    desc: "Full body mirror, natural bedroom/bathroom"
+  }, {
+    id: 11,
+    emoji: "📱",
+    name: "Mirror Selfie — Phone Visible Gen Z Style",
+    desc: "Phone in frame, authentic UGC selfie energy"
+  }, {
+    id: 12,
+    emoji: "🌞",
+    name: "Candid Outdoor — Natural Daylight Walk",
+    desc: "Person mid-movement, golden light, candid"
+  }], [{
+    id: 13,
+    emoji: "🏠",
+    name: "Cozy Lifestyle — Home or Coffee Shop",
+    desc: "Sitting, warm ambient light, lived-in feel"
+  }, {
+    id: 14,
+    emoji: "🛋️",
+    name: "Relaxed Lifestyle — Bed or Couch",
+    desc: "Lounging, soft light, aspirational comfort"
+  }, {
+    id: 15,
+    emoji: "🏙️",
+    name: "Urban Streetwear — City Scene",
+    desc: "Street backdrop, editorial energy, day or dusk"
+  }, {
+    id: 16,
+    emoji: "🔍",
+    name: "Close-Up Print Detail — Texture Shot",
+    desc: "Macro on design, cotton fabric texture visible"
+  }, {
+    id: 17,
+    emoji: "🤳",
+    name: "UGC Influencer — Arm Grab or Tuck",
+    desc: "Casual self-shot feel, shirt tucked or grabbed"
+  }, {
+    id: 18,
+    emoji: "🌄",
+    name: "Outdoor Nature — Golden Hour",
+    desc: "Field, forest, or beach — warm bokeh scene"
+  }]];
+  const COUNT_OPTIONS = [6, 9, 12, 15, 18].map(value => ({
+    value,
+    label: `${value} mockups`
   }));
-}
-
-function numOr0(v) {
-  const n = Number(v);
-  return Number.isFinite(n) ? n : 0;
-}
-
-function safeParseConceptsJson(raw) {
-  if (!raw) return [];
-  let cleaned = raw.trim().replace(/^```(?:json)?\s*/i, "").replace(/```\s*$/, "").trim();
-  const start = cleaned.indexOf("[");
-  const end = cleaned.lastIndexOf("]");
-  if (start === -1 || end === -1 || end < start) return [];
-  try {
-    const parsed = JSON.parse(cleaned.slice(start, end + 1));
-    return Array.isArray(parsed) ? parsed : [];
-  } catch {
-    return [];
+  const NICHE = ["Funny / Humor", "Dog / Pet Lover", "Cat Lover", "Spiritual / Wellness", "Vintage / Retro", "Streetwear", "Rave / Festival", "Motivational", "Outdoors / Nature", "Music / Band", "Gaming", "Cottagecore", "Dark / Gothic", "Minimalist", "Anime / Pop Culture", "Sports / Gym", "Baby / Family", "Boho"];
+  const AUDIENCE = ["Women 18–34", "Men 18–34", "Women 35–55", "Teens / Gen Z", "Pet Owners", "Gym / Fitness", "Couples", "Parents", "Creatives", "Streetwear Fans"];
+  const TARGET_AUDIENCES = ["Women 18-35", "Dog Lovers", "Funny Gifts", "Men 25-45", "Moms", "Teachers", "Nurses", "Gen Z", "Pet Parents", "Fitness Fans", "Couples", "Holiday Shoppers"];
+  const SHIRT_TYPES = [{
+    value: "__match_picture__",
+    label: "Match the picture"
+  }, {
+    value: "Bella+Canvas 3001",
+    label: "Bella+Canvas 3001"
+  }, {
+    value: "Comfort Colors 1717",
+    label: "Comfort Colors 1717"
+  }, {
+    value: "Gildan 5000",
+    label: "Gildan 5000"
+  }, {
+    value: "Unisex Classic Tee",
+    label: "Unisex Classic Tee"
+  }, {
+    value: "Oversized Drop Shoulder",
+    label: "Oversized Drop Shoulder"
+  }, {
+    value: "Women's Fitted",
+    label: "Women's Fitted"
+  }, {
+    value: "Heavyweight Tee",
+    label: "Heavyweight Tee"
+  }, {
+    value: "Crop Top",
+    label: "Crop Top"
+  }, {
+    value: "Long Sleeve",
+    label: "Long Sleeve"
+  }];
+  const TABS = [{
+    id: "all",
+    label: "All",
+    ids: null
+  }, {
+    id: "flatlay",
+    label: "Flat Lays",
+    ids: [1, 2, 3, 6]
+  }, {
+    id: "product",
+    label: "Product",
+    ids: [4, 5, 16]
+  }, {
+    id: "model",
+    label: "On Model",
+    ids: [7, 8, 9]
+  }, {
+    id: "selfie",
+    label: "Selfie/UGC",
+    ids: [10, 11, 17]
+  }, {
+    id: "lifestyle",
+    label: "Lifestyle",
+    ids: [12, 13, 14, 15, 18]
+  }];
+  function parseBatch(raw, concepts) {
+    const list = Array.isArray(concepts) && concepts.length ? concepts : safeParseConceptsJson(raw);
+    return list.map(c => ({
+      category: c.category || "",
+      conceptName: c.concept_name || "",
+      primaryColor: c.shirt_color_primary || "",
+      secondaryColor: c.shirt_color_secondary || "",
+      colorReasoning: c.color_reasoning || "",
+      designAnalysis: c.design_analysis || null,
+      categoryResearch: c.category_research || "",
+      categoryKeywords: c.category_keywords || "",
+      shirtResearch: c.shirt_research || "",
+      environment: c.environment || "",
+      targetBuyer: c.target_buyer || "",
+      pose: c.pose || "",
+      cameraSetup: c.camera_setup || "",
+      lighting: c.lighting || "",
+      fluxPrompt: c.flux_prompt || "",
+      negativePrompt: c.negative_prompt || "",
+      qaChecklist: c.qa_checklist || "",
+      autoFix: c.auto_fix_prompt || "",
+      thumbnailNotes: c.thumbnail_notes || "",
+      manualFix: {
+        issue: c.manual_fix_template?.issue || "",
+        targetArea: c.manual_fix_template?.target_area || "",
+        correction: c.manual_fix_template?.desired_correction || "",
+        preserve: c.manual_fix_template?.elements_to_preserve || "",
+        strength: c.manual_fix_template?.correction_strength || ""
+      },
+      scores: {
+        designVisibility: numOr0(c.design_visibility_score),
+        etsyConversion: numOr0(c.etsy_conversion_score),
+        realism: numOr0(c.realism_score),
+        scrollStop: numOr0(c.scroll_stop_score),
+        giftability: numOr0(c.giftability_score),
+        overall: numOr0(c.overall_score)
+      }
+    }));
   }
-}
-
-function slugifyName(value) {
-  return (value || "")
-    .toLowerCase()
-    .normalize("NFKD")
-    .replace(/[\u0300-\u036f]/g, "")
-    .replace(/[^a-z0-9]+/g, "-")
-    .replace(/^-+|-+$/g, "")
-    .slice(0, 80);
-}
-
-function mockupFileName(result, catInfo, index) {
-  const parts = [
-    `mockup-${String(index + 1).padStart(2, "0")}`,
-    slugifyName(result?.conceptName),
-    slugifyName(result?.category || catInfo?.name),
-  ].filter(Boolean);
-  return `${parts.join("-")}.png`;
-}
-
-// ─── API helpers ──────────────────────────────────────────────────────────────
-function getAdminToken() {
-  return localStorage.getItem(ADMIN_TOKEN_STORAGE_KEY) || "";
-}
-
-function setAdminToken(token) {
-  if (token) localStorage.setItem(ADMIN_TOKEN_STORAGE_KEY, token);
-  else localStorage.removeItem(ADMIN_TOKEN_STORAGE_KEY);
-}
-
-function authHeaders() {
-  const token = getAdminToken();
-  return token ? { "x-admin-token": token } : {};
-}
-
-async function compressImageDataUrl(dataUrl, { maxSize = 1024, quality = 0.88, mimeType = "image/webp" } = {}) {
-  if (!dataUrl) return "";
-
-  const img = new Image();
-  img.decoding = "async";
-
-  const loaded = new Promise((resolve, reject) => {
-    img.onload = resolve;
-    img.onerror = reject;
-  });
-
-  img.src = dataUrl;
-  await loaded;
-
-  const scale = Math.min(1, maxSize / Math.max(img.width, img.height));
-  const width = Math.max(1, Math.round(img.width * scale));
-  const height = Math.max(1, Math.round(img.height * scale));
-
-  const canvas = document.createElement("canvas");
-  canvas.width = width;
-  canvas.height = height;
-
-  const ctx = canvas.getContext("2d");
-  ctx.drawImage(img, 0, 0, width, height);
-
-  return canvas.toDataURL(mimeType, quality);
-}
-
-async function authedFetch(path, options = {}) {
-  const headers = { ...(options.headers || {}), ...authHeaders() };
-  return fetch(path, { ...options, headers });
-}
-
-async function apiFetch(path, body) {
-  const res = await authedFetch(path, {
-    method: "POST",
-    headers: { "Content-Type": "application/json" },
-    body: JSON.stringify(body),
-  });
-  const d = await res.json();
-  if (!res.ok) throw new Error(d.error || `Server error ${res.status}`);
-  return d;
-}
-
-function dataUrlToBlob(dataUrl) {
-  const [meta, base64] = dataUrl.split(",");
-  const mime = meta.match(/data:(.*?);base64/)?.[1] || "image/webp";
-  const bytes = atob(base64);
-  const array = new Uint8Array(bytes.length);
-  for (let i = 0; i < bytes.length; i++) array[i] = bytes.charCodeAt(i);
-  return new Blob([array], { type: mime });
-}
-
-function fileToDataUrl(file) {
-  return new Promise((resolve, reject) => {
-    const reader = new FileReader();
-    reader.onload = e => resolve(e.target.result);
-    reader.onerror = reject;
-    reader.readAsDataURL(file);
-  });
-}
-
-function loadJsonStorage(key, fallback) {
-  try {
-    const raw = localStorage.getItem(key);
-    if (!raw) return fallback;
-    const parsed = JSON.parse(raw);
-    return parsed ?? fallback;
-  } catch {
-    return fallback;
+  function numOr0(v) {
+    const n = Number(v);
+    return Number.isFinite(n) ? n : 0;
   }
-}
-
-function saveJsonStorage(key, value) {
-  try {
-    localStorage.setItem(key, JSON.stringify(value));
-  } catch {}
-}
-
-function makePromptId() {
-  return `${Date.now()}-${Math.random().toString(36).slice(2, 8)}`;
-}
-
-function loadDiversityHistory() {
-  const records = loadJsonStorage(DIVERSITY_HISTORY_STORAGE_KEY, []);
-  return Array.isArray(records) ? records : [];
-}
-
-function appendDiversityHistory(history, entries) {
-  const next = [...history, ...entries];
-  return next.slice(-60); // keep a rolling window; no DB needed
-}
-
-function extractAttributesFromConcept(data) {
-  return {
-    environment: data.environment || "",
-    pose: data.pose || "",
-    camera: data.cameraSetup || "",
-    age: data.designAnalysis?.estimated_buyer_age || "",
-    ethnicity: "", // not collected from model output; reserved for future expansion
-    clothingColor: data.primaryColor || "",
-  };
-}
-
-function loadPromptRatings() {
-  const records = loadJsonStorage(PROMPT_RATINGS_STORAGE_KEY, []);
-  return Array.isArray(records) ? records : [];
-}
-
-function loadLearningEnabled() {
-  return loadJsonStorage(PROMPT_LEARNING_ENABLED_KEY, true) !== false;
-}
-
-function upsertPromptRating(records, next) {
-  const rating = Math.max(0, Math.min(5, Number(next.rating) || 0));
-  const clean = {
-    ...next,
-    rating,
-    promptId: next.promptId,
-    updatedAt: new Date().toISOString(),
-  };
-  const existingIndex = records.findIndex(r => r.promptId === clean.promptId);
-  const hasInteractionFlags = clean.regenerated || clean.selected || clean.exported;
-  if (!rating && !hasInteractionFlags) {
-    return existingIndex >= 0 && !records[existingIndex].regenerated && !records[existingIndex].selected && !records[existingIndex].exported
-      ? records.filter(r => r.promptId !== clean.promptId)
-      : records;
+  function safeParseConceptsJson(raw) {
+    if (!raw) return [];
+    let cleaned = raw.trim().replace(/^```(?:json)?\s*/i, "").replace(/```\s*$/, "").trim();
+    const start = cleaned.indexOf("[");
+    const end = cleaned.lastIndexOf("]");
+    if (start === -1 || end === -1 || end < start) return [];
+    try {
+      const parsed = JSON.parse(cleaned.slice(start, end + 1));
+      return Array.isArray(parsed) ? parsed : [];
+    } catch {
+      return [];
+    }
   }
-  if (existingIndex >= 0) {
-    const prev = records[existingIndex];
-    const merged = {
-      ...prev, ...clean,
-      rating: rating || prev.rating || 0,
-      regenerated: prev.regenerated || clean.regenerated || false,
-      selected: prev.selected || clean.selected || false,
-      exported: prev.exported || clean.exported || false,
-      createdAt: prev.createdAt || clean.createdAt || new Date().toISOString(),
+  function slugifyName(value) {
+    return (value || "").toLowerCase().normalize("NFKD").replace(/[\u0300-\u036f]/g, "").replace(/[^a-z0-9]+/g, "-").replace(/^-+|-+$/g, "").slice(0, 80);
+  }
+  function mockupFileName(result, catInfo, index) {
+    const parts = [`mockup-${String(index + 1).padStart(2, "0")}`, slugifyName(result?.conceptName), slugifyName(result?.category || catInfo?.name)].filter(Boolean);
+    return `${parts.join("-")}.png`;
+  }
+  function getAdminToken() {
+    return localStorage.getItem(ADMIN_TOKEN_STORAGE_KEY) || "";
+  }
+  function setAdminToken(token) {
+    if (token) localStorage.setItem(ADMIN_TOKEN_STORAGE_KEY, token);else localStorage.removeItem(ADMIN_TOKEN_STORAGE_KEY);
+  }
+  function authHeaders() {
+    const token = getAdminToken();
+    return token ? {
+      "x-admin-token": token
+    } : {};
+  }
+  async function compressImageDataUrl(dataUrl, {
+    maxSize = 1024,
+    quality = 0.88,
+    mimeType = "image/webp"
+  } = {}) {
+    if (!dataUrl) return "";
+    const img = new Image();
+    img.decoding = "async";
+    const loaded = new Promise((resolve, reject) => {
+      img.onload = resolve;
+      img.onerror = reject;
+    });
+    img.src = dataUrl;
+    await loaded;
+    const scale = Math.min(1, maxSize / Math.max(img.width, img.height));
+    const width = Math.max(1, Math.round(img.width * scale));
+    const height = Math.max(1, Math.round(img.height * scale));
+    const canvas = document.createElement("canvas");
+    canvas.width = width;
+    canvas.height = height;
+    const ctx = canvas.getContext("2d");
+    ctx.drawImage(img, 0, 0, width, height);
+    return canvas.toDataURL(mimeType, quality);
+  }
+  async function authedFetch(path, options = {}) {
+    const headers = {
+      ...(options.headers || {}),
+      ...authHeaders()
     };
-    return records.map(r => r.promptId === clean.promptId ? merged : r);
+    return fetch(path, {
+      ...options,
+      headers
+    });
   }
-  return [...records, { ...clean, createdAt: clean.createdAt || new Date().toISOString() }];
-}
-
-function aggregateRatingGroups(records, key) {
-  const groups = new Map();
-  records.forEach(record => {
-    const value = (record[key] || "").trim();
-    if (!value) return;
-    // Composite score: explicit star rating is primary signal, but selections/exports
-    // (the KO v2 "selected/exported" learning signals) count even without a star rating.
-    const signalScore = Number(record.rating) || 0;
-    const interactionBoost = (record.selected ? 1 : 0) + (record.exported ? 1.5 : 0) + (record.regenerated ? -0.5 : 0);
-    if (!signalScore && !interactionBoost) return;
-    const current = groups.get(value) || { label: value, sum: 0, count: 0, interactions: 0 };
-    current.sum += signalScore;
-    current.interactions += interactionBoost;
-    current.count += 1;
-    groups.set(value, current);
-  });
-  return Array.from(groups.values())
-    .map(item => ({ ...item, avg: item.count ? item.sum / item.count : 0, weighted: (item.sum + item.interactions) }))
-    .sort((a, b) => b.weighted - a.weighted || b.count - a.count)
-    .slice(0, 3);
-}
-
-function buildLearningStats(records) {
-  const rated = records.filter(r => Number(r.rating) > 0);
-  const learned = records.filter(r => Number(r.rating) >= 4 || r.selected || r.exported);
-  const total = rated.length;
-  const avg = total ? (rated.reduce((sum, r) => sum + Number(r.rating || 0), 0) / total).toFixed(1) : "0.0";
-  const strong = learned.length;
-  const selectedCount = records.filter(r => r.selected).length;
-  const exportedCount = records.filter(r => r.exported).length;
-  const regeneratedCount = records.filter(r => r.regenerated).length;
-  const cat = aggregateRatingGroups(records, "categoryName");
-  const aud = aggregateRatingGroups(records, "audience");
-  const shirt = aggregateRatingGroups(records, "shirtType");
-  const scene = aggregateRatingGroups(records, "sceneDirection");
-
-  const learningContext = learned.length
-    ? [
-        `Use these high-performing patterns (rated, selected, or exported by the user) as soft preferences only:`,
-        cat.length ? `Top categories: ${cat.map(item => item.label).join(", ")}.` : "",
-        aud.length ? `Best audiences: ${aud.map(item => item.label).join(", ")}.` : "",
-        shirt.length ? `Best shirt types: ${shirt.map(item => item.label).join(", ")}.` : "",
-        scene.length ? `Best scene directions: ${scene.map(item => item.label).join(", ")}.` : "",
-        regeneratedCount ? `Note: ${regeneratedCount} prior concepts were regenerated due to quality issues — favor design-fidelity and visibility above all else.` : "",
-        `Keep the uploaded design, shirt identity, and category brief higher priority than any learned preference.`,
-      ].filter(Boolean).join(" ")
-    : "";
-
-  return {
-    total,
-    avg,
-    strong,
-    cat,
-    aud,
-    shirt,
-    scene,
-    selectedCount,
-    exportedCount,
-    regeneratedCount,
-    learningContext,
-  };
-}
-
-// ─── Small components ─────────────────────────────────────────────────────────
-function Spinner({ size = 18, color = "#FFDC64" }) {
-  return <div style={{width:size,height:size,border:`2px solid ${color}22`,borderTop:`2px solid ${color}`,borderRadius:"50%",animation:"spin 0.7s linear infinite",flexShrink:0}}/>;
-}
-
-function CopyBtn({ text }) {
-  const [c, setC] = useState(false);
-  return (
-    <button onClick={()=>{navigator.clipboard.writeText(text);setC(true);setTimeout(()=>setC(false),1600);}}
-      style={{background:"none",border:"none",cursor:"pointer",color:c?"#7EE8A2":"rgba(255,255,255,0.25)",fontSize:10,fontFamily:"'DM Mono',monospace",padding:"3px 7px",borderRadius:5,transition:"color 0.2s"}}>
-      {c ? "✓ copied" : "copy"}
-    </button>
-  );
-}
-
-function Field({ label, value, accent }) {
-  if (!value) return null;
-  return (
-    <div style={{marginBottom:9}}>
-      <div style={{display:"flex",justifyContent:"space-between",alignItems:"center",marginBottom:3}}>
-        <span style={{fontSize:9,fontFamily:"'DM Mono',monospace",color:accent||"rgba(255,255,255,0.25)",letterSpacing:"0.1em",textTransform:"uppercase"}}>{label}</span>
-        <CopyBtn text={value}/>
-      </div>
-      <div style={{background:"rgba(0,0,0,0.35)",borderRadius:8,padding:"9px 11px",fontSize:12,color:"rgba(255,255,255,0.72)",lineHeight:1.65,whiteSpace:"pre-wrap",wordBreak:"break-word",border:`1px solid ${accent||"rgba(255,255,255,0.06)"}`}}>
-        {value}
-      </div>
-    </div>
-  );
-}
-
-// FIX: ManualFixCard renders the structured 5-field template properly
-function ManualFixCard({ mf }) {
-  if (!mf || !mf.issue) return null;
-  const text = `Issue: ${mf.issue}\nTarget Area: ${mf.targetArea}\nDesired Correction: ${mf.correction}\nElements To Preserve: ${mf.preserve}\nCorrection Strength: ${mf.strength}`;
-  const rows = [
-    { k: "Issue",               v: mf.issue },
-    { k: "Target Area",         v: mf.targetArea },
-    { k: "Desired Correction",  v: mf.correction },
-    { k: "Elements To Preserve",v: mf.preserve },
-    { k: "Correction Strength", v: mf.strength },
-  ];
-  return (
-    <div style={{marginBottom:9}}>
-      <div style={{display:"flex",justifyContent:"space-between",alignItems:"center",marginBottom:3}}>
-        <span style={{fontSize:9,fontFamily:"'DM Mono',monospace",color:"rgba(200,160,255,0.7)",letterSpacing:"0.1em",textTransform:"uppercase"}}>🛠 Manual Fix Template</span>
-        <CopyBtn text={text}/>
-      </div>
-      <div style={{background:"rgba(0,0,0,0.35)",borderRadius:8,border:"1px solid rgba(200,160,255,0.18)",overflow:"hidden"}}>
-        {rows.map(({k,v}) => v ? (
-          <div key={k} style={{display:"grid",gridTemplateColumns:"140px 1fr",borderBottom:"1px solid rgba(255,255,255,0.04)"}}>
-            <div style={{padding:"7px 10px",fontSize:10,color:"rgba(200,160,255,0.6)",fontFamily:"'DM Mono',monospace",borderRight:"1px solid rgba(255,255,255,0.04)",background:"rgba(255,255,255,0.02)"}}>{k}</div>
-            <div style={{padding:"7px 10px",fontSize:12,color:"rgba(255,255,255,0.7)",lineHeight:1.5}}>{v}</div>
-          </div>
-        ) : null)}
-      </div>
-    </div>
-  );
-}
-
-function ScoreBar({ label, value }) {
-  const v = Math.max(0, Math.min(10, Number(value) || 0));
-  const color = v >= 8 ? "#7EE8A2" : v >= 5 ? "#FFDC64" : "#FF8A8A";
-  return (
-    <div style={{display:"flex",alignItems:"center",gap:8,marginBottom:5}}>
-      <span style={{fontSize:9,color:"rgba(255,255,255,0.4)",width:92,flexShrink:0,fontFamily:"'DM Mono',monospace",textTransform:"uppercase",letterSpacing:"0.04em"}}>{label}</span>
-      <div style={{flex:1,height:5,borderRadius:3,background:"rgba(255,255,255,0.06)",overflow:"hidden"}}>
-        <div style={{width:`${v*10}%`,height:"100%",background:color,borderRadius:3,transition:"width 0.3s"}}/>
-      </div>
-      <span style={{fontSize:10,color,width:24,textAlign:"right",fontFamily:"'DM Mono',monospace",flexShrink:0}}>{v.toFixed(1)}</span>
-    </div>
-  );
-}
-
-function Tag({ children, active, onClick }) {
-  return (
-    <button onClick={onClick} style={{padding:"5px 13px",borderRadius:20,border:active?"1.5px solid #FFDC64":"1.5px solid rgba(255,255,255,0.09)",background:active?"rgba(255,220,100,0.1)":"rgba(255,255,255,0.03)",color:active?"#FFDC64":"rgba(255,255,255,0.4)",fontSize:11,cursor:"pointer",transition:"all 0.15s"}}>
-      {children}
-    </button>
-  );
-}
-
-// ─── Settings Modal ───────────────────────────────────────────────────────────
-function SettingsModal({ onClose, onKeysUpdated }) {
-  const [gem, setGem] = useState("");
-  const [rep, setRep] = useState("");
-  const [adminToken, setAdminTokenValue] = useState(getAdminToken());
-  const [showGem, setShowGem] = useState(false);
-  const [showRep, setShowRep] = useState(false);
-  const [showAdmin, setShowAdmin] = useState(false);
-  const [st,  setSt]  = useState({ gemini:"idle", rep:"idle" });
-  const [msg, setMsg] = useState({ gemini:"", rep:"" });
-  const [info, setInfo] = useState(null);
-  const [saving, setSaving] = useState(false);
-  const [tokenMsg, setTokenMsg] = useState(getAdminToken() ? "Token saved locally on your device (never sent publicly)." : "");
-
-  const loadInfo = () => authedFetch("/api/keys")
-    .then(r => {
+  async function apiFetch(path, body) {
+    const res = await authedFetch(path, {
+      method: "POST",
+      headers: {
+        "Content-Type": "application/json"
+      },
+      body: JSON.stringify(body)
+    });
+    const d = await res.json();
+    if (!res.ok) throw new Error(d.error || `Server error ${res.status}`);
+    return d;
+  }
+  function dataUrlToBlob(dataUrl) {
+    const [meta, base64] = dataUrl.split(",");
+    const mime = meta.match(/data:(.*?);base64/)?.[1] || "image/webp";
+    const bytes = atob(base64);
+    const array = new Uint8Array(bytes.length);
+    for (let i = 0; i < bytes.length; i++) array[i] = bytes.charCodeAt(i);
+    return new Blob([array], {
+      type: mime
+    });
+  }
+  function fileToDataUrl(file) {
+    return new Promise((resolve, reject) => {
+      const reader = new FileReader();
+      reader.onload = e => resolve(e.target.result);
+      reader.onerror = reject;
+      reader.readAsDataURL(file);
+    });
+  }
+  function loadJsonStorage(key, fallback) {
+    try {
+      const raw = localStorage.getItem(key);
+      if (!raw) return fallback;
+      const parsed = JSON.parse(raw);
+      return parsed ?? fallback;
+    } catch {
+      return fallback;
+    }
+  }
+  function saveJsonStorage(key, value) {
+    try {
+      localStorage.setItem(key, JSON.stringify(value));
+    } catch {}
+  }
+  function makePromptId() {
+    return `${Date.now()}-${Math.random().toString(36).slice(2, 8)}`;
+  }
+  function loadDiversityHistory() {
+    const records = loadJsonStorage(DIVERSITY_HISTORY_STORAGE_KEY, []);
+    return Array.isArray(records) ? records : [];
+  }
+  function appendDiversityHistory(history, entries) {
+    const next = [...history, ...entries];
+    return next.slice(-60);
+  }
+  function extractAttributesFromConcept(data) {
+    return {
+      environment: data.environment || "",
+      pose: data.pose || "",
+      camera: data.cameraSetup || "",
+      age: data.designAnalysis?.estimated_buyer_age || "",
+      ethnicity: "",
+      clothingColor: data.primaryColor || ""
+    };
+  }
+  function loadPromptRatings() {
+    const records = loadJsonStorage(PROMPT_RATINGS_STORAGE_KEY, []);
+    return Array.isArray(records) ? records : [];
+  }
+  function loadLearningEnabled() {
+    return loadJsonStorage(PROMPT_LEARNING_ENABLED_KEY, true) !== false;
+  }
+  function upsertPromptRating(records, next) {
+    const rating = Math.max(0, Math.min(5, Number(next.rating) || 0));
+    const clean = {
+      ...next,
+      rating,
+      promptId: next.promptId,
+      updatedAt: new Date().toISOString()
+    };
+    const existingIndex = records.findIndex(r => r.promptId === clean.promptId);
+    const hasInteractionFlags = clean.regenerated || clean.selected || clean.exported;
+    if (!rating && !hasInteractionFlags) {
+      return existingIndex >= 0 && !records[existingIndex].regenerated && !records[existingIndex].selected && !records[existingIndex].exported ? records.filter(r => r.promptId !== clean.promptId) : records;
+    }
+    if (existingIndex >= 0) {
+      const prev = records[existingIndex];
+      const merged = {
+        ...prev,
+        ...clean,
+        rating: rating || prev.rating || 0,
+        regenerated: prev.regenerated || clean.regenerated || false,
+        selected: prev.selected || clean.selected || false,
+        exported: prev.exported || clean.exported || false,
+        createdAt: prev.createdAt || clean.createdAt || new Date().toISOString()
+      };
+      return records.map(r => r.promptId === clean.promptId ? merged : r);
+    }
+    return [...records, {
+      ...clean,
+      createdAt: clean.createdAt || new Date().toISOString()
+    }];
+  }
+  function aggregateRatingGroups(records, key) {
+    const groups = new Map();
+    records.forEach(record => {
+      const value = (record[key] || "").trim();
+      if (!value) return;
+      const signalScore = Number(record.rating) || 0;
+      const interactionBoost = (record.selected ? 1 : 0) + (record.exported ? 1.5 : 0) + (record.regenerated ? -0.5 : 0);
+      if (!signalScore && !interactionBoost) return;
+      const current = groups.get(value) || {
+        label: value,
+        sum: 0,
+        count: 0,
+        interactions: 0
+      };
+      current.sum += signalScore;
+      current.interactions += interactionBoost;
+      current.count += 1;
+      groups.set(value, current);
+    });
+    return Array.from(groups.values()).map(item => ({
+      ...item,
+      avg: item.count ? item.sum / item.count : 0,
+      weighted: item.sum + item.interactions
+    })).sort((a, b) => b.weighted - a.weighted || b.count - a.count).slice(0, 3);
+  }
+  function buildLearningStats(records) {
+    const rated = records.filter(r => Number(r.rating) > 0);
+    const learned = records.filter(r => Number(r.rating) >= 4 || r.selected || r.exported);
+    const total = rated.length;
+    const avg = total ? (rated.reduce((sum, r) => sum + Number(r.rating || 0), 0) / total).toFixed(1) : "0.0";
+    const strong = learned.length;
+    const selectedCount = records.filter(r => r.selected).length;
+    const exportedCount = records.filter(r => r.exported).length;
+    const regeneratedCount = records.filter(r => r.regenerated).length;
+    const cat = aggregateRatingGroups(records, "categoryName");
+    const aud = aggregateRatingGroups(records, "audience");
+    const shirt = aggregateRatingGroups(records, "shirtType");
+    const scene = aggregateRatingGroups(records, "sceneDirection");
+    const learningContext = learned.length ? [`Use these high-performing patterns (rated, selected, or exported by the user) as soft preferences only:`, cat.length ? `Top categories: ${cat.map(item => item.label).join(", ")}.` : "", aud.length ? `Best audiences: ${aud.map(item => item.label).join(", ")}.` : "", shirt.length ? `Best shirt types: ${shirt.map(item => item.label).join(", ")}.` : "", scene.length ? `Best scene directions: ${scene.map(item => item.label).join(", ")}.` : "", regeneratedCount ? `Note: ${regeneratedCount} prior concepts were regenerated due to quality issues — favor design-fidelity and visibility above all else.` : "", `Keep the uploaded design, shirt identity, and category brief higher priority than any learned preference.`].filter(Boolean).join(" ") : "";
+    return {
+      total,
+      avg,
+      strong,
+      cat,
+      aud,
+      shirt,
+      scene,
+      selectedCount,
+      exportedCount,
+      regeneratedCount,
+      learningContext
+    };
+  }
+  function Spinner({
+    size = 18,
+    color = "#FFDC64"
+  }) {
+    return React.createElement("div", {
+      style: {
+        width: size,
+        height: size,
+        border: `2px solid ${color}22`,
+        borderTop: `2px solid ${color}`,
+        borderRadius: "50%",
+        animation: "spin 0.7s linear infinite",
+        flexShrink: 0
+      }
+    });
+  }
+  function CopyBtn({
+    text
+  }) {
+    const [c, setC] = useState(false);
+    return React.createElement("button", {
+      onClick: () => {
+        navigator.clipboard.writeText(text);
+        setC(true);
+        setTimeout(() => setC(false), 1600);
+      },
+      style: {
+        background: "none",
+        border: "none",
+        cursor: "pointer",
+        color: c ? "#7EE8A2" : "rgba(255,255,255,0.25)",
+        fontSize: 10,
+        fontFamily: "'DM Mono',monospace",
+        padding: "3px 7px",
+        borderRadius: 5,
+        transition: "color 0.2s"
+      }
+    }, c ? "✓ copied" : "copy");
+  }
+  function Field({
+    label,
+    value,
+    accent
+  }) {
+    if (!value) return null;
+    return React.createElement("div", {
+      style: {
+        marginBottom: 9
+      }
+    }, React.createElement("div", {
+      style: {
+        display: "flex",
+        justifyContent: "space-between",
+        alignItems: "center",
+        marginBottom: 3
+      }
+    }, React.createElement("span", {
+      style: {
+        fontSize: 9,
+        fontFamily: "'DM Mono',monospace",
+        color: accent || "rgba(255,255,255,0.25)",
+        letterSpacing: "0.1em",
+        textTransform: "uppercase"
+      }
+    }, label), React.createElement(CopyBtn, {
+      text: value
+    })), React.createElement("div", {
+      style: {
+        background: "rgba(0,0,0,0.35)",
+        borderRadius: 8,
+        padding: "9px 11px",
+        fontSize: 12,
+        color: "rgba(255,255,255,0.72)",
+        lineHeight: 1.65,
+        whiteSpace: "pre-wrap",
+        wordBreak: "break-word",
+        border: `1px solid ${accent || "rgba(255,255,255,0.06)"}`
+      }
+    }, value));
+  }
+  function ManualFixCard({
+    mf
+  }) {
+    if (!mf || !mf.issue) return null;
+    const text = `Issue: ${mf.issue}\nTarget Area: ${mf.targetArea}\nDesired Correction: ${mf.correction}\nElements To Preserve: ${mf.preserve}\nCorrection Strength: ${mf.strength}`;
+    const rows = [{
+      k: "Issue",
+      v: mf.issue
+    }, {
+      k: "Target Area",
+      v: mf.targetArea
+    }, {
+      k: "Desired Correction",
+      v: mf.correction
+    }, {
+      k: "Elements To Preserve",
+      v: mf.preserve
+    }, {
+      k: "Correction Strength",
+      v: mf.strength
+    }];
+    return React.createElement("div", {
+      style: {
+        marginBottom: 9
+      }
+    }, React.createElement("div", {
+      style: {
+        display: "flex",
+        justifyContent: "space-between",
+        alignItems: "center",
+        marginBottom: 3
+      }
+    }, React.createElement("span", {
+      style: {
+        fontSize: 9,
+        fontFamily: "'DM Mono',monospace",
+        color: "rgba(200,160,255,0.7)",
+        letterSpacing: "0.1em",
+        textTransform: "uppercase"
+      }
+    }, "\uD83D\uDEE0 Manual Fix Template"), React.createElement(CopyBtn, {
+      text: text
+    })), React.createElement("div", {
+      style: {
+        background: "rgba(0,0,0,0.35)",
+        borderRadius: 8,
+        border: "1px solid rgba(200,160,255,0.18)",
+        overflow: "hidden"
+      }
+    }, rows.map(({
+      k,
+      v
+    }) => v ? React.createElement("div", {
+      key: k,
+      style: {
+        display: "grid",
+        gridTemplateColumns: "140px 1fr",
+        borderBottom: "1px solid rgba(255,255,255,0.04)"
+      }
+    }, React.createElement("div", {
+      style: {
+        padding: "7px 10px",
+        fontSize: 10,
+        color: "rgba(200,160,255,0.6)",
+        fontFamily: "'DM Mono',monospace",
+        borderRight: "1px solid rgba(255,255,255,0.04)",
+        background: "rgba(255,255,255,0.02)"
+      }
+    }, k), React.createElement("div", {
+      style: {
+        padding: "7px 10px",
+        fontSize: 12,
+        color: "rgba(255,255,255,0.7)",
+        lineHeight: 1.5
+      }
+    }, v)) : null)));
+  }
+  function ScoreBar({
+    label,
+    value
+  }) {
+    const v = Math.max(0, Math.min(10, Number(value) || 0));
+    const color = v >= 8 ? "#7EE8A2" : v >= 5 ? "#FFDC64" : "#FF8A8A";
+    return React.createElement("div", {
+      style: {
+        display: "flex",
+        alignItems: "center",
+        gap: 8,
+        marginBottom: 5
+      }
+    }, React.createElement("span", {
+      style: {
+        fontSize: 9,
+        color: "rgba(255,255,255,0.4)",
+        width: 92,
+        flexShrink: 0,
+        fontFamily: "'DM Mono',monospace",
+        textTransform: "uppercase",
+        letterSpacing: "0.04em"
+      }
+    }, label), React.createElement("div", {
+      style: {
+        flex: 1,
+        height: 5,
+        borderRadius: 3,
+        background: "rgba(255,255,255,0.06)",
+        overflow: "hidden"
+      }
+    }, React.createElement("div", {
+      style: {
+        width: `${v * 10}%`,
+        height: "100%",
+        background: color,
+        borderRadius: 3,
+        transition: "width 0.3s"
+      }
+    })), React.createElement("span", {
+      style: {
+        fontSize: 10,
+        color,
+        width: 24,
+        textAlign: "right",
+        fontFamily: "'DM Mono',monospace",
+        flexShrink: 0
+      }
+    }, v.toFixed(1)));
+  }
+  function Tag({
+    children,
+    active,
+    onClick
+  }) {
+    return React.createElement("button", {
+      onClick: onClick,
+      style: {
+        padding: "5px 13px",
+        borderRadius: 20,
+        border: active ? "1.5px solid #FFDC64" : "1.5px solid rgba(255,255,255,0.09)",
+        background: active ? "rgba(255,220,100,0.1)" : "rgba(255,255,255,0.03)",
+        color: active ? "#FFDC64" : "rgba(255,255,255,0.4)",
+        fontSize: 11,
+        cursor: "pointer",
+        transition: "all 0.15s"
+      }
+    }, children);
+  }
+  function SettingsModal({
+    onClose,
+    onKeysUpdated
+  }) {
+    const [gem, setGem] = useState("");
+    const [rep, setRep] = useState("");
+    const [adminToken, setAdminTokenValue] = useState(getAdminToken());
+    const [showGem, setShowGem] = useState(false);
+    const [showRep, setShowRep] = useState(false);
+    const [showAdmin, setShowAdmin] = useState(false);
+    const [st, setSt] = useState({
+      gemini: "idle",
+      rep: "idle"
+    });
+    const [msg, setMsg] = useState({
+      gemini: "",
+      rep: ""
+    });
+    const [info, setInfo] = useState(null);
+    const [saving, setSaving] = useState(false);
+    const [tokenMsg, setTokenMsg] = useState(getAdminToken() ? "Token saved locally on your device (never sent publicly)." : "");
+    const loadInfo = () => authedFetch("/api/keys").then(r => {
       if (r.status === 401) {
-        setInfo({ authRequired: true });
+        setInfo({
+          authRequired: true
+        });
         return null;
       }
       return r.json();
-    })
-    .then(d => { if (d) setInfo(d); })
-    .catch(()=>{});
-
-  useEffect(() => { loadInfo(); }, []);
-
-  const sc = s => s==="ok"?"#7EE8A2" : s==="fail"?"#FF8080" : "rgba(255,255,255,0.35)";
-  const si = s => s==="ok"?"✓" : s==="fail"?"✗" : s==="loading"?"…" : "";
-  const syncAdminToken = () => {
-    const token = adminToken.trim();
-    if (token) {
-      setAdminToken(token);
-      setAdminTokenValue(token);
-      return token;
-    }
-    return getAdminToken();
-  };
-  const handleAdminTokenChange = e => {
-    const next = e.target.value;
-    setAdminTokenValue(next);
-    setAdminToken(next);
-    setTokenMsg(next.trim() ? "Token saved locally on your device (never sent publicly)." : "");
-  };
-
-  const test = async type => {
-    setSt(s=>({...s,[type]:"loading"}));
-    try {
-      const res = await authedFetch(`/api/test/${type}`,{method:"POST"});
-      const d = await res.json();
-      if (!res.ok) throw new Error(d.error || d.message || `Server error ${res.status}`);
-      setSt(s=>({...s,[type]:d.ok?"ok":"fail"}));
-      setMsg(m=>({...m,[type]:d.message}));
-    } catch(e) { setSt(s=>({...s,[type]:"fail"})); setMsg(m=>({...m,[type]:e.message})); }
-  };
-
-  const save = async () => {
-    if (!gem && !rep) return;
-    setSaving(true);
-    const token = syncAdminToken();
-    if (!token) {
-      setSaving(false);
-      alert("Admin token manjka. Najprej ga vnesi in shrani.");
-      return;
-    }
-    const body = {};
-    if (gem) body.gemini = gem;
-    if (rep) body.replicate  = rep;
-    try {
-      await apiFetch("/api/keys", body);
-      const d = await authedFetch("/api/keys").then(r=>r.json());
-      setInfo(d); setGem(""); setRep(""); onKeysUpdated(d);
-    } catch(e) { alert("Napaka: "+e.message); }
-    finally { setSaving(false); }
-  };
-
-  const del = async type => {
-    if (info?.[type]?.fromEnv) {
-      alert("Ta ključ prihaja iz okoljske spremenljivke in ga tu ni mogoče zbrisati.");
-      return;
-    }
-    if (!confirm(`Zbriši ${type} ključ?`)) return;
-    try {
-      const res = await authedFetch(`/api/keys/${type}`,{method:"DELETE"});
-      const d = await res.json();
-      if (!res.ok) throw new Error(d.error || `Server error ${res.status}`);
-      const next = await authedFetch("/api/keys").then(r=>r.json());
-      setInfo(next); onKeysUpdated(next);
-      setSt(s=>({...s,[type]:"idle"})); setMsg(m=>({...m,[type]:""}));
-    } catch (e) {
-      alert("Napaka: " + e.message);
-    }
-  };
-
-  const configs = [
-    { type:"gemini", key:"gemini", setKey:setGem, val:gem, show:showGem, setShow:setShowGem, emoji:"✨", title:"Gemini API Key", desc:"Za generiranje promptov · Format: AIza...", ph:"AIza...", link:null },
-    { type:"replicate", key:"rep", setKey:setRep, val:rep, show:showRep, setShow:setShowRep, emoji:"🖼", title:"Replicate API Key",  desc:"Za generiranje slik z Flux · Format: r8_...",       ph:"r8_...",          link:"https://replicate.com/account/api-tokens" },
-  ];
-
-  return (
-    <div style={{position:"fixed",inset:0,background:"rgba(0,0,0,0.75)",display:"flex",alignItems:"center",justifyContent:"center",zIndex:999,padding:20,backdropFilter:"blur(4px)"}}>
-      <div style={{background:"#141416",border:"1px solid rgba(255,255,255,0.1)",borderRadius:18,width:"100%",maxWidth:500,maxHeight:"92vh",overflowY:"auto",animation:"fadeUp 0.25s ease"}}>
-
-        <div style={{display:"flex",justifyContent:"space-between",alignItems:"center",padding:"18px 20px",borderBottom:"1px solid rgba(255,255,255,0.07)"}}>
-          <div style={{display:"flex",alignItems:"center",gap:10}}>
-            <span style={{fontSize:18}}>⚙️</span>
-            <div>
-              <div style={{fontSize:14,fontWeight:600,color:"#fff"}}>Nastavitve API ključev</div>
-              <div style={{fontSize:11,color:"rgba(255,255,255,0.3)",marginTop:1}}>Nastavi kot env spremenljivke na Railway ali vnesi ročno</div>
-            </div>
-          </div>
-          <button onClick={onClose} style={{background:"rgba(255,255,255,0.06)",border:"1px solid rgba(255,255,255,0.1)",borderRadius:8,width:30,height:30,cursor:"pointer",color:"rgba(255,255,255,0.5)",fontSize:15,display:"flex",alignItems:"center",justifyContent:"center"}}>×</button>
-        </div>
-
-        <div style={{padding:"18px 20px"}}>
-
-          <div style={{background:"rgba(255,255,255,0.03)",border:"1px solid rgba(255,255,255,0.07)",borderRadius:12,padding:"14px",marginBottom:12}}>
-            <div style={{fontSize:12,fontWeight:600,color:"#fff",display:"flex",alignItems:"center",gap:7,marginBottom:4}}>
-              <span style={{fontSize:14}}>🔐</span>Admin Access Token
-            </div>
-            <div style={{fontSize:10,color:"rgba(255,255,255,0.28)",marginBottom:10}}>Optional local browser token used when `ADMIN_TOKEN` is enabled on the server. It is saved immediately as you paste or type it.</div>
-            <div style={{position:"relative",marginBottom:10}}>
-              <input type={showAdmin?"text":"password"} placeholder="Paste admin token here" value={adminToken} onChange={handleAdminTokenChange}/>
-              <button onClick={()=>setShowAdmin(s=>!s)} style={{position:"absolute",right:9,top:"50%",transform:"translateY(-50%)",background:"none",border:"none",cursor:"pointer",color:"rgba(255,255,255,0.3)",fontSize:13}}>{showAdmin?"🙈":"👁"}</button>
-            </div>
-            <div style={{display:"flex",gap:7,alignItems:"center",flexWrap:"wrap"}}>
-              <button onClick={()=>{setAdminTokenValue(adminToken.trim()); setAdminToken(adminToken.trim()); setTokenMsg(adminToken.trim() ? "Token saved locally on your device (never sent publicly)." : ""); loadInfo();}} style={{padding:"6px 12px",borderRadius:8,border:"1px solid rgba(255,220,100,0.25)",background:"rgba(255,220,100,0.07)",color:"#FFDC64",fontSize:11,cursor:"pointer",fontWeight:500}}>💾 Shrani token</button>
-              {getAdminToken() && <button onClick={()=>{setAdminToken(""); setAdminTokenValue(""); setTokenMsg(""); loadInfo();}} style={{padding:"6px 12px",borderRadius:8,border:"1px solid rgba(255,80,80,0.25)",background:"rgba(255,80,80,0.07)",color:"#FF8080",fontSize:11,cursor:"pointer",fontWeight:500}}>🗑 Odstrani token</button>}
-              {tokenMsg&&<span style={{fontSize:10,color:"#7EE8A2",fontFamily:"'DM Mono',monospace"}}>{tokenMsg}</span>}
-            </div>
-          </div>
-
-          {/* Status badges */}
-          {info?.authRequired && (
-            <div style={{background:"rgba(80,130,255,0.08)",border:"1px solid rgba(80,130,255,0.2)",borderRadius:11,padding:"10px 14px",marginBottom:16,color:"rgba(190,210,255,0.9)",fontSize:12}}>
-              🔐 This browser is not authenticated yet. Paste the admin token above, then save it locally.
-            </div>
-          )}
-
-          {info && !info.authRequired && (
-            <div style={{display:"flex",gap:8,marginBottom:16}}>
-              {[{k:"gemini",l:"Gemini"},{k:"replicate",l:"Replicate"}].map(({k,l})=>(
-                <div key={k} style={{flex:1,padding:"8px 11px",borderRadius:9,background:info[k]?.set?"rgba(126,232,162,0.07)":"rgba(255,80,80,0.07)",border:`1px solid ${info[k]?.set?"rgba(126,232,162,0.22)":"rgba(255,80,80,0.18)"}`}}>
-                  <div style={{fontSize:10,fontFamily:"'DM Mono',monospace",color:info[k]?.set?"#7EE8A2":"#FF8080"}}>{info[k]?.set?"✓ Nastavljen":"✗ Ni nastavljen"}</div>
-                  <div style={{fontSize:11,color:"rgba(255,255,255,0.55)",marginTop:2}}>{l}</div>
-                  {info[k]?.masked&&<div style={{fontSize:9,fontFamily:"'DM Mono',monospace",color:"rgba(255,255,255,0.18)",marginTop:2}}>{info[k].masked}</div>}
-                </div>
-              ))}
-            </div>
-          )}
-
-          {configs.map(({type,key,setKey,val,show,setShow,emoji,title,desc,ph,link})=>(
-            <div key={type} style={{background:"rgba(255,255,255,0.03)",border:"1px solid rgba(255,255,255,0.07)",borderRadius:12,padding:"14px",marginBottom:12}}>
-              <div style={{fontSize:12,fontWeight:600,color:"#fff",display:"flex",alignItems:"center",gap:7,marginBottom:4}}>
-                <span style={{fontSize:14}}>{emoji}</span>{title}
-              </div>
-              <div style={{fontSize:10,color:"rgba(255,255,255,0.28)",marginBottom:10}}>{desc}</div>
-              <div style={{position:"relative",marginBottom:10}}>
-                <input type={show?"text":"password"} placeholder={ph} value={val} onChange={e=>setKey(e.target.value)}/>
-                <button onClick={()=>setShow(s=>!s)} style={{position:"absolute",right:9,top:"50%",transform:"translateY(-50%)",background:"none",border:"none",cursor:"pointer",color:"rgba(255,255,255,0.3)",fontSize:13}}>{show?"🙈":"👁"}</button>
-              </div>
-              <div style={{display:"flex",gap:7,alignItems:"center",flexWrap:"wrap"}}>
-                <button onClick={()=>test(type)} disabled={st[key]==="loading"} style={{display:"flex",alignItems:"center",gap:5,padding:"6px 12px",borderRadius:8,border:"1px solid rgba(255,220,100,0.25)",background:"rgba(255,220,100,0.07)",color:"#FFDC64",fontSize:11,cursor:"pointer",fontWeight:500}}>
-                  {st[key]==="loading"?<><Spinner size={11}/><span>Testiram…</span></>:<span>🔌 Testiraj</span>}
-                </button>
-                {info?.[type]?.set&&!info?.[type]?.fromEnv&&<button onClick={()=>del(type)} style={{padding:"6px 12px",borderRadius:8,border:"1px solid rgba(255,80,80,0.25)",background:"rgba(255,80,80,0.07)",color:"#FF8080",fontSize:11,cursor:"pointer",fontWeight:500}}>🗑 Zbriši</button>}
-                {msg[key]&&<span style={{fontSize:11,color:sc(st[key]),fontFamily:"'DM Mono',monospace"}}>{si(st[key])} {msg[key]}</span>}
-              </div>
-              {link&&<div style={{marginTop:8,fontSize:10,color:"rgba(255,255,255,0.2)"}}>Pridobi na <a href={link} target="_blank" style={{color:"rgba(255,220,100,0.5)"}}>{link}</a></div>}
-            </div>
-          ))}
-
-          <div style={{display:"flex",gap:9,marginTop:4}}>
-            <button onClick={save} disabled={saving||(!gem&&!rep)} style={{flex:1,padding:"11px",background:saving||(!gem&&!rep)?"rgba(255,220,100,0.08)":"linear-gradient(135deg,#FFDC64,#FF9B40)",border:"none",borderRadius:10,color:saving||(!gem&&!rep)?"rgba(255,220,100,0.3)":"#0C0C0E",fontSize:13,fontWeight:700,cursor:saving||(!gem&&!rep)?"not-allowed":"pointer",display:"flex",alignItems:"center",justifyContent:"center",gap:7}}>
-              {saving?<><Spinner size={13} color="rgba(255,220,100,0.5)"/><span>Shranjujem…</span></>:<span>💾 Shrani ključe</span>}
-            </button>
-            <button onClick={onClose} style={{padding:"11px 18px",background:"rgba(255,255,255,0.05)",border:"1px solid rgba(255,255,255,0.1)",borderRadius:10,color:"rgba(255,255,255,0.4)",fontSize:13,cursor:"pointer"}}>Zapri</button>
-          </div>
-        </div>
-      </div>
-    </div>
-  );
-}
-
-// ─── Mockup card ──────────────────────────────────────────────────────────────
-function MockupCard({ result, catInfo, index, isOpen, onToggle, imgState, customPrompt, onCustomPrompt, onGenImage, onAiFix, rating, onRate, onMarkSelected }) {
-  const busy = imgState?.status === "loading";
-  const done = imgState?.status === "done";
-  const fixing = imgState?.fixing;
-  const [detailsOpen, setDetailsOpen] = useState(false);
-  const downloadName = mockupFileName(result, catInfo, index);
-
-  return (
-    <div style={{background:"rgba(255,255,255,0.022)",border:"1px solid rgba(255,255,255,0.07)",borderRadius:14,overflow:"hidden",marginBottom:8}}>
-      <button onClick={onToggle} style={{width:"100%",background:"none",border:"none",cursor:"pointer",padding:"13px 17px",display:"flex",alignItems:"center",gap:11,textAlign:"left"}}>
-        <div style={{width:33,height:33,borderRadius:9,background:"linear-gradient(135deg,rgba(255,220,100,0.18),rgba(255,155,64,0.12))",display:"flex",alignItems:"center",justifyContent:"center",fontSize:15,flexShrink:0}}>{catInfo?.emoji||"🎨"}</div>
-        <div style={{flex:1,minWidth:0}}>
-          <div style={{fontSize:12,fontWeight:600,color:"#fff",whiteSpace:"nowrap",overflow:"hidden",textOverflow:"ellipsis"}}>
-            <span style={{color:"rgba(255,220,100,0.55)",fontFamily:"'DM Mono',monospace",fontSize:9,marginRight:7}}>#{String(index+1).padStart(2,"0")}</span>
-            {result.category||catInfo?.name}
-          </div>
-          {result.primaryColor&&(
-            <div style={{fontSize:10,color:"rgba(255,255,255,0.3)",marginTop:2}}>
-              Primary: <span style={{color:"rgba(255,220,100,0.65)"}}>{result.primaryColor}</span>
-              <span style={{opacity:0.25,margin:"0 5px"}}>·</span>
-              Secondary: <span style={{color:"rgba(255,220,100,0.45)"}}>{result.secondaryColor}</span>
-            </div>
-          )}
-        </div>
-        {done&&<span style={{fontSize:13,flexShrink:0}}>🖼</span>}
-        {busy&&<Spinner size={13}/>}
-        <span style={{color:"rgba(255,255,255,0.18)",fontSize:11,flexShrink:0,transform:isOpen?"rotate(180deg)":"none",transition:"transform 0.2s"}}>▼</span>
-      </button>
-
-      <div style={{padding:"0 17px 12px"}}>
-        <div style={{display:"flex",flexWrap:"wrap",gap:7,alignItems:"center"}}>
-          <button onClick={()=>onGenImage()} disabled={busy} style={{display:"inline-flex",alignItems:"center",gap:6,padding:"6px 10px",borderRadius:8,border:done?"1px solid rgba(126,232,162,0.3)":"1px solid rgba(255,220,100,0.25)",background:done?"rgba(126,232,162,0.07)":"rgba(255,220,100,0.07)",color:done?"#7EE8A2":"#FFDC64",fontSize:10,cursor:busy?"not-allowed":"pointer",fontWeight:500}}>
-            {busy ? <><Spinner size={11}/><span>Generating</span></> : done ? <>↻ <span>Regenerate</span></> : <>🖼 <span>Generate</span></>}
-          </button>
-          {done && imgState?.url ? (
-            <a href={imgState.url} download={downloadName} onClick={onMarkSelected} style={{display:"inline-flex",alignItems:"center",gap:4,padding:"6px 11px",borderRadius:999,border:"1px solid rgba(255,220,100,0.22)",background:"rgba(255,220,100,0.06)",color:"rgba(255,220,100,0.75)",fontSize:10,fontFamily:"'DM Mono',monospace",textDecoration:"none",lineHeight:1,whiteSpace:"nowrap"}}>↓ Download PNG</a>
-          ) : (
-            <button disabled style={{display:"inline-flex",alignItems:"center",gap:4,padding:"6px 11px",borderRadius:999,border:"1px solid rgba(255,255,255,0.08)",background:"rgba(255,255,255,0.03)",color:"rgba(255,255,255,0.25)",fontSize:10,fontFamily:"'DM Mono',monospace",lineHeight:1,whiteSpace:"nowrap",cursor:"not-allowed"}}>↓ Download</button>
-          )}
-          <button onClick={onAiFix} disabled={fixing} style={{padding:"6px 10px",borderRadius:8,border:"1px solid rgba(90,180,255,0.25)",background:"rgba(90,180,255,0.08)",color:"rgba(160,210,255,0.95)",fontSize:10,cursor:fixing?"not-allowed":"pointer"}}>
-            {fixing ? "Thinking..." : "🤖 AI Fix"}
-          </button>
-          <button onClick={()=>setDetailsOpen(o=>!o)} style={{padding:"6px 10px",borderRadius:8,border:"1px solid rgba(255,255,255,0.08)",background:"rgba(255,255,255,0.03)",color:"rgba(255,255,255,0.45)",fontSize:10,cursor:"pointer"}}>
-            {detailsOpen ? "− Details" : "+ Details"}
-          </button>
-        </div>
-      </div>
-
-      {isOpen&&(
-        <div style={{padding:"0 17px 17px",borderTop:"1px solid rgba(255,255,255,0.05)",paddingTop:13}}>
-          {result.colorReasoning&&<div style={{fontSize:11,color:"rgba(255,220,100,0.45)",marginBottom:12,fontStyle:"italic"}}>{result.colorReasoning}</div>}
-
-          {/* Image generation controls */}
-          <div style={{marginBottom:14,padding:"12px 14px",background:"rgba(255,220,100,0.04)",border:"1px solid rgba(255,220,100,0.12)",borderRadius:10}}>
-            {imgState?.status==="error"&&<div style={{marginTop:6,fontSize:11,color:"#FF8080"}}>⚠ {imgState.error}</div>}
-            {done&&imgState?.url&&(
-              <div style={{marginTop:10}}>
-                <img src={imgState.url} alt="mockup" style={{width:"100%",borderRadius:10,border:"1px solid rgba(255,255,255,0.08)",display:"block"}}/>
-              </div>
-            )}
-            {imgState?.fixSuggestion&&<div style={{marginTop:9,fontSize:11,color:"rgba(160,210,255,0.9)",lineHeight:1.5,whiteSpace:"pre-wrap"}}>{imgState.fixSuggestion}</div>}
-            <div style={{marginTop:10}}>
-              <div style={{fontSize:9,color:"rgba(255,255,255,0.25)",fontFamily:"'DM Mono',monospace",marginBottom:4}}>CUSTOM PROMPT FOR CHANGES</div>
-              <textarea rows={2} value={customPrompt||""} onChange={e=>onCustomPrompt(e.target.value)} placeholder="change background to beach, make model older, keep design exact..." />
-              <button onClick={()=>onGenImage(customPrompt)} disabled={busy||!customPrompt?.trim()} style={{marginTop:7,padding:"7px 11px",borderRadius:8,border:"1px solid rgba(126,232,162,0.25)",background:"rgba(126,232,162,0.08)",color:"#7EE8A2",fontSize:10,cursor:busy||!customPrompt?.trim()?"not-allowed":"pointer"}}>Regenerate with changes</button>
-            </div>
-
-            <div style={{marginTop:12,padding:"10px 11px",borderRadius:10,border:"1px solid rgba(255,255,255,0.06)",background:"rgba(255,255,255,0.03)"}}>
-              <div style={{display:"flex",justifyContent:"space-between",alignItems:"center",gap:10,marginBottom:8}}>
-                <div style={{fontSize:9,color:"rgba(255,255,255,0.25)",fontFamily:"'DM Mono',monospace",letterSpacing:"0.1em",textTransform:"uppercase"}}>Prompt Rating</div>
-                <div style={{fontSize:10,color:"rgba(255,255,255,0.28)"}}>{rating ? `${rating}/5` : "Unrated"}</div>
-              </div>
-              <div style={{display:"flex",alignItems:"center",gap:6,flexWrap:"wrap"}}>
-                {[1,2,3,4,5].map(n=>(
-                  <button key={n} onClick={()=>onRate(n)} style={{width:30,height:30,borderRadius:9,border:`1px solid ${rating>=n?"rgba(255,220,100,0.3)":"rgba(255,255,255,0.08)"}`,background:rating>=n?"rgba(255,220,100,0.09)":"rgba(255,255,255,0.03)",color:rating>=n?"#FFDC64":"rgba(255,255,255,0.28)",fontSize:13,cursor:"pointer",display:"flex",alignItems:"center",justifyContent:"center",fontWeight:700}}>{rating>=n?"★":"☆"}</button>
-                ))}
-                {rating>0&&<button onClick={()=>onRate(0)} style={{marginLeft:4,padding:"6px 10px",borderRadius:8,border:"1px solid rgba(255,255,255,0.08)",background:"rgba(255,255,255,0.03)",color:"rgba(255,255,255,0.35)",fontSize:10,cursor:"pointer"}}>Clear</button>}
-              </div>
-            </div>
-          </div>
-
-          <button onClick={()=>setDetailsOpen(o=>!o)} style={{display:"flex",alignItems:"center",gap:7,width:"100%",background:"rgba(255,255,255,0.03)",border:"1px solid rgba(255,255,255,0.07)",borderRadius:8,padding:"7px 11px",color:"rgba(255,255,255,0.4)",fontSize:10,fontFamily:"'DM Mono',monospace",letterSpacing:"0.08em",textTransform:"uppercase",cursor:"pointer",marginBottom:detailsOpen?10:0,transition:"margin 0.2s"}}>
-            <span style={{display:"inline-flex",alignItems:"center",justifyContent:"center",width:15,height:15,borderRadius:4,background:"rgba(255,255,255,0.06)",fontSize:12,lineHeight:1,transform:detailsOpen?"rotate(45deg)":"none",transition:"transform 0.2s",flexShrink:0}}>+</span>
-            <span>{detailsOpen?"Hide details":"Show details"}</span>
-          </button>
-
-          {detailsOpen&&(
-            <div style={{animation:"fadeUp 0.35s ease"}}>
-              {result.scores&&(
-                <div style={{background:"rgba(255,255,255,0.025)",border:"1px solid rgba(255,255,255,0.06)",borderRadius:10,padding:"10px 12px",marginBottom:9}}>
-                  <ScoreBar label="Visibility"  value={result.scores.designVisibility}/>
-                  <ScoreBar label="Conversion"  value={result.scores.etsyConversion}/>
-                  <ScoreBar label="Realism"     value={result.scores.realism}/>
-                  <ScoreBar label="Scroll-stop" value={result.scores.scrollStop}/>
-                  <ScoreBar label="Giftability" value={result.scores.giftability}/>
-                  <div style={{height:1,background:"rgba(255,255,255,0.07)",margin:"7px 0"}}/>
-                  <ScoreBar label="Overall"     value={result.scores.overall}/>
-                </div>
-              )}
-              {(result.environment||result.targetBuyer||result.pose||result.cameraSetup)&&(
-                <div style={{display:"flex",flexWrap:"wrap",gap:6,marginBottom:9}}>
-                  {result.environment&&<Tag>📍 {result.environment}</Tag>}
-                  {result.targetBuyer&&<Tag>👤 {result.targetBuyer}</Tag>}
-                  {result.pose&&<Tag>🧍 {result.pose}</Tag>}
-                  {result.cameraSetup&&<Tag>📷 {result.cameraSetup}</Tag>}
-                  {result.lighting&&<Tag>💡 {result.lighting}</Tag>}
-                </div>
-              )}
-              <Field label="Category Research" value={result.categoryResearch} accent="rgba(90,180,255,0.28)"/>
-              <Field label="SEO Keywords"      value={result.categoryKeywords} accent="rgba(90,180,255,0.2)"/>
-              <Field label="Shirt Research"    value={result.shirtResearch}    accent="rgba(126,232,162,0.24)"/>
-              <Field label="Flux Prompt"       value={result.fluxPrompt}       accent="rgba(255,220,100,0.3)"/>
-              <Field label="Negative Prompt"   value={result.negativePrompt}  accent="rgba(255,100,100,0.28)"/>
-              <Field label="QA Checklist"      value={result.qaChecklist}     accent="rgba(126,232,162,0.28)"/>
-              <Field label="Auto Fix Prompt"   value={result.autoFix}         accent="rgba(180,130,255,0.28)"/>
-              <ManualFixCard mf={result.manualFix}/>
-              <Field label="Thumbnail Notes"   value={result.thumbnailNotes}  accent="rgba(255,180,80,0.28)"/>
-            </div>
-          )}
-        </div>
-      )}
-    </div>
-  );
-}
-
-// ─── Main App ─────────────────────────────────────────────────────────────────
-function App() {
-  const [showSettings, setShowSettings] = useState(false);
-  const [keyInfo,      setKeyInfo]      = useState(null);
-
-  // FIX: mockupCount added back to form state
-  const [form, setForm] = useState({
-    brandStyle:"", niche:"", audience:"",
-    shirtType:"__match_picture__",
-    shirtModel:"", shirtName:"",
-    sceneDirection:"",
-    mockupCount: 18,
-    autoDetect: true,
-  });
-
-  const [imageFile,    setImageFile]    = useState(null);
-  const [imagePreview, setImagePreview] = useState(null);
-  const [imageBase64,  setImageBase64]  = useState(null);
-  const [referenceImages, setReferenceImages] = useState([]);
-  const [designAnalysis, setDesignAnalysis] = useState("");
-  const [analyzing, setAnalyzing] = useState(false);
-
-  const [loading,   setLoading]   = useState(false);
-  const [progress,  setProgress]  = useState(0);
-  const [progLabel, setProgLabel] = useState("");
-  const [results,   setResults]   = useState([]);
-  const [openCard,  setOpenCard]  = useState(null);
-  const [activeTab, setActiveTab] = useState("all");
-  const [error,     setError]     = useState(null);
-  const [imgStates, setImgStates] = useState({});
-  const [customPrompts, setCustomPrompts] = useState({});
-  const [genAllBusy,setGenAllBusy]= useState(false);
-  const [promptRatings, setPromptRatings] = useState([]);
-  const [learningEnabled, setLearningEnabled] = useState(true);
-  const [diversityHistory, setDiversityHistory] = useState([]);
-
-  const fileRef = useRef();
-  const refsRef = useRef();
-
-  useEffect(() => {
-    if (typeof markAppRendered === "function") markAppRendered();
-  }, []);
-
-  useEffect(() => {
-    authedFetch("/api/keys")
-      .then(r => {
+    }).then(d => {
+      if (d) setInfo(d);
+    }).catch(() => {});
+    useEffect(() => {
+      loadInfo();
+    }, []);
+    const sc = s => s === "ok" ? "#7EE8A2" : s === "fail" ? "#FF8080" : "rgba(255,255,255,0.35)";
+    const si = s => s === "ok" ? "✓" : s === "fail" ? "✗" : s === "loading" ? "…" : "";
+    const syncAdminToken = () => {
+      const token = adminToken.trim();
+      if (token) {
+        setAdminToken(token);
+        setAdminTokenValue(token);
+        return token;
+      }
+      return getAdminToken();
+    };
+    const handleAdminTokenChange = e => {
+      const next = e.target.value;
+      setAdminTokenValue(next);
+      setAdminToken(next);
+      setTokenMsg(next.trim() ? "Token saved locally on your device (never sent publicly)." : "");
+    };
+    const test = async type => {
+      setSt(s => ({
+        ...s,
+        [type]: "loading"
+      }));
+      try {
+        const res = await authedFetch(`/api/test/${type}`, {
+          method: "POST"
+        });
+        const d = await res.json();
+        if (!res.ok) throw new Error(d.error || d.message || `Server error ${res.status}`);
+        setSt(s => ({
+          ...s,
+          [type]: d.ok ? "ok" : "fail"
+        }));
+        setMsg(m => ({
+          ...m,
+          [type]: d.message
+        }));
+      } catch (e) {
+        setSt(s => ({
+          ...s,
+          [type]: "fail"
+        }));
+        setMsg(m => ({
+          ...m,
+          [type]: e.message
+        }));
+      }
+    };
+    const save = async () => {
+      if (!gem && !rep) return;
+      setSaving(true);
+      const token = syncAdminToken();
+      if (!token) {
+        setSaving(false);
+        alert("Admin token manjka. Najprej ga vnesi in shrani.");
+        return;
+      }
+      const body = {};
+      if (gem) body.gemini = gem;
+      if (rep) body.replicate = rep;
+      try {
+        await apiFetch("/api/keys", body);
+        const d = await authedFetch("/api/keys").then(r => r.json());
+        setInfo(d);
+        setGem("");
+        setRep("");
+        onKeysUpdated(d);
+      } catch (e) {
+        alert("Napaka: " + e.message);
+      } finally {
+        setSaving(false);
+      }
+    };
+    const del = async type => {
+      if (info?.[type]?.fromEnv) {
+        alert("Ta ključ prihaja iz okoljske spremenljivke in ga tu ni mogoče zbrisati.");
+        return;
+      }
+      if (!confirm(`Zbriši ${type} ključ?`)) return;
+      try {
+        const res = await authedFetch(`/api/keys/${type}`, {
+          method: "DELETE"
+        });
+        const d = await res.json();
+        if (!res.ok) throw new Error(d.error || `Server error ${res.status}`);
+        const next = await authedFetch("/api/keys").then(r => r.json());
+        setInfo(next);
+        onKeysUpdated(next);
+        setSt(s => ({
+          ...s,
+          [type]: "idle"
+        }));
+        setMsg(m => ({
+          ...m,
+          [type]: ""
+        }));
+      } catch (e) {
+        alert("Napaka: " + e.message);
+      }
+    };
+    const configs = [{
+      type: "gemini",
+      key: "gemini",
+      setKey: setGem,
+      val: gem,
+      show: showGem,
+      setShow: setShowGem,
+      emoji: "✨",
+      title: "Gemini API Key",
+      desc: "Za generiranje promptov · Format: AIza...",
+      ph: "AIza...",
+      link: null
+    }, {
+      type: "replicate",
+      key: "rep",
+      setKey: setRep,
+      val: rep,
+      show: showRep,
+      setShow: setShowRep,
+      emoji: "🖼",
+      title: "Replicate API Key",
+      desc: "Za generiranje slik z Flux · Format: r8_...",
+      ph: "r8_...",
+      link: "https://replicate.com/account/api-tokens"
+    }];
+    return React.createElement("div", {
+      style: {
+        position: "fixed",
+        inset: 0,
+        background: "rgba(0,0,0,0.75)",
+        display: "flex",
+        alignItems: "center",
+        justifyContent: "center",
+        zIndex: 999,
+        padding: 20,
+        backdropFilter: "blur(4px)"
+      }
+    }, React.createElement("div", {
+      style: {
+        background: "#141416",
+        border: "1px solid rgba(255,255,255,0.1)",
+        borderRadius: 18,
+        width: "100%",
+        maxWidth: 500,
+        maxHeight: "92vh",
+        overflowY: "auto",
+        animation: "fadeUp 0.25s ease"
+      }
+    }, React.createElement("div", {
+      style: {
+        display: "flex",
+        justifyContent: "space-between",
+        alignItems: "center",
+        padding: "18px 20px",
+        borderBottom: "1px solid rgba(255,255,255,0.07)"
+      }
+    }, React.createElement("div", {
+      style: {
+        display: "flex",
+        alignItems: "center",
+        gap: 10
+      }
+    }, React.createElement("span", {
+      style: {
+        fontSize: 18
+      }
+    }, "\u2699\uFE0F"), React.createElement("div", null, React.createElement("div", {
+      style: {
+        fontSize: 14,
+        fontWeight: 600,
+        color: "#fff"
+      }
+    }, "Nastavitve API klju\u010Dev"), React.createElement("div", {
+      style: {
+        fontSize: 11,
+        color: "rgba(255,255,255,0.3)",
+        marginTop: 1
+      }
+    }, "Nastavi kot env spremenljivke na Railway ali vnesi ro\u010Dno"))), React.createElement("button", {
+      onClick: onClose,
+      style: {
+        background: "rgba(255,255,255,0.06)",
+        border: "1px solid rgba(255,255,255,0.1)",
+        borderRadius: 8,
+        width: 30,
+        height: 30,
+        cursor: "pointer",
+        color: "rgba(255,255,255,0.5)",
+        fontSize: 15,
+        display: "flex",
+        alignItems: "center",
+        justifyContent: "center"
+      }
+    }, "\xD7")), React.createElement("div", {
+      style: {
+        padding: "18px 20px"
+      }
+    }, React.createElement("div", {
+      style: {
+        background: "rgba(255,255,255,0.03)",
+        border: "1px solid rgba(255,255,255,0.07)",
+        borderRadius: 12,
+        padding: "14px",
+        marginBottom: 12
+      }
+    }, React.createElement("div", {
+      style: {
+        fontSize: 12,
+        fontWeight: 600,
+        color: "#fff",
+        display: "flex",
+        alignItems: "center",
+        gap: 7,
+        marginBottom: 4
+      }
+    }, React.createElement("span", {
+      style: {
+        fontSize: 14
+      }
+    }, "\uD83D\uDD10"), "Admin Access Token"), React.createElement("div", {
+      style: {
+        fontSize: 10,
+        color: "rgba(255,255,255,0.28)",
+        marginBottom: 10
+      }
+    }, "Optional local browser token used when `ADMIN_TOKEN` is enabled on the server. It is saved immediately as you paste or type it."), React.createElement("div", {
+      style: {
+        position: "relative",
+        marginBottom: 10
+      }
+    }, React.createElement("input", {
+      type: showAdmin ? "text" : "password",
+      placeholder: "Paste admin token here",
+      value: adminToken,
+      onChange: handleAdminTokenChange
+    }), React.createElement("button", {
+      onClick: () => setShowAdmin(s => !s),
+      style: {
+        position: "absolute",
+        right: 9,
+        top: "50%",
+        transform: "translateY(-50%)",
+        background: "none",
+        border: "none",
+        cursor: "pointer",
+        color: "rgba(255,255,255,0.3)",
+        fontSize: 13
+      }
+    }, showAdmin ? "🙈" : "👁")), React.createElement("div", {
+      style: {
+        display: "flex",
+        gap: 7,
+        alignItems: "center",
+        flexWrap: "wrap"
+      }
+    }, React.createElement("button", {
+      onClick: () => {
+        setAdminTokenValue(adminToken.trim());
+        setAdminToken(adminToken.trim());
+        setTokenMsg(adminToken.trim() ? "Token saved locally on your device (never sent publicly)." : "");
+        loadInfo();
+      },
+      style: {
+        padding: "6px 12px",
+        borderRadius: 8,
+        border: "1px solid rgba(255,220,100,0.25)",
+        background: "rgba(255,220,100,0.07)",
+        color: "#FFDC64",
+        fontSize: 11,
+        cursor: "pointer",
+        fontWeight: 500
+      }
+    }, "\uD83D\uDCBE Shrani token"), getAdminToken() && React.createElement("button", {
+      onClick: () => {
+        setAdminToken("");
+        setAdminTokenValue("");
+        setTokenMsg("");
+        loadInfo();
+      },
+      style: {
+        padding: "6px 12px",
+        borderRadius: 8,
+        border: "1px solid rgba(255,80,80,0.25)",
+        background: "rgba(255,80,80,0.07)",
+        color: "#FF8080",
+        fontSize: 11,
+        cursor: "pointer",
+        fontWeight: 500
+      }
+    }, "\uD83D\uDDD1 Odstrani token"), tokenMsg && React.createElement("span", {
+      style: {
+        fontSize: 10,
+        color: "#7EE8A2",
+        fontFamily: "'DM Mono',monospace"
+      }
+    }, tokenMsg))), info?.authRequired && React.createElement("div", {
+      style: {
+        background: "rgba(80,130,255,0.08)",
+        border: "1px solid rgba(80,130,255,0.2)",
+        borderRadius: 11,
+        padding: "10px 14px",
+        marginBottom: 16,
+        color: "rgba(190,210,255,0.9)",
+        fontSize: 12
+      }
+    }, "\uD83D\uDD10 This browser is not authenticated yet. Paste the admin token above, then save it locally."), info && !info.authRequired && React.createElement("div", {
+      style: {
+        display: "flex",
+        gap: 8,
+        marginBottom: 16
+      }
+    }, [{
+      k: "gemini",
+      l: "Gemini"
+    }, {
+      k: "replicate",
+      l: "Replicate"
+    }].map(({
+      k,
+      l
+    }) => React.createElement("div", {
+      key: k,
+      style: {
+        flex: 1,
+        padding: "8px 11px",
+        borderRadius: 9,
+        background: info[k]?.set ? "rgba(126,232,162,0.07)" : "rgba(255,80,80,0.07)",
+        border: `1px solid ${info[k]?.set ? "rgba(126,232,162,0.22)" : "rgba(255,80,80,0.18)"}`
+      }
+    }, React.createElement("div", {
+      style: {
+        fontSize: 10,
+        fontFamily: "'DM Mono',monospace",
+        color: info[k]?.set ? "#7EE8A2" : "#FF8080"
+      }
+    }, info[k]?.set ? "✓ Nastavljen" : "✗ Ni nastavljen"), React.createElement("div", {
+      style: {
+        fontSize: 11,
+        color: "rgba(255,255,255,0.55)",
+        marginTop: 2
+      }
+    }, l), info[k]?.masked && React.createElement("div", {
+      style: {
+        fontSize: 9,
+        fontFamily: "'DM Mono',monospace",
+        color: "rgba(255,255,255,0.18)",
+        marginTop: 2
+      }
+    }, info[k].masked)))), configs.map(({
+      type,
+      key,
+      setKey,
+      val,
+      show,
+      setShow,
+      emoji,
+      title,
+      desc,
+      ph,
+      link
+    }) => React.createElement("div", {
+      key: type,
+      style: {
+        background: "rgba(255,255,255,0.03)",
+        border: "1px solid rgba(255,255,255,0.07)",
+        borderRadius: 12,
+        padding: "14px",
+        marginBottom: 12
+      }
+    }, React.createElement("div", {
+      style: {
+        fontSize: 12,
+        fontWeight: 600,
+        color: "#fff",
+        display: "flex",
+        alignItems: "center",
+        gap: 7,
+        marginBottom: 4
+      }
+    }, React.createElement("span", {
+      style: {
+        fontSize: 14
+      }
+    }, emoji), title), React.createElement("div", {
+      style: {
+        fontSize: 10,
+        color: "rgba(255,255,255,0.28)",
+        marginBottom: 10
+      }
+    }, desc), React.createElement("div", {
+      style: {
+        position: "relative",
+        marginBottom: 10
+      }
+    }, React.createElement("input", {
+      type: show ? "text" : "password",
+      placeholder: ph,
+      value: val,
+      onChange: e => setKey(e.target.value)
+    }), React.createElement("button", {
+      onClick: () => setShow(s => !s),
+      style: {
+        position: "absolute",
+        right: 9,
+        top: "50%",
+        transform: "translateY(-50%)",
+        background: "none",
+        border: "none",
+        cursor: "pointer",
+        color: "rgba(255,255,255,0.3)",
+        fontSize: 13
+      }
+    }, show ? "🙈" : "👁")), React.createElement("div", {
+      style: {
+        display: "flex",
+        gap: 7,
+        alignItems: "center",
+        flexWrap: "wrap"
+      }
+    }, React.createElement("button", {
+      onClick: () => test(type),
+      disabled: st[key] === "loading",
+      style: {
+        display: "flex",
+        alignItems: "center",
+        gap: 5,
+        padding: "6px 12px",
+        borderRadius: 8,
+        border: "1px solid rgba(255,220,100,0.25)",
+        background: "rgba(255,220,100,0.07)",
+        color: "#FFDC64",
+        fontSize: 11,
+        cursor: "pointer",
+        fontWeight: 500
+      }
+    }, st[key] === "loading" ? React.createElement(React.Fragment, null, React.createElement(Spinner, {
+      size: 11
+    }), React.createElement("span", null, "Testiram\u2026")) : React.createElement("span", null, "\uD83D\uDD0C Testiraj")), info?.[type]?.set && !info?.[type]?.fromEnv && React.createElement("button", {
+      onClick: () => del(type),
+      style: {
+        padding: "6px 12px",
+        borderRadius: 8,
+        border: "1px solid rgba(255,80,80,0.25)",
+        background: "rgba(255,80,80,0.07)",
+        color: "#FF8080",
+        fontSize: 11,
+        cursor: "pointer",
+        fontWeight: 500
+      }
+    }, "\uD83D\uDDD1 Zbri\u0161i"), msg[key] && React.createElement("span", {
+      style: {
+        fontSize: 11,
+        color: sc(st[key]),
+        fontFamily: "'DM Mono',monospace"
+      }
+    }, si(st[key]), " ", msg[key])), link && React.createElement("div", {
+      style: {
+        marginTop: 8,
+        fontSize: 10,
+        color: "rgba(255,255,255,0.2)"
+      }
+    }, "Pridobi na ", React.createElement("a", {
+      href: link,
+      target: "_blank",
+      style: {
+        color: "rgba(255,220,100,0.5)"
+      }
+    }, link)))), React.createElement("div", {
+      style: {
+        display: "flex",
+        gap: 9,
+        marginTop: 4
+      }
+    }, React.createElement("button", {
+      onClick: save,
+      disabled: saving || !gem && !rep,
+      style: {
+        flex: 1,
+        padding: "11px",
+        background: saving || !gem && !rep ? "rgba(255,220,100,0.08)" : "linear-gradient(135deg,#FFDC64,#FF9B40)",
+        border: "none",
+        borderRadius: 10,
+        color: saving || !gem && !rep ? "rgba(255,220,100,0.3)" : "#0C0C0E",
+        fontSize: 13,
+        fontWeight: 700,
+        cursor: saving || !gem && !rep ? "not-allowed" : "pointer",
+        display: "flex",
+        alignItems: "center",
+        justifyContent: "center",
+        gap: 7
+      }
+    }, saving ? React.createElement(React.Fragment, null, React.createElement(Spinner, {
+      size: 13,
+      color: "rgba(255,220,100,0.5)"
+    }), React.createElement("span", null, "Shranjujem\u2026")) : React.createElement("span", null, "\uD83D\uDCBE Shrani klju\u010De")), React.createElement("button", {
+      onClick: onClose,
+      style: {
+        padding: "11px 18px",
+        background: "rgba(255,255,255,0.05)",
+        border: "1px solid rgba(255,255,255,0.1)",
+        borderRadius: 10,
+        color: "rgba(255,255,255,0.4)",
+        fontSize: 13,
+        cursor: "pointer"
+      }
+    }, "Zapri")))));
+  }
+  function MockupCard({
+    result,
+    catInfo,
+    index,
+    isOpen,
+    onToggle,
+    imgState,
+    customPrompt,
+    onCustomPrompt,
+    onGenImage,
+    onAiFix,
+    rating,
+    onRate,
+    onMarkSelected
+  }) {
+    const busy = imgState?.status === "loading";
+    const done = imgState?.status === "done";
+    const fixing = imgState?.fixing;
+    const [detailsOpen, setDetailsOpen] = useState(false);
+    const downloadName = mockupFileName(result, catInfo, index);
+    return React.createElement("div", {
+      style: {
+        background: "rgba(255,255,255,0.022)",
+        border: "1px solid rgba(255,255,255,0.07)",
+        borderRadius: 14,
+        overflow: "hidden",
+        marginBottom: 8
+      }
+    }, React.createElement("button", {
+      onClick: onToggle,
+      style: {
+        width: "100%",
+        background: "none",
+        border: "none",
+        cursor: "pointer",
+        padding: "13px 17px",
+        display: "flex",
+        alignItems: "center",
+        gap: 11,
+        textAlign: "left"
+      }
+    }, React.createElement("div", {
+      style: {
+        width: 33,
+        height: 33,
+        borderRadius: 9,
+        background: "linear-gradient(135deg,rgba(255,220,100,0.18),rgba(255,155,64,0.12))",
+        display: "flex",
+        alignItems: "center",
+        justifyContent: "center",
+        fontSize: 15,
+        flexShrink: 0
+      }
+    }, catInfo?.emoji || "🎨"), React.createElement("div", {
+      style: {
+        flex: 1,
+        minWidth: 0
+      }
+    }, React.createElement("div", {
+      style: {
+        fontSize: 12,
+        fontWeight: 600,
+        color: "#fff",
+        whiteSpace: "nowrap",
+        overflow: "hidden",
+        textOverflow: "ellipsis"
+      }
+    }, React.createElement("span", {
+      style: {
+        color: "rgba(255,220,100,0.55)",
+        fontFamily: "'DM Mono',monospace",
+        fontSize: 9,
+        marginRight: 7
+      }
+    }, "#", String(index + 1).padStart(2, "0")), result.category || catInfo?.name), result.primaryColor && React.createElement("div", {
+      style: {
+        fontSize: 10,
+        color: "rgba(255,255,255,0.3)",
+        marginTop: 2
+      }
+    }, "Primary: ", React.createElement("span", {
+      style: {
+        color: "rgba(255,220,100,0.65)"
+      }
+    }, result.primaryColor), React.createElement("span", {
+      style: {
+        opacity: 0.25,
+        margin: "0 5px"
+      }
+    }, "\xB7"), "Secondary: ", React.createElement("span", {
+      style: {
+        color: "rgba(255,220,100,0.45)"
+      }
+    }, result.secondaryColor))), done && React.createElement("span", {
+      style: {
+        fontSize: 13,
+        flexShrink: 0
+      }
+    }, "\uD83D\uDDBC"), busy && React.createElement(Spinner, {
+      size: 13
+    }), React.createElement("span", {
+      style: {
+        color: "rgba(255,255,255,0.18)",
+        fontSize: 11,
+        flexShrink: 0,
+        transform: isOpen ? "rotate(180deg)" : "none",
+        transition: "transform 0.2s"
+      }
+    }, "\u25BC")), React.createElement("div", {
+      style: {
+        padding: "0 17px 12px"
+      }
+    }, React.createElement("div", {
+      style: {
+        display: "flex",
+        flexWrap: "wrap",
+        gap: 7,
+        alignItems: "center"
+      }
+    }, React.createElement("button", {
+      onClick: () => onGenImage(),
+      disabled: busy,
+      style: {
+        display: "inline-flex",
+        alignItems: "center",
+        gap: 6,
+        padding: "6px 10px",
+        borderRadius: 8,
+        border: done ? "1px solid rgba(126,232,162,0.3)" : "1px solid rgba(255,220,100,0.25)",
+        background: done ? "rgba(126,232,162,0.07)" : "rgba(255,220,100,0.07)",
+        color: done ? "#7EE8A2" : "#FFDC64",
+        fontSize: 10,
+        cursor: busy ? "not-allowed" : "pointer",
+        fontWeight: 500
+      }
+    }, busy ? React.createElement(React.Fragment, null, React.createElement(Spinner, {
+      size: 11
+    }), React.createElement("span", null, "Generating")) : done ? React.createElement(React.Fragment, null, "\u21BB ", React.createElement("span", null, "Regenerate")) : React.createElement(React.Fragment, null, "\uD83D\uDDBC ", React.createElement("span", null, "Generate"))), done && imgState?.url ? React.createElement("a", {
+      href: imgState.url,
+      download: downloadName,
+      onClick: onMarkSelected,
+      style: {
+        display: "inline-flex",
+        alignItems: "center",
+        gap: 4,
+        padding: "6px 11px",
+        borderRadius: 999,
+        border: "1px solid rgba(255,220,100,0.22)",
+        background: "rgba(255,220,100,0.06)",
+        color: "rgba(255,220,100,0.75)",
+        fontSize: 10,
+        fontFamily: "'DM Mono',monospace",
+        textDecoration: "none",
+        lineHeight: 1,
+        whiteSpace: "nowrap"
+      }
+    }, "\u2193 Download PNG") : React.createElement("button", {
+      disabled: true,
+      style: {
+        display: "inline-flex",
+        alignItems: "center",
+        gap: 4,
+        padding: "6px 11px",
+        borderRadius: 999,
+        border: "1px solid rgba(255,255,255,0.08)",
+        background: "rgba(255,255,255,0.03)",
+        color: "rgba(255,255,255,0.25)",
+        fontSize: 10,
+        fontFamily: "'DM Mono',monospace",
+        lineHeight: 1,
+        whiteSpace: "nowrap",
+        cursor: "not-allowed"
+      }
+    }, "\u2193 Download"), React.createElement("button", {
+      onClick: onAiFix,
+      disabled: fixing,
+      style: {
+        padding: "6px 10px",
+        borderRadius: 8,
+        border: "1px solid rgba(90,180,255,0.25)",
+        background: "rgba(90,180,255,0.08)",
+        color: "rgba(160,210,255,0.95)",
+        fontSize: 10,
+        cursor: fixing ? "not-allowed" : "pointer"
+      }
+    }, fixing ? "Thinking..." : "🤖 AI Fix"), React.createElement("button", {
+      onClick: () => setDetailsOpen(o => !o),
+      style: {
+        padding: "6px 10px",
+        borderRadius: 8,
+        border: "1px solid rgba(255,255,255,0.08)",
+        background: "rgba(255,255,255,0.03)",
+        color: "rgba(255,255,255,0.45)",
+        fontSize: 10,
+        cursor: "pointer"
+      }
+    }, detailsOpen ? "− Details" : "+ Details"))), isOpen && React.createElement("div", {
+      style: {
+        padding: "0 17px 17px",
+        borderTop: "1px solid rgba(255,255,255,0.05)",
+        paddingTop: 13
+      }
+    }, result.colorReasoning && React.createElement("div", {
+      style: {
+        fontSize: 11,
+        color: "rgba(255,220,100,0.45)",
+        marginBottom: 12,
+        fontStyle: "italic"
+      }
+    }, result.colorReasoning), React.createElement("div", {
+      style: {
+        marginBottom: 14,
+        padding: "12px 14px",
+        background: "rgba(255,220,100,0.04)",
+        border: "1px solid rgba(255,220,100,0.12)",
+        borderRadius: 10
+      }
+    }, imgState?.status === "error" && React.createElement("div", {
+      style: {
+        marginTop: 6,
+        fontSize: 11,
+        color: "#FF8080"
+      }
+    }, "\u26A0 ", imgState.error), done && imgState?.url && React.createElement("div", {
+      style: {
+        marginTop: 10
+      }
+    }, React.createElement("img", {
+      src: imgState.url,
+      alt: "mockup",
+      style: {
+        width: "100%",
+        borderRadius: 10,
+        border: "1px solid rgba(255,255,255,0.08)",
+        display: "block"
+      }
+    })), imgState?.fixSuggestion && React.createElement("div", {
+      style: {
+        marginTop: 9,
+        fontSize: 11,
+        color: "rgba(160,210,255,0.9)",
+        lineHeight: 1.5,
+        whiteSpace: "pre-wrap"
+      }
+    }, imgState.fixSuggestion), React.createElement("div", {
+      style: {
+        marginTop: 10
+      }
+    }, React.createElement("div", {
+      style: {
+        fontSize: 9,
+        color: "rgba(255,255,255,0.25)",
+        fontFamily: "'DM Mono',monospace",
+        marginBottom: 4
+      }
+    }, "CUSTOM PROMPT FOR CHANGES"), React.createElement("textarea", {
+      rows: 2,
+      value: customPrompt || "",
+      onChange: e => onCustomPrompt(e.target.value),
+      placeholder: "change background to beach, make model older, keep design exact..."
+    }), React.createElement("button", {
+      onClick: () => onGenImage(customPrompt),
+      disabled: busy || !customPrompt?.trim(),
+      style: {
+        marginTop: 7,
+        padding: "7px 11px",
+        borderRadius: 8,
+        border: "1px solid rgba(126,232,162,0.25)",
+        background: "rgba(126,232,162,0.08)",
+        color: "#7EE8A2",
+        fontSize: 10,
+        cursor: busy || !customPrompt?.trim() ? "not-allowed" : "pointer"
+      }
+    }, "Regenerate with changes")), React.createElement("div", {
+      style: {
+        marginTop: 12,
+        padding: "10px 11px",
+        borderRadius: 10,
+        border: "1px solid rgba(255,255,255,0.06)",
+        background: "rgba(255,255,255,0.03)"
+      }
+    }, React.createElement("div", {
+      style: {
+        display: "flex",
+        justifyContent: "space-between",
+        alignItems: "center",
+        gap: 10,
+        marginBottom: 8
+      }
+    }, React.createElement("div", {
+      style: {
+        fontSize: 9,
+        color: "rgba(255,255,255,0.25)",
+        fontFamily: "'DM Mono',monospace",
+        letterSpacing: "0.1em",
+        textTransform: "uppercase"
+      }
+    }, "Prompt Rating"), React.createElement("div", {
+      style: {
+        fontSize: 10,
+        color: "rgba(255,255,255,0.28)"
+      }
+    }, rating ? `${rating}/5` : "Unrated")), React.createElement("div", {
+      style: {
+        display: "flex",
+        alignItems: "center",
+        gap: 6,
+        flexWrap: "wrap"
+      }
+    }, [1, 2, 3, 4, 5].map(n => React.createElement("button", {
+      key: n,
+      onClick: () => onRate(n),
+      style: {
+        width: 30,
+        height: 30,
+        borderRadius: 9,
+        border: `1px solid ${rating >= n ? "rgba(255,220,100,0.3)" : "rgba(255,255,255,0.08)"}`,
+        background: rating >= n ? "rgba(255,220,100,0.09)" : "rgba(255,255,255,0.03)",
+        color: rating >= n ? "#FFDC64" : "rgba(255,255,255,0.28)",
+        fontSize: 13,
+        cursor: "pointer",
+        display: "flex",
+        alignItems: "center",
+        justifyContent: "center",
+        fontWeight: 700
+      }
+    }, rating >= n ? "★" : "☆")), rating > 0 && React.createElement("button", {
+      onClick: () => onRate(0),
+      style: {
+        marginLeft: 4,
+        padding: "6px 10px",
+        borderRadius: 8,
+        border: "1px solid rgba(255,255,255,0.08)",
+        background: "rgba(255,255,255,0.03)",
+        color: "rgba(255,255,255,0.35)",
+        fontSize: 10,
+        cursor: "pointer"
+      }
+    }, "Clear")))), React.createElement("button", {
+      onClick: () => setDetailsOpen(o => !o),
+      style: {
+        display: "flex",
+        alignItems: "center",
+        gap: 7,
+        width: "100%",
+        background: "rgba(255,255,255,0.03)",
+        border: "1px solid rgba(255,255,255,0.07)",
+        borderRadius: 8,
+        padding: "7px 11px",
+        color: "rgba(255,255,255,0.4)",
+        fontSize: 10,
+        fontFamily: "'DM Mono',monospace",
+        letterSpacing: "0.08em",
+        textTransform: "uppercase",
+        cursor: "pointer",
+        marginBottom: detailsOpen ? 10 : 0,
+        transition: "margin 0.2s"
+      }
+    }, React.createElement("span", {
+      style: {
+        display: "inline-flex",
+        alignItems: "center",
+        justifyContent: "center",
+        width: 15,
+        height: 15,
+        borderRadius: 4,
+        background: "rgba(255,255,255,0.06)",
+        fontSize: 12,
+        lineHeight: 1,
+        transform: detailsOpen ? "rotate(45deg)" : "none",
+        transition: "transform 0.2s",
+        flexShrink: 0
+      }
+    }, "+"), React.createElement("span", null, detailsOpen ? "Hide details" : "Show details")), detailsOpen && React.createElement("div", {
+      style: {
+        animation: "fadeUp 0.35s ease"
+      }
+    }, result.scores && React.createElement("div", {
+      style: {
+        background: "rgba(255,255,255,0.025)",
+        border: "1px solid rgba(255,255,255,0.06)",
+        borderRadius: 10,
+        padding: "10px 12px",
+        marginBottom: 9
+      }
+    }, React.createElement(ScoreBar, {
+      label: "Visibility",
+      value: result.scores.designVisibility
+    }), React.createElement(ScoreBar, {
+      label: "Conversion",
+      value: result.scores.etsyConversion
+    }), React.createElement(ScoreBar, {
+      label: "Realism",
+      value: result.scores.realism
+    }), React.createElement(ScoreBar, {
+      label: "Scroll-stop",
+      value: result.scores.scrollStop
+    }), React.createElement(ScoreBar, {
+      label: "Giftability",
+      value: result.scores.giftability
+    }), React.createElement("div", {
+      style: {
+        height: 1,
+        background: "rgba(255,255,255,0.07)",
+        margin: "7px 0"
+      }
+    }), React.createElement(ScoreBar, {
+      label: "Overall",
+      value: result.scores.overall
+    })), (result.environment || result.targetBuyer || result.pose || result.cameraSetup) && React.createElement("div", {
+      style: {
+        display: "flex",
+        flexWrap: "wrap",
+        gap: 6,
+        marginBottom: 9
+      }
+    }, result.environment && React.createElement(Tag, null, "\uD83D\uDCCD ", result.environment), result.targetBuyer && React.createElement(Tag, null, "\uD83D\uDC64 ", result.targetBuyer), result.pose && React.createElement(Tag, null, "\uD83E\uDDCD ", result.pose), result.cameraSetup && React.createElement(Tag, null, "\uD83D\uDCF7 ", result.cameraSetup), result.lighting && React.createElement(Tag, null, "\uD83D\uDCA1 ", result.lighting)), React.createElement(Field, {
+      label: "Category Research",
+      value: result.categoryResearch,
+      accent: "rgba(90,180,255,0.28)"
+    }), React.createElement(Field, {
+      label: "SEO Keywords",
+      value: result.categoryKeywords,
+      accent: "rgba(90,180,255,0.2)"
+    }), React.createElement(Field, {
+      label: "Shirt Research",
+      value: result.shirtResearch,
+      accent: "rgba(126,232,162,0.24)"
+    }), React.createElement(Field, {
+      label: "Flux Prompt",
+      value: result.fluxPrompt,
+      accent: "rgba(255,220,100,0.3)"
+    }), React.createElement(Field, {
+      label: "Negative Prompt",
+      value: result.negativePrompt,
+      accent: "rgba(255,100,100,0.28)"
+    }), React.createElement(Field, {
+      label: "QA Checklist",
+      value: result.qaChecklist,
+      accent: "rgba(126,232,162,0.28)"
+    }), React.createElement(Field, {
+      label: "Auto Fix Prompt",
+      value: result.autoFix,
+      accent: "rgba(180,130,255,0.28)"
+    }), React.createElement(ManualFixCard, {
+      mf: result.manualFix
+    }), React.createElement(Field, {
+      label: "Thumbnail Notes",
+      value: result.thumbnailNotes,
+      accent: "rgba(255,180,80,0.28)"
+    }))));
+  }
+  function App() {
+    const [showSettings, setShowSettings] = useState(false);
+    const [keyInfo, setKeyInfo] = useState(null);
+    const [form, setForm] = useState({
+      brandStyle: "",
+      niche: "",
+      audience: "",
+      shirtType: "__match_picture__",
+      shirtModel: "",
+      shirtName: "",
+      sceneDirection: "",
+      mockupCount: 18,
+      autoDetect: true
+    });
+    const [imageFile, setImageFile] = useState(null);
+    const [imagePreview, setImagePreview] = useState(null);
+    const [imageBase64, setImageBase64] = useState(null);
+    const [referenceImages, setReferenceImages] = useState([]);
+    const [designAnalysis, setDesignAnalysis] = useState("");
+    const [analyzing, setAnalyzing] = useState(false);
+    const [loading, setLoading] = useState(false);
+    const [progress, setProgress] = useState(0);
+    const [progLabel, setProgLabel] = useState("");
+    const [results, setResults] = useState([]);
+    const [openCard, setOpenCard] = useState(null);
+    const [activeTab, setActiveTab] = useState("all");
+    const [error, setError] = useState(null);
+    const [imgStates, setImgStates] = useState({});
+    const [customPrompts, setCustomPrompts] = useState({});
+    const [genAllBusy, setGenAllBusy] = useState(false);
+    const [promptRatings, setPromptRatings] = useState([]);
+    const [learningEnabled, setLearningEnabled] = useState(true);
+    const [diversityHistory, setDiversityHistory] = useState([]);
+    const fileRef = useRef();
+    const refsRef = useRef();
+    useEffect(() => {
+      if (typeof markAppRendered === "function") markAppRendered();
+    }, []);
+    useEffect(() => {
+      authedFetch("/api/keys").then(r => {
         if (r.status === 401) {
-          setKeyInfo({ authRequired: true });
+          setKeyInfo({
+            authRequired: true
+          });
           return null;
         }
         return r.json();
-      })
-      .then(d => { if (d) setKeyInfo(d); })
-      .catch(()=>{});
-  }, []);
-
-  useEffect(() => {
-    setPromptRatings(loadPromptRatings());
-    setLearningEnabled(loadLearningEnabled());
-    setDiversityHistory(loadDiversityHistory());
-  }, []);
-
-  useEffect(() => {
-    saveJsonStorage(PROMPT_RATINGS_STORAGE_KEY, promptRatings);
-  }, [promptRatings]);
-
-  useEffect(() => {
-    saveJsonStorage(PROMPT_LEARNING_ENABLED_KEY, learningEnabled);
-  }, [learningEnabled]);
-
-  useEffect(() => {
-    saveJsonStorage(DIVERSITY_HISTORY_STORAGE_KEY, diversityHistory);
-  }, [diversityHistory]);
-
-  const setImg = (id, patch) => setImgStates(s => ({...s, [id]:{...(s[id]||{}), ...patch}}));
-  const setCustomPrompt = (id, value) => setCustomPrompts(s => ({...s, [id]: value}));
-  const setPromptRating = (promptId, rating, meta = {}) => {
-    setPromptRatings(records => {
-      const next = upsertPromptRating(records, { promptId, rating, ...meta });
-      return next;
-    });
-  };
-  const resolveRegenerationPrompt = (id, override = "") => {
-    const pieces = [
-      override,
-      customPrompts[id],
-      imgStates[id]?.fixSuggestion,
-    ].map(v => (v || "").trim()).filter(Boolean);
-    return pieces[0] || "";
-  };
-  const resolvedShirtModel = () => {
-    const raw = form.shirtModel.trim();
-    const custom = form.shirtName.trim();
-    if (form.shirtType === "__match_picture__") return custom || "Match the picture";
-    return custom || raw || "Unisex Classic Tee";
-  };
-  const selectedCategories = () => ALL_BATCHES.flat().slice(0, form.mockupCount);
-  const selectedBatches = () => {
-    const cats = selectedCategories();
-    const chunks = [];
-    for (let i = 0; i < cats.length; i += 6) chunks.push(cats.slice(i, i + 6));
-    return chunks;
-  };
-  const promptStats = buildLearningStats(promptRatings);
-  const ratingByPromptId = promptRatings.reduce((acc, r) => {
-    if (r?.promptId) acc[r.promptId] = r.rating;
-    return acc;
-  }, {});
-
-  const handleFile = e => {
-    const f = e.target.files[0]; if (!f) return;
-    setImageFile(f);
-    const r = new FileReader();
-    r.onload = ev => { setImagePreview(ev.target.result); setImageBase64(ev.target.result.split(",")[1]); };
-    r.readAsDataURL(f);
-  };
-
-  const handleReferenceFiles = async e => {
-    const files = Array.from(e.target.files || []).slice(0, 3);
-    const refs = await Promise.all(files.map(async file => {
-      const dataUrl = await fileToDataUrl(file);
-      const compressed = await compressImageDataUrl(dataUrl, {
-        maxSize: 1024,
-        quality: 0.86,
-        mimeType: "image/png",
-      });
-      return { name: file.name, type: "image/png", dataUrl: compressed, base64: compressed.split(",")[1] };
+      }).then(d => {
+        if (d) setKeyInfo(d);
+      }).catch(() => {});
+    }, []);
+    useEffect(() => {
+      setPromptRatings(loadPromptRatings());
+      setLearningEnabled(loadLearningEnabled());
+      setDiversityHistory(loadDiversityHistory());
+    }, []);
+    useEffect(() => {
+      saveJsonStorage(PROMPT_RATINGS_STORAGE_KEY, promptRatings);
+    }, [promptRatings]);
+    useEffect(() => {
+      saveJsonStorage(PROMPT_LEARNING_ENABLED_KEY, learningEnabled);
+    }, [learningEnabled]);
+    useEffect(() => {
+      saveJsonStorage(DIVERSITY_HISTORY_STORAGE_KEY, diversityHistory);
+    }, [diversityHistory]);
+    const setImg = (id, patch) => setImgStates(s => ({
+      ...s,
+      [id]: {
+        ...(s[id] || {}),
+        ...patch
+      }
     }));
-    setReferenceImages(refs);
-  };
-
-  const analyzeDesign = async () => {
-    if (!imageBase64) return "";
-    setAnalyzing(true);
-    try {
-      const d = await apiFetch("/api/analyze-shirt", {
-        imageBase64,
-        imageType: imageFile?.type || "image/png",
-      });
-      setDesignAnalysis(d.analysis);
-      return d.analysis;
-    } finally {
-      setAnalyzing(false);
-    }
-  };
-
-  const handleGenerate = async () => {
-    if (!imageBase64) { setError("Naloži grafiko najprej."); return; }
-    setError(null); setLoading(true); setResults([]); setProgress(0); setOpenCard(null); setImgStates({}); setCustomPrompts({});
-
-    const activeBatches = selectedBatches();
-    const labels = [
-      "Generiram flat lays in product posnetke…",
-      "Generiram model in selfie posnetke…",
-      "Generiram lifestyle in editorial posnetke…",
-    ];
-
-    const all = [];
-    try {
-      const analysis = form.autoDetect ? (designAnalysis || await analyzeDesign()) : "";
-      const learningContext = learningEnabled ? promptStats.learningContext : "";
-      let runningHistory = diversityHistory;
-      for (let i = 0; i < activeBatches.length; i++) {
-        setProgLabel(labels[i] || "Generiram dodatne mockupe…");
-        const d = await apiFetch("/api/generate-prompts", {
-          batch: activeBatches[i],
-          imageBase64, imageType: imageFile.type || "image/png",
-          brandStyle: form.brandStyle, niche: form.niche,
-          audience: form.audience,
-          shirtMode: form.shirtType,
-          shirtModel: resolvedShirtModel(),
-          shirtName: form.shirtName,
-          designAnalysis: analysis,
-          autoDetect: form.autoDetect,
-          sceneDirection: form.sceneDirection, mockupCount: form.mockupCount,
-          learningContext,
-          usedAttributes: runningHistory,
+    const setCustomPrompt = (id, value) => setCustomPrompts(s => ({
+      ...s,
+      [id]: value
+    }));
+    const setPromptRating = (promptId, rating, meta = {}) => {
+      setPromptRatings(records => {
+        const next = upsertPromptRating(records, {
+          promptId,
+          rating,
+          ...meta
         });
-        const parsed = parseBatch(d.raw, d.concepts);
-        activeBatches[i].forEach((cat, j) => all.push({
-          catInfo: cat,
-          promptId: makePromptId(),
-          meta: {
-            categoryId: cat.id,
-            categoryName: cat.name,
+        return next;
+      });
+    };
+    const resolveRegenerationPrompt = (id, override = "") => {
+      const pieces = [override, customPrompts[id], imgStates[id]?.fixSuggestion].map(v => (v || "").trim()).filter(Boolean);
+      return pieces[0] || "";
+    };
+    const resolvedShirtModel = () => {
+      const raw = form.shirtModel.trim();
+      const custom = form.shirtName.trim();
+      if (form.shirtType === "__match_picture__") return custom || "Match the picture";
+      return custom || raw || "Unisex Classic Tee";
+    };
+    const selectedCategories = () => ALL_BATCHES.flat().slice(0, form.mockupCount);
+    const selectedBatches = () => {
+      const cats = selectedCategories();
+      const chunks = [];
+      for (let i = 0; i < cats.length; i += 6) chunks.push(cats.slice(i, i + 6));
+      return chunks;
+    };
+    const promptStats = buildLearningStats(promptRatings);
+    const ratingByPromptId = promptRatings.reduce((acc, r) => {
+      if (r?.promptId) acc[r.promptId] = r.rating;
+      return acc;
+    }, {});
+    const handleFile = e => {
+      const f = e.target.files[0];
+      if (!f) return;
+      setImageFile(f);
+      const r = new FileReader();
+      r.onload = ev => {
+        setImagePreview(ev.target.result);
+        setImageBase64(ev.target.result.split(",")[1]);
+      };
+      r.readAsDataURL(f);
+    };
+    const handleReferenceFiles = async e => {
+      const files = Array.from(e.target.files || []).slice(0, 3);
+      const refs = await Promise.all(files.map(async file => {
+        const dataUrl = await fileToDataUrl(file);
+        const compressed = await compressImageDataUrl(dataUrl, {
+          maxSize: 1024,
+          quality: 0.86,
+          mimeType: "image/png"
+        });
+        return {
+          name: file.name,
+          type: "image/png",
+          dataUrl: compressed,
+          base64: compressed.split(",")[1]
+        };
+      }));
+      setReferenceImages(refs);
+    };
+    const analyzeDesign = async () => {
+      if (!imageBase64) return "";
+      setAnalyzing(true);
+      try {
+        const d = await apiFetch("/api/analyze-shirt", {
+          imageBase64,
+          imageType: imageFile?.type || "image/png"
+        });
+        setDesignAnalysis(d.analysis);
+        return d.analysis;
+      } finally {
+        setAnalyzing(false);
+      }
+    };
+    const handleGenerate = async () => {
+      if (!imageBase64) {
+        setError("Naloži grafiko najprej.");
+        return;
+      }
+      setError(null);
+      setLoading(true);
+      setResults([]);
+      setProgress(0);
+      setOpenCard(null);
+      setImgStates({});
+      setCustomPrompts({});
+      const activeBatches = selectedBatches();
+      const labels = ["Generiram flat lays in product posnetke…", "Generiram model in selfie posnetke…", "Generiram lifestyle in editorial posnetke…"];
+      const all = [];
+      try {
+        const analysis = form.autoDetect ? designAnalysis || (await analyzeDesign()) : "";
+        const learningContext = learningEnabled ? promptStats.learningContext : "";
+        let runningHistory = diversityHistory;
+        for (let i = 0; i < activeBatches.length; i++) {
+          setProgLabel(labels[i] || "Generiram dodatne mockupe…");
+          const d = await apiFetch("/api/generate-prompts", {
+            batch: activeBatches[i],
+            imageBase64,
+            imageType: imageFile.type || "image/png",
+            brandStyle: form.brandStyle,
             niche: form.niche,
             audience: form.audience,
-            shirtType: form.shirtType,
+            shirtMode: form.shirtType,
             shirtModel: resolvedShirtModel(),
             shirtName: form.shirtName,
-            sceneDirection: form.sceneDirection,
-            brandStyle: form.brandStyle,
-            autoDetect: form.autoDetect,
             designAnalysis: analysis,
-            generatedAt: new Date().toISOString(),
-          },
-          data: parsed[j] || { category: cat.name, fluxPrompt:"Napaka — poskusi znova", negativePrompt:"", qaChecklist:"", autoFix:"", thumbnailNotes:"", manualFix:{}, scores:{} },
-        }));
-        const newAttrs = parsed.filter(Boolean).map(extractAttributesFromConcept);
-        runningHistory = appendDiversityHistory(runningHistory, newAttrs);
-        setResults([...all]);
-        setProgress(((i+1)/activeBatches.length)*100);
+            autoDetect: form.autoDetect,
+            sceneDirection: form.sceneDirection,
+            mockupCount: form.mockupCount,
+            learningContext,
+            usedAttributes: runningHistory
+          });
+          const parsed = parseBatch(d.raw, d.concepts);
+          activeBatches[i].forEach((cat, j) => all.push({
+            catInfo: cat,
+            promptId: makePromptId(),
+            meta: {
+              categoryId: cat.id,
+              categoryName: cat.name,
+              niche: form.niche,
+              audience: form.audience,
+              shirtType: form.shirtType,
+              shirtModel: resolvedShirtModel(),
+              shirtName: form.shirtName,
+              sceneDirection: form.sceneDirection,
+              brandStyle: form.brandStyle,
+              autoDetect: form.autoDetect,
+              designAnalysis: analysis,
+              generatedAt: new Date().toISOString()
+            },
+            data: parsed[j] || {
+              category: cat.name,
+              fluxPrompt: "Napaka — poskusi znova",
+              negativePrompt: "",
+              qaChecklist: "",
+              autoFix: "",
+              thumbnailNotes: "",
+              manualFix: {},
+              scores: {}
+            }
+          }));
+          const newAttrs = parsed.filter(Boolean).map(extractAttributesFromConcept);
+          runningHistory = appendDiversityHistory(runningHistory, newAttrs);
+          setResults([...all]);
+          setProgress((i + 1) / activeBatches.length * 100);
+        }
+        setDiversityHistory(runningHistory);
+        setProgLabel(`Vseh ${form.mockupCount} promptov je pripravljenih!`);
+      } catch (e) {
+        setError("Napaka: " + e.message);
+      } finally {
+        setLoading(false);
       }
-      setDiversityHistory(runningHistory);
-      setProgLabel(`Vseh ${form.mockupCount} promptov je pripravljenih!`);
-    } catch(e) { setError("Napaka: "+e.message); }
-    finally    { setLoading(false); }
-  };
-
-  const genImage = async (id, fluxPrompt, customPrompt = "") => {
-    const resolvedCustom = resolveRegenerationPrompt(id, customPrompt);
-    setImg(id, {status:"loading", error:"", lastAction: resolvedCustom ? "regenerate_with_context" : "regenerate"});
-    const target = results.find(r => r.catInfo.id === id);
-    if (target?.promptId) setPromptRating(target.promptId, ratingByPromptId[target.promptId] || 0, { regenerated: true, categoryName: target.meta?.categoryName, audience: target.meta?.audience, shirtType: target.meta?.shirtType, sceneDirection: target.meta?.sceneDirection });
-    try {
-      const compressed = await compressImageDataUrl(imagePreview, {
-        maxSize: 1024,
-        quality: 0.88,
-        mimeType: "image/png",
+    };
+    const genImage = async (id, fluxPrompt, customPrompt = "") => {
+      const resolvedCustom = resolveRegenerationPrompt(id, customPrompt);
+      setImg(id, {
+        status: "loading",
+        error: "",
+        lastAction: resolvedCustom ? "regenerate_with_context" : "regenerate"
       });
-      const d = await apiFetch("/api/generate-image", {
-        fluxPrompt,
-        customPrompt: resolvedCustom,
-        designAnalysis,
-        referenceImages: referenceImages.map(r => ({ imageBase64: r.base64, imageType: r.type, name: r.name })),
-        imageBase64: compressed.split(",")[1],
-        imageType: "image/png",
+      const target = results.find(r => r.catInfo.id === id);
+      if (target?.promptId) setPromptRating(target.promptId, ratingByPromptId[target.promptId] || 0, {
+        regenerated: true,
+        categoryName: target.meta?.categoryName,
+        audience: target.meta?.audience,
+        shirtType: target.meta?.shirtType,
+        sceneDirection: target.meta?.sceneDirection
       });
-      setImg(id, {status:"done", url:d.url, lastAction: resolvedCustom ? "regenerate_with_context" : "regenerate"});
-    }
-    catch(e) { setImg(id, {status:"error", error:e.message}); }
-  };
-
-  const handleGenAll = async () => {
-    setGenAllBusy(true);
-    for (const r of results) {
-      const id = r.catInfo.id;
-      const resolvedCustom = resolveRegenerationPrompt(id, customPrompts[id] || "");
-      setImg(id, {status:"loading", error:"", lastAction: resolvedCustom ? "bulk_regenerate_with_context" : "bulk_regenerate"});
       try {
         const compressed = await compressImageDataUrl(imagePreview, {
           maxSize: 1024,
           quality: 0.88,
-          mimeType: "image/png",
+          mimeType: "image/png"
         });
         const d = await apiFetch("/api/generate-image", {
-          fluxPrompt: r.data.fluxPrompt,
+          fluxPrompt,
           customPrompt: resolvedCustom,
           designAnalysis,
-          referenceImages: referenceImages.map(ref => ({ imageBase64: ref.base64, imageType: ref.type, name: ref.name })),
+          referenceImages: referenceImages.map(r => ({
+            imageBase64: r.base64,
+            imageType: r.type,
+            name: r.name
+          })),
           imageBase64: compressed.split(",")[1],
-          imageType: "image/png",
+          imageType: "image/png"
         });
-        setImg(id, {status:"done", url:d.url, lastAction: resolvedCustom ? "bulk_regenerate_with_context" : "bulk_regenerate"});
+        setImg(id, {
+          status: "done",
+          url: d.url,
+          lastAction: resolvedCustom ? "regenerate_with_context" : "regenerate"
+        });
+      } catch (e) {
+        setImg(id, {
+          status: "error",
+          error: e.message
+        });
       }
-      catch(e) { setImg(id, {status:"error", error:e.message}); }
-    }
-    setGenAllBusy(false);
-  };
-
-  const aiFixSuggestion = async (id, result) => {
-    setImg(id, {fixing:true, error:""});
-    try {
-      const d = await apiFetch("/api/ai-fix-suggestion", {
-        fluxPrompt: result.fluxPrompt,
-        qaChecklist: result.qaChecklist,
-        customPrompt: customPrompts[id] || "",
-        imageBase64: imgStates[id]?.url?.split(",")[1] || "",
-        imageType: "image/png",
+    };
+    const handleGenAll = async () => {
+      setGenAllBusy(true);
+      for (const r of results) {
+        const id = r.catInfo.id;
+        const resolvedCustom = resolveRegenerationPrompt(id, customPrompts[id] || "");
+        setImg(id, {
+          status: "loading",
+          error: "",
+          lastAction: resolvedCustom ? "bulk_regenerate_with_context" : "bulk_regenerate"
+        });
+        try {
+          const compressed = await compressImageDataUrl(imagePreview, {
+            maxSize: 1024,
+            quality: 0.88,
+            mimeType: "image/png"
+          });
+          const d = await apiFetch("/api/generate-image", {
+            fluxPrompt: r.data.fluxPrompt,
+            customPrompt: resolvedCustom,
+            designAnalysis,
+            referenceImages: referenceImages.map(ref => ({
+              imageBase64: ref.base64,
+              imageType: ref.type,
+              name: ref.name
+            })),
+            imageBase64: compressed.split(",")[1],
+            imageType: "image/png"
+          });
+          setImg(id, {
+            status: "done",
+            url: d.url,
+            lastAction: resolvedCustom ? "bulk_regenerate_with_context" : "bulk_regenerate"
+          });
+        } catch (e) {
+          setImg(id, {
+            status: "error",
+            error: e.message
+          });
+        }
+      }
+      setGenAllBusy(false);
+    };
+    const aiFixSuggestion = async (id, result) => {
+      setImg(id, {
+        fixing: true,
+        error: ""
       });
-      setImg(id, {fixing:false, fixSuggestion:d.suggestion, lastAction:"ai_fix"});
-      if (!customPrompts[id]) setCustomPrompt(id, d.suggestion);
-    } catch(e) {
-      setImg(id, {fixing:false, error:e.message});
-    }
-  };
-
-  const ratePrompt = (promptId, rating, meta = {}) => {
-    setPromptRating(promptId, rating, meta);
-  };
-
-  const downloadAll = async () => {
-    const done = results
-      .map((r, i) => ({ result:r, index:i, image:imgStates[r.catInfo?.id]?.url }))
-      .filter(item => item.image);
-    if (!done.length) return;
-
-    const zip = new JSZip();
-    done.forEach(({ result, index, image }) => {
-      zip.file(mockupFileName(result.data, result.catInfo, index), dataUrlToBlob(image));
-    });
-
-    done.forEach(({ result }) => {
-      ratePrompt(result.promptId, ratingByPromptId[result.promptId] || 0, { ...result.meta, exported: true });
-    });
-
-    const blob = await zip.generateAsync({ type:"blob" });
-    const url = URL.createObjectURL(blob);
-    const a = document.createElement("a");
-    a.href = url;
-    a.download = "etsy-mockups.zip";
-    a.click();
-    URL.revokeObjectURL(url);
-  };
-
-  const copyAll = () => navigator.clipboard.writeText(
-    results.map((r,i) => {
+      try {
+        const d = await apiFetch("/api/ai-fix-suggestion", {
+          fluxPrompt: result.fluxPrompt,
+          qaChecklist: result.qaChecklist,
+          customPrompt: customPrompts[id] || "",
+          imageBase64: imgStates[id]?.url?.split(",")[1] || "",
+          imageType: "image/png"
+        });
+        setImg(id, {
+          fixing: false,
+          fixSuggestion: d.suggestion,
+          lastAction: "ai_fix"
+        });
+        if (!customPrompts[id]) setCustomPrompt(id, d.suggestion);
+      } catch (e) {
+        setImg(id, {
+          fixing: false,
+          error: e.message
+        });
+      }
+    };
+    const ratePrompt = (promptId, rating, meta = {}) => {
+      setPromptRating(promptId, rating, meta);
+    };
+    const downloadAll = async () => {
+      const done = results.map((r, i) => ({
+        result: r,
+        index: i,
+        image: imgStates[r.catInfo?.id]?.url
+      })).filter(item => item.image);
+      if (!done.length) return;
+      const zip = new JSZip();
+      done.forEach(({
+        result,
+        index,
+        image
+      }) => {
+        zip.file(mockupFileName(result.data, result.catInfo, index), dataUrlToBlob(image));
+      });
+      done.forEach(({
+        result
+      }) => {
+        ratePrompt(result.promptId, ratingByPromptId[result.promptId] || 0, {
+          ...result.meta,
+          exported: true
+        });
+      });
+      const blob = await zip.generateAsync({
+        type: "blob"
+      });
+      const url = URL.createObjectURL(blob);
+      const a = document.createElement("a");
+      a.href = url;
+      a.download = "etsy-mockups.zip";
+      a.click();
+      URL.revokeObjectURL(url);
+    };
+    const copyAll = () => navigator.clipboard.writeText(results.map((r, i) => {
       const mf = r.data.manualFix;
-      return `=== #${i+1}: ${r.catInfo?.name} ===
+      return `=== #${i + 1}: ${r.catInfo?.name} ===
 SHIRT: ${r.data.primaryColor} / ${r.data.secondaryColor}
 
 CATEGORY RESEARCH:
@@ -1170,274 +2136,1010 @@ AUTO FIX:
 ${r.data.autoFix}
 
 MANUAL FIX TEMPLATE:
-Issue: ${mf?.issue||""}
-Target Area: ${mf?.targetArea||""}
-Desired Correction: ${mf?.correction||""}
-Elements To Preserve: ${mf?.preserve||""}
-Correction Strength: ${mf?.strength||""}
+Issue: ${mf?.issue || ""}
+Target Area: ${mf?.targetArea || ""}
+Desired Correction: ${mf?.correction || ""}
+Elements To Preserve: ${mf?.preserve || ""}
+Correction Strength: ${mf?.strength || ""}
 
 THUMBNAIL NOTES:
 ${r.data.thumbnailNotes}`;
-    }).join("\n\n"+"─".repeat(50)+"\n\n")
-  );
-
-  const filtered  = activeTab==="all" ? results : results.filter(r => TABS.find(t=>t.id===activeTab)?.ids?.includes(r.catInfo?.id));
-  const doneCount = Object.values(imgStates).filter(s=>s.status==="done").length;
-  const gemOk     = keyInfo?.gemini?.set;
-  const repOk     = keyInfo?.replicate?.set;
-  const total     = form.mockupCount;
-
-  return (
-    <div style={{minHeight:"100vh",paddingBottom:70}}>
-      {showSettings && <SettingsModal onClose={()=>setShowSettings(false)} onKeysUpdated={d=>{setKeyInfo(d);}}/>}
-
-      {/* ── Header ── */}
-      <div style={{background:"linear-gradient(180deg,rgba(255,220,100,0.05) 0%,transparent 100%)",borderBottom:"1px solid rgba(255,255,255,0.05)",padding:"26px 22px 18px"}}>
-        <div style={{maxWidth:740,margin:"0 auto",display:"flex",gap:14,alignItems:"center"}}>
-          <div style={{width:46,height:46,borderRadius:13,background:"linear-gradient(135deg,#FFDC64,#FF9B40)",display:"flex",alignItems:"center",justifyContent:"center",fontSize:21,flexShrink:0}}>🛍️</div>
-          <div style={{flex:1,minWidth:0}}>
-            <div style={{fontSize:10,letterSpacing:"0.2em",color:"rgba(255,220,100,0.6)",textTransform:"uppercase",fontFamily:"'DM Mono',monospace",marginBottom:3}}>Backend v2 · Fixed</div>
-            <h1 style={{fontSize:20,fontFamily:"'Playfair Display',serif",fontWeight:700,background:"linear-gradient(90deg,#fff 20%,rgba(255,220,100,0.85) 100%)",WebkitBackgroundClip:"text",WebkitTextFillColor:"transparent",lineHeight:1.2}}>Etsy Flux Mockup Generator</h1>
-          </div>
-          <button onClick={()=>setShowSettings(true)} style={{display:"flex",alignItems:"center",gap:7,padding:"8px 13px",borderRadius:10,border:"1px solid rgba(255,255,255,0.1)",background:"rgba(255,255,255,0.05)",color:"rgba(255,255,255,0.7)",fontSize:12,cursor:"pointer",flexShrink:0,whiteSpace:"nowrap",transition:"all 0.2s"}}>
-            <span style={{fontSize:14}}>⚙️</span>
-            <span>Nastavitve</span>
-            <span style={{fontSize:9,color:gemOk?"#7EE8A2":"rgba(255,80,80,0.6)",fontFamily:"'DM Mono',monospace",marginLeft:3}}>GEM{gemOk?"✓":"–"}</span>
-            <span style={{fontSize:9,color:"rgba(255,255,255,0.15)"}}>·</span>
-            <span style={{fontSize:9,color:repOk?"#7EE8A2":"rgba(255,80,80,0.6)",fontFamily:"'DM Mono',monospace"}}>REP{repOk?"✓":"–"}</span>
-          </button>
-        </div>
-      </div>
-
-      <div style={{maxWidth:740,margin:"0 auto",padding:"18px 20px 0"}}>
-
-        {keyInfo?.authRequired && (
-          <div style={{background:"rgba(80,130,255,0.08)",border:"1px solid rgba(80,130,255,0.2)",borderRadius:11,padding:"10px 14px",marginBottom:13,display:"flex",alignItems:"center",justifyContent:"space-between",gap:10}}>
-            <span style={{fontSize:12,color:"rgba(190,210,255,0.85)"}}>🔐 Admin token required. Open Settings and store the server token in this browser.</span>
-            <button onClick={()=>setShowSettings(true)} style={{background:"rgba(80,130,255,0.16)",border:"1px solid rgba(80,130,255,0.3)",borderRadius:7,padding:"5px 12px",color:"rgba(190,210,255,0.95)",fontSize:11,cursor:"pointer",whiteSpace:"nowrap"}}>Odpri nastavitve</button>
-          </div>
-        )}
-
-        {/* Key warning */}
-        {keyInfo && !keyInfo.authRequired && (!gemOk||!repOk) && (
-          <div style={{background:"rgba(255,180,50,0.06)",border:"1px solid rgba(255,180,50,0.18)",borderRadius:11,padding:"10px 14px",marginBottom:13,display:"flex",alignItems:"center",justifyContent:"space-between"}}>
-            <span style={{fontSize:12,color:"rgba(255,180,50,0.8)"}}>
-              {!gemOk&&!repOk?"⚠ Oba API ključa manjkata":!gemOk?"⚠ Gemini ključ manjka":!repOk?"⚠ Replicate ključ manjka — slike ne bodo na voljo":""}
-            </span>
-            <button onClick={()=>setShowSettings(true)} style={{background:"rgba(255,180,50,0.15)",border:"1px solid rgba(255,180,50,0.3)",borderRadius:7,padding:"5px 12px",color:"rgba(255,180,50,0.9)",fontSize:11,cursor:"pointer",marginLeft:10,whiteSpace:"nowrap"}}>Dodaj ključe →</button>
-          </div>
-        )}
-
-        {/* Upload */}
-        <div style={{background:"rgba(255,255,255,0.022)",border:"1px solid rgba(255,255,255,0.07)",borderRadius:14,padding:"14px",marginBottom:11}}>
-          <div style={{fontSize:10,color:"rgba(255,255,255,0.28)",fontFamily:"'DM Mono',monospace",letterSpacing:"0.12em",textTransform:"uppercase",marginBottom:10}}>🎨 Design Upload</div>
-          <div onClick={()=>fileRef.current.click()} style={{border:`2px dashed ${imagePreview?"rgba(255,220,100,0.22)":"rgba(255,255,255,0.07)"}`,borderRadius:11,padding:imagePreview?"10px 14px":"24px 18px",cursor:"pointer",background:imagePreview?"rgba(255,220,100,0.03)":"rgba(255,255,255,0.012)",display:"flex",flexDirection:imagePreview?"row":"column",alignItems:"center",gap:12,transition:"all 0.2s"}}>
-            {imagePreview
-              ? <><img src={imagePreview} alt="design" style={{width:58,height:58,objectFit:"contain",borderRadius:9,background:"rgba(255,255,255,0.05)",flexShrink:0}}/><div><div style={{color:"#FFDC64",fontSize:13,fontWeight:500}}>Design pripravljen ✓</div><div style={{color:"rgba(255,255,255,0.28)",fontSize:11,marginTop:2}}>{imageFile?.name} · Klikni za zamenjavo</div></div></>
-              : <><div style={{fontSize:22}}>📁</div><div style={{color:"rgba(255,255,255,0.32)",fontSize:13}}>Naloži grafiko<br/><span style={{fontSize:10,color:"rgba(255,255,255,0.18)"}}>PNG transparentno · JPG / WEBP ok</span></div></>}
-          </div>
-          <input ref={fileRef} type="file" accept="image/*" onChange={handleFile} style={{display:"none"}}/>
-        </div>
-
-        <div style={{background:"rgba(255,255,255,0.022)",border:"1px solid rgba(255,255,255,0.07)",borderRadius:14,padding:"14px",marginBottom:11}}>
-          <div style={{fontSize:10,color:"rgba(255,255,255,0.28)",fontFamily:"'DM Mono',monospace",letterSpacing:"0.12em",textTransform:"uppercase",marginBottom:10}}>Additional Reference Images</div>
-          <button onClick={()=>refsRef.current.click()} style={{padding:"8px 12px",borderRadius:8,border:"1px solid rgba(90,180,255,0.22)",background:"rgba(90,180,255,0.07)",color:"rgba(160,210,255,0.95)",fontSize:11,cursor:"pointer"}}>Add up to 3 style / model / background refs</button>
-          <input ref={refsRef} type="file" accept="image/*" multiple onChange={handleReferenceFiles} style={{display:"none"}}/>
-          {referenceImages.length>0&&(
-            <div style={{display:"flex",gap:8,marginTop:10,flexWrap:"wrap"}}>
-              {referenceImages.map((ref,i)=><div key={ref.name+i} style={{display:"flex",alignItems:"center",gap:7,padding:"6px 8px",borderRadius:8,background:"rgba(255,255,255,0.04)",border:"1px solid rgba(255,255,255,0.07)"}}><img src={ref.dataUrl} alt="" style={{width:34,height:34,objectFit:"cover",borderRadius:6}}/><span style={{fontSize:10,color:"rgba(255,255,255,0.45)",maxWidth:130,overflow:"hidden",textOverflow:"ellipsis",whiteSpace:"nowrap"}}>{ref.name}</span></div>)}
-            </div>
-          )}
-        </div>
-
-        {/* Niche + Audience */}
-        <div style={{display:"grid",gridTemplateColumns:"1fr 1fr",gap:11,marginBottom:11}}>
-          {[{label:"🎯 Niche",key:"niche",opts:NICHE},{label:"👤 Audience",key:"audience",opts:AUDIENCE}].map(({label,key,opts})=>(
-            <div key={key} style={{background:"rgba(255,255,255,0.022)",border:"1px solid rgba(255,255,255,0.07)",borderRadius:14,padding:"12px 14px"}}>
-              <div style={{fontSize:10,color:"rgba(255,255,255,0.28)",fontFamily:"'DM Mono',monospace",letterSpacing:"0.12em",textTransform:"uppercase",marginBottom:9}}>{label}</div>
-              <div style={{display:"flex",flexWrap:"wrap",gap:5}}>{opts.map(o=><Tag key={o} active={form[key]===o} onClick={()=>setForm(f=>({...f,[key]:o}))}>{o}</Tag>)}</div>
-            </div>
-          ))}
-        </div>
-
-        <div style={{background:"rgba(255,255,255,0.022)",border:"1px solid rgba(255,255,255,0.07)",borderRadius:14,padding:"12px 14px",marginBottom:11}}>
-          <div style={{fontSize:10,color:"rgba(255,255,255,0.28)",fontFamily:"'DM Mono',monospace",letterSpacing:"0.12em",textTransform:"uppercase",marginBottom:9}}>Auto-suggested Targeted Audience</div>
-          <div style={{display:"flex",flexWrap:"wrap",gap:5}}>{TARGET_AUDIENCES.map(o=><Tag key={o} active={form.audience===o} onClick={()=>setForm(f=>({...f,audience:o}))}>{o}</Tag>)}</div>
-        </div>
-
-        {/* Config — FIX: mockup count selector restored */}
-        <div style={{background:"rgba(255,255,255,0.022)",border:"1px solid rgba(255,255,255,0.07)",borderRadius:14,padding:"13px 15px",marginBottom:14}}>
-          <div style={{fontSize:10,color:"rgba(255,255,255,0.28)",fontFamily:"'DM Mono',monospace",letterSpacing:"0.12em",textTransform:"uppercase",marginBottom:11}}>⚙️ Podrobnosti</div>
-          <div style={{display:"grid",gridTemplateColumns:"1fr 1fr 1fr",gap:10,marginBottom:10}}>
-            <div>
-              <div style={{fontSize:9,color:"rgba(255,255,255,0.22)",marginBottom:4,fontFamily:"'DM Mono',monospace"}}>TIP MAJICE</div>
-              <select value={form.shirtType} onChange={e=>setForm(f=>({...f,shirtType:e.target.value,shirtModel:e.target.value==="__match_picture__"?"":e.target.value}))}>
-                {SHIRT_TYPES.map(s=><option key={s.value} value={s.value}>{s.label}</option>)}
-              </select>
-            </div>
-            <div>
-              <div style={{fontSize:9,color:"rgba(255,255,255,0.22)",marginBottom:4,fontFamily:"'DM Mono',monospace"}}>IME MAJICE ZA RAZISKAVO</div>
-              <input type="text" placeholder="npr. Comfort Colors 1717" value={form.shirtName} onChange={e=>setForm(f=>({...f,shirtName:e.target.value}))}/>
-            </div>
-            <div>
-              <div style={{fontSize:9,color:"rgba(255,255,255,0.22)",marginBottom:4,fontFamily:"'DM Mono',monospace"}}>ŠTEVILO MOCKUPOV</div>
-              <select value={form.mockupCount} onChange={e=>setForm(f=>({...f,mockupCount:parseInt(e.target.value)}))}>
-                {COUNT_OPTIONS.map(o=><option key={o.value} value={o.value}>{o.label}</option>)}
-              </select>
-            </div>
-          </div>
-          <label style={{display:"flex",alignItems:"center",gap:8,marginBottom:10,fontSize:12,color:"rgba(255,255,255,0.55)",cursor:"pointer"}}>
-            <input type="checkbox" checked={form.autoDetect} onChange={e=>setForm(f=>({...f,autoDetect:e.target.checked}))} style={{width:16}}/>
-            Autodetect Shirt Design
-            {analyzing&&<span style={{color:"#FFDC64",fontFamily:"'DM Mono',monospace",fontSize:10}}>analyzing...</span>}
-          </label>
-          {designAnalysis&&<div style={{background:"rgba(90,180,255,0.06)",border:"1px solid rgba(90,180,255,0.16)",borderRadius:8,padding:"8px 10px",marginBottom:10,fontSize:11,color:"rgba(190,220,255,0.82)",lineHeight:1.45}}>{designAnalysis}</div>}
-          <div style={{display:"grid",gridTemplateColumns:"1fr",gap:10,marginBottom:10}}>
-            <div>
-              <div style={{fontSize:9,color:"rgba(255,255,255,0.22)",marginBottom:4,fontFamily:"'DM Mono',monospace"}}>SLOG BLAGOVNE ZNAMKE</div>
-              <input type="text" placeholder="npr. Toplo, zemeljsko…" value={form.brandStyle} onChange={e=>setForm(f=>({...f,brandStyle:e.target.value}))}/>
-            </div>
-          </div>
-          <div style={{fontSize:9,color:"rgba(255,255,255,0.22)",marginBottom:4,fontFamily:"'DM Mono',monospace"}}>OPCIJSKA NAVODILA ZA SCENO</div>
-          <textarea rows={2} placeholder="npr. Prijetna jesenska vzdušje, topla jantarna svetloba…" value={form.sceneDirection} onChange={e=>setForm(f=>({...f,sceneDirection:e.target.value}))}/>
-
-          <div style={{marginTop:12,padding:"12px 12px",borderRadius:12,border:"1px solid rgba(255,220,100,0.12)",background:"rgba(255,220,100,0.03)"}}>
-            <div style={{display:"flex",justifyContent:"space-between",alignItems:"center",gap:10,marginBottom:10}}>
-              <div>
-                <div style={{fontSize:10,color:"rgba(255,255,255,0.28)",fontFamily:"'DM Mono',monospace",letterSpacing:"0.12em",textTransform:"uppercase"}}>Prompt Learning & Stats</div>
-                <div style={{fontSize:11,color:"rgba(255,255,255,0.42)",marginTop:3}}>Local-only ratings are used to bias future prompt generation.</div>
-              </div>
-              <label style={{display:"flex",alignItems:"center",gap:8,fontSize:11,color:"rgba(255,255,255,0.55)",cursor:"pointer",whiteSpace:"nowrap"}}>
-                <input type="checkbox" checked={learningEnabled} onChange={e=>setLearningEnabled(e.target.checked)} style={{width:16}}/>
-                Use learning
-              </label>
-            </div>
-
-            {promptStats.total > 0 ? (
-              <>
-                <div style={{display:"grid",gridTemplateColumns:"repeat(3,1fr)",gap:8,marginBottom:10}}>
-                  <div style={{padding:"9px 10px",borderRadius:10,background:"rgba(0,0,0,0.28)",border:"1px solid rgba(255,255,255,0.06)"}}>
-                    <div style={{fontSize:10,color:"rgba(255,255,255,0.28)",fontFamily:"'DM Mono',monospace"}}>Rated</div>
-                    <div style={{fontSize:16,fontWeight:700,color:"#fff",marginTop:3}}>{promptStats.total}</div>
-                  </div>
-                  <div style={{padding:"9px 10px",borderRadius:10,background:"rgba(0,0,0,0.28)",border:"1px solid rgba(255,255,255,0.06)"}}>
-                    <div style={{fontSize:10,color:"rgba(255,255,255,0.28)",fontFamily:"'DM Mono',monospace"}}>Average</div>
-                    <div style={{fontSize:16,fontWeight:700,color:"#FFDC64",marginTop:3}}>{promptStats.avg}★</div>
-                  </div>
-                  <div style={{padding:"9px 10px",borderRadius:10,background:"rgba(0,0,0,0.28)",border:"1px solid rgba(255,255,255,0.06)"}}>
-                    <div style={{fontSize:10,color:"rgba(255,255,255,0.28)",fontFamily:"'DM Mono',monospace"}}>4-5★</div>
-                    <div style={{fontSize:16,fontWeight:700,color:"#7EE8A2",marginTop:3}}>{promptStats.strong}</div>
-                  </div>
-                </div>
-
-                <div style={{display:"grid",gridTemplateColumns:"1fr",gap:8}}>
-                  <div style={{fontSize:11,color:"rgba(255,255,255,0.42)",lineHeight:1.45}}>
-                    <span style={{color:"rgba(255,255,255,0.55)",fontFamily:"'DM Mono',monospace",fontSize:10,letterSpacing:"0.1em",textTransform:"uppercase"}}>Best categories</span><br/>
-                    {promptStats.cat.length ? promptStats.cat.map(item => `${item.label} (${item.avg.toFixed(1)}★)`).join(" · ") : "No signal yet"}
-                  </div>
-                  <div style={{fontSize:11,color:"rgba(255,255,255,0.42)",lineHeight:1.45}}>
-                    <span style={{color:"rgba(255,255,255,0.55)",fontFamily:"'DM Mono',monospace",fontSize:10,letterSpacing:"0.1em",textTransform:"uppercase"}}>Best audiences</span><br/>
-                    {promptStats.aud.length ? promptStats.aud.map(item => `${item.label} (${item.avg.toFixed(1)}★)`).join(" · ") : "No signal yet"}
-                  </div>
-                  <div style={{fontSize:11,color:"rgba(255,255,255,0.42)",lineHeight:1.45}}>
-                    <span style={{color:"rgba(255,255,255,0.55)",fontFamily:"'DM Mono',monospace",fontSize:10,letterSpacing:"0.1em",textTransform:"uppercase"}}>Best shirt types</span><br/>
-                    {promptStats.shirt.length ? promptStats.shirt.map(item => `${item.label} (${item.avg.toFixed(1)}★)`).join(" · ") : "No signal yet"}
-                  </div>
-                </div>
-
-                <div style={{display:"flex",gap:8,flexWrap:"wrap",marginTop:10}}>
-                  <button onClick={()=>setPromptRatings([])} style={{padding:"7px 11px",borderRadius:8,border:"1px solid rgba(255,80,80,0.22)",background:"rgba(255,80,80,0.07)",color:"#FF8080",fontSize:10,cursor:"pointer"}}>Reset learning data</button>
-                  <span style={{fontSize:10,color:"rgba(255,255,255,0.26)",alignSelf:"center"}}>Last update: {new Date(promptRatings[promptRatings.length - 1]?.updatedAt || promptRatings[promptRatings.length - 1]?.createdAt || Date.now()).toLocaleString()}</span>
-                </div>
-              </>
-            ) : (
-              <div style={{fontSize:11,color:"rgba(255,255,255,0.38)",lineHeight:1.5}}>
-                Rate a few prompts first. The app will then show your best-performing categories, audiences, and shirt types here.
-              </div>
-            )}
-          </div>
-        </div>
-
-        {error&&<div style={{background:"rgba(255,80,80,0.07)",border:"1px solid rgba(255,80,80,0.18)",borderRadius:9,padding:"10px 14px",color:"#FF8080",fontSize:12,marginBottom:12}}>⚠️ {error}</div>}
-
-        <button onClick={handleGenerate} disabled={loading} style={{width:"100%",padding:"13px",background:loading?"rgba(255,220,100,0.05)":"linear-gradient(135deg,#FFDC64 0%,#FF9B40 100%)",border:"none",borderRadius:12,color:loading?"rgba(255,220,100,0.35)":"#0C0C0E",fontSize:14,fontWeight:600,cursor:loading?"not-allowed":"pointer",display:"flex",alignItems:"center",justifyContent:"center",gap:9,transition:"all 0.2s",marginBottom:11}}>
-          {loading?<><Spinner size={17} color="rgba(255,220,100,0.5)"/><span>Generiram…</span></>:<span>⚡ Generiraj {total} Mockup Promptov</span>}
-        </button>
-
-        {/* Progress */}
-        {loading&&(
-          <div style={{background:"rgba(255,255,255,0.022)",border:"1px solid rgba(255,255,255,0.07)",borderRadius:14,padding:"14px 16px",marginBottom:16}}>
-            <div style={{display:"flex",justifyContent:"space-between",marginBottom:6}}>
-              <span style={{fontSize:11,color:"rgba(255,255,255,0.4)",fontFamily:"'DM Mono',monospace"}}>{progLabel}</span>
-              <span style={{fontSize:11,color:"#FFDC64",fontFamily:"'DM Mono',monospace"}}>{Math.round(progress)}%</span>
-            </div>
-            <div style={{background:"rgba(255,255,255,0.06)",borderRadius:999,height:3,overflow:"hidden",marginBottom:10}}>
-              <div style={{height:"100%",background:"linear-gradient(90deg,#FFDC64,#FF9B40)",borderRadius:999,width:`${progress}%`,transition:"width 0.5s ease"}}/>
-            </div>
-            <div style={{display:"grid",gridTemplateColumns:`repeat(${selectedBatches().length},1fr)`,gap:6}}>
-              {selectedBatches().map((b,bi)=>{
-                const done=results.some(r=>r.catInfo?.id===b[0].id);
-                return<div key={bi} style={{background:done?"rgba(255,220,100,0.07)":"rgba(255,255,255,0.02)",border:`1px solid ${done?"rgba(255,220,100,0.18)":"rgba(255,255,255,0.05)"}`,borderRadius:8,padding:"7px 10px"}}>
-                  <div style={{fontSize:10,color:done?"#FFDC64":"rgba(255,255,255,0.22)",fontFamily:"'DM Mono',monospace"}}>{done?"✓ ":"· "}Serija {bi+1}</div>
-                  <div style={{fontSize:9,color:"rgba(255,255,255,0.18)",marginTop:2}}>{b.map(c=>c.emoji).join(" ")}</div>
-                </div>;
-              })}
-            </div>
-          </div>
-        )}
-
-        {/* Results */}
-        {results.length>0&&(
-          <div style={{animation:"fadeUp 0.4s ease"}}>
-            <div style={{display:"flex",justifyContent:"space-between",alignItems:"center",marginBottom:13}}>
-              <div style={{fontSize:10,color:"rgba(255,220,100,0.6)",fontFamily:"'DM Mono',monospace",letterSpacing:"0.14em",textTransform:"uppercase"}}>✦ {results.length}/{total} promptov · {doneCount} slik</div>
-              <div style={{display:"flex",gap:7}}>
-                {doneCount>0&&<button onClick={downloadAll} style={{background:"linear-gradient(135deg,#7EE8A2,#38C77E)",border:"none",borderRadius:8,padding:"7px 12px",color:"#07100B",fontSize:10,fontFamily:"'DM Mono',monospace",cursor:"pointer",fontWeight:700}}>Download All Mockups</button>}
-                {results.length===total&&<button onClick={copyAll} style={{background:"rgba(255,255,255,0.05)",border:"1px solid rgba(255,255,255,0.09)",borderRadius:8,padding:"5px 11px",color:"rgba(255,255,255,0.45)",fontSize:10,fontFamily:"'DM Mono',monospace",cursor:"pointer"}}>Kopiraj vse</button>}
-                {results.length===total&&(
-                  <button onClick={handleGenAll} disabled={genAllBusy} style={{display:"flex",alignItems:"center",gap:5,background:genAllBusy?"rgba(255,220,100,0.04)":"rgba(255,220,100,0.12)",border:"1px solid rgba(255,220,100,0.25)",borderRadius:8,padding:"5px 12px",color:genAllBusy?"rgba(255,220,100,0.3)":"#FFDC64",fontSize:10,fontFamily:"'DM Mono',monospace",cursor:genAllBusy?"not-allowed":"pointer"}}>
-                    {genAllBusy?<><Spinner size={11}/><span>Generiram…</span></>:<span>🖼 Generiraj vseh {total} slik</span>}
-                  </button>
-                )}
-              </div>
-            </div>
-
-            {doneCount>0&&(
-              <div style={{background:"rgba(255,255,255,0.03)",border:"1px solid rgba(255,255,255,0.06)",borderRadius:10,padding:"9px 13px",marginBottom:13}}>
-                <div style={{display:"flex",justifyContent:"space-between",marginBottom:5}}>
-                  <span style={{fontSize:10,color:"rgba(255,255,255,0.3)",fontFamily:"'DM Mono',monospace"}}>Generirane slike</span>
-                  <span style={{fontSize:10,color:"#7EE8A2",fontFamily:"'DM Mono',monospace"}}>{doneCount} / {total}</span>
-                </div>
-                <div style={{background:"rgba(255,255,255,0.05)",borderRadius:999,height:3}}>
-                  <div style={{height:"100%",background:"linear-gradient(90deg,#7EE8A2,#38C77E)",borderRadius:999,width:`${(doneCount/total)*100}%`,transition:"width 0.4s"}}/>
-                </div>
-              </div>
-            )}
-
-            <div style={{display:"flex",gap:5,flexWrap:"wrap",marginBottom:13}}>
-              {TABS.filter(t=>t.id==="all"||(t.ids&&t.ids.some(id=>results.some(r=>r.catInfo?.id===id)))).map(t=>(
-                <button key={t.id} onClick={()=>setActiveTab(t.id)} style={{padding:"5px 12px",borderRadius:20,border:activeTab===t.id?"1.5px solid #FFDC64":"1.5px solid rgba(255,255,255,0.08)",background:activeTab===t.id?"rgba(255,220,100,0.1)":"transparent",color:activeTab===t.id?"#FFDC64":"rgba(255,255,255,0.32)",fontSize:11,cursor:"pointer",transition:"all 0.15s"}}>{t.label}</button>
-              ))}
-            </div>
-
-            {filtered.map(r=>{
-              const gi = results.indexOf(r);
-              const id = r.catInfo?.id;
-              const rating = ratingByPromptId[r.promptId] || 0;
-              return <MockupCard key={id||gi} result={r.data} catInfo={r.catInfo} index={gi} isOpen={openCard===gi} onToggle={()=>setOpenCard(openCard===gi?null:gi)} imgState={imgStates[id]} customPrompt={customPrompts[id]} onCustomPrompt={value=>setCustomPrompt(id,value)} onGenImage={customPrompt=>genImage(id,r.data.fluxPrompt,customPrompt)} onAiFix={()=>aiFixSuggestion(id,r.data)} rating={rating} onRate={nextRating=>ratePrompt(r.promptId, nextRating, r.meta)} onMarkSelected={()=>ratePrompt(r.promptId, rating||0, {...r.meta, selected:true})}/>;
-            })}
-          </div>
-        )}
-      </div>
-    </div>
-  );
-}
-
-ReactDOM.createRoot(document.getElementById("root")).render(<App/>);
-  } catch (err) {
-    diagLog("Render Error: " + err.message + (err.stack ? "\n" + err.stack.split("\n").slice(0,4).join("\n") : ""));
-    showDiagIfNeeded();
+    }).join("\n\n" + "─".repeat(50) + "\n\n"));
+    const filtered = activeTab === "all" ? results : results.filter(r => TABS.find(t => t.id === activeTab)?.ids?.includes(r.catInfo?.id));
+    const doneCount = Object.values(imgStates).filter(s => s.status === "done").length;
+    const gemOk = keyInfo?.gemini?.set;
+    const repOk = keyInfo?.replicate?.set;
+    const total = form.mockupCount;
+    return React.createElement("div", {
+      style: {
+        minHeight: "100vh",
+        paddingBottom: 70
+      }
+    }, showSettings && React.createElement(SettingsModal, {
+      onClose: () => setShowSettings(false),
+      onKeysUpdated: d => {
+        setKeyInfo(d);
+      }
+    }), React.createElement("div", {
+      style: {
+        background: "linear-gradient(180deg,rgba(255,220,100,0.05) 0%,transparent 100%)",
+        borderBottom: "1px solid rgba(255,255,255,0.05)",
+        padding: "26px 22px 18px"
+      }
+    }, React.createElement("div", {
+      style: {
+        maxWidth: 740,
+        margin: "0 auto",
+        display: "flex",
+        gap: 14,
+        alignItems: "center"
+      }
+    }, React.createElement("div", {
+      style: {
+        width: 46,
+        height: 46,
+        borderRadius: 13,
+        background: "linear-gradient(135deg,#FFDC64,#FF9B40)",
+        display: "flex",
+        alignItems: "center",
+        justifyContent: "center",
+        fontSize: 21,
+        flexShrink: 0
+      }
+    }, "\uD83D\uDECD\uFE0F"), React.createElement("div", {
+      style: {
+        flex: 1,
+        minWidth: 0
+      }
+    }, React.createElement("div", {
+      style: {
+        fontSize: 10,
+        letterSpacing: "0.2em",
+        color: "rgba(255,220,100,0.6)",
+        textTransform: "uppercase",
+        fontFamily: "'DM Mono',monospace",
+        marginBottom: 3
+      }
+    }, "Backend v2 \xB7 Fixed"), React.createElement("h1", {
+      style: {
+        fontSize: 20,
+        fontFamily: "'Playfair Display',serif",
+        fontWeight: 700,
+        background: "linear-gradient(90deg,#fff 20%,rgba(255,220,100,0.85) 100%)",
+        WebkitBackgroundClip: "text",
+        WebkitTextFillColor: "transparent",
+        lineHeight: 1.2
+      }
+    }, "Etsy Flux Mockup Generator")), React.createElement("button", {
+      onClick: () => setShowSettings(true),
+      style: {
+        display: "flex",
+        alignItems: "center",
+        gap: 7,
+        padding: "8px 13px",
+        borderRadius: 10,
+        border: "1px solid rgba(255,255,255,0.1)",
+        background: "rgba(255,255,255,0.05)",
+        color: "rgba(255,255,255,0.7)",
+        fontSize: 12,
+        cursor: "pointer",
+        flexShrink: 0,
+        whiteSpace: "nowrap",
+        transition: "all 0.2s"
+      }
+    }, React.createElement("span", {
+      style: {
+        fontSize: 14
+      }
+    }, "\u2699\uFE0F"), React.createElement("span", null, "Nastavitve"), React.createElement("span", {
+      style: {
+        fontSize: 9,
+        color: gemOk ? "#7EE8A2" : "rgba(255,80,80,0.6)",
+        fontFamily: "'DM Mono',monospace",
+        marginLeft: 3
+      }
+    }, "GEM", gemOk ? "✓" : "–"), React.createElement("span", {
+      style: {
+        fontSize: 9,
+        color: "rgba(255,255,255,0.15)"
+      }
+    }, "\xB7"), React.createElement("span", {
+      style: {
+        fontSize: 9,
+        color: repOk ? "#7EE8A2" : "rgba(255,80,80,0.6)",
+        fontFamily: "'DM Mono',monospace"
+      }
+    }, "REP", repOk ? "✓" : "–")))), React.createElement("div", {
+      style: {
+        maxWidth: 740,
+        margin: "0 auto",
+        padding: "18px 20px 0"
+      }
+    }, keyInfo?.authRequired && React.createElement("div", {
+      style: {
+        background: "rgba(80,130,255,0.08)",
+        border: "1px solid rgba(80,130,255,0.2)",
+        borderRadius: 11,
+        padding: "10px 14px",
+        marginBottom: 13,
+        display: "flex",
+        alignItems: "center",
+        justifyContent: "space-between",
+        gap: 10
+      }
+    }, React.createElement("span", {
+      style: {
+        fontSize: 12,
+        color: "rgba(190,210,255,0.85)"
+      }
+    }, "\uD83D\uDD10 Admin token required. Open Settings and store the server token in this browser."), React.createElement("button", {
+      onClick: () => setShowSettings(true),
+      style: {
+        background: "rgba(80,130,255,0.16)",
+        border: "1px solid rgba(80,130,255,0.3)",
+        borderRadius: 7,
+        padding: "5px 12px",
+        color: "rgba(190,210,255,0.95)",
+        fontSize: 11,
+        cursor: "pointer",
+        whiteSpace: "nowrap"
+      }
+    }, "Odpri nastavitve")), keyInfo && !keyInfo.authRequired && (!gemOk || !repOk) && React.createElement("div", {
+      style: {
+        background: "rgba(255,180,50,0.06)",
+        border: "1px solid rgba(255,180,50,0.18)",
+        borderRadius: 11,
+        padding: "10px 14px",
+        marginBottom: 13,
+        display: "flex",
+        alignItems: "center",
+        justifyContent: "space-between"
+      }
+    }, React.createElement("span", {
+      style: {
+        fontSize: 12,
+        color: "rgba(255,180,50,0.8)"
+      }
+    }, !gemOk && !repOk ? "⚠ Oba API ključa manjkata" : !gemOk ? "⚠ Gemini ključ manjka" : !repOk ? "⚠ Replicate ključ manjka — slike ne bodo na voljo" : ""), React.createElement("button", {
+      onClick: () => setShowSettings(true),
+      style: {
+        background: "rgba(255,180,50,0.15)",
+        border: "1px solid rgba(255,180,50,0.3)",
+        borderRadius: 7,
+        padding: "5px 12px",
+        color: "rgba(255,180,50,0.9)",
+        fontSize: 11,
+        cursor: "pointer",
+        marginLeft: 10,
+        whiteSpace: "nowrap"
+      }
+    }, "Dodaj klju\u010De \u2192")), React.createElement("div", {
+      style: {
+        background: "rgba(255,255,255,0.022)",
+        border: "1px solid rgba(255,255,255,0.07)",
+        borderRadius: 14,
+        padding: "14px",
+        marginBottom: 11
+      }
+    }, React.createElement("div", {
+      style: {
+        fontSize: 10,
+        color: "rgba(255,255,255,0.28)",
+        fontFamily: "'DM Mono',monospace",
+        letterSpacing: "0.12em",
+        textTransform: "uppercase",
+        marginBottom: 10
+      }
+    }, "\uD83C\uDFA8 Design Upload"), React.createElement("div", {
+      onClick: () => fileRef.current.click(),
+      style: {
+        border: `2px dashed ${imagePreview ? "rgba(255,220,100,0.22)" : "rgba(255,255,255,0.07)"}`,
+        borderRadius: 11,
+        padding: imagePreview ? "10px 14px" : "24px 18px",
+        cursor: "pointer",
+        background: imagePreview ? "rgba(255,220,100,0.03)" : "rgba(255,255,255,0.012)",
+        display: "flex",
+        flexDirection: imagePreview ? "row" : "column",
+        alignItems: "center",
+        gap: 12,
+        transition: "all 0.2s"
+      }
+    }, imagePreview ? React.createElement(React.Fragment, null, React.createElement("img", {
+      src: imagePreview,
+      alt: "design",
+      style: {
+        width: 58,
+        height: 58,
+        objectFit: "contain",
+        borderRadius: 9,
+        background: "rgba(255,255,255,0.05)",
+        flexShrink: 0
+      }
+    }), React.createElement("div", null, React.createElement("div", {
+      style: {
+        color: "#FFDC64",
+        fontSize: 13,
+        fontWeight: 500
+      }
+    }, "Design pripravljen \u2713"), React.createElement("div", {
+      style: {
+        color: "rgba(255,255,255,0.28)",
+        fontSize: 11,
+        marginTop: 2
+      }
+    }, imageFile?.name, " \xB7 Klikni za zamenjavo"))) : React.createElement(React.Fragment, null, React.createElement("div", {
+      style: {
+        fontSize: 22
+      }
+    }, "\uD83D\uDCC1"), React.createElement("div", {
+      style: {
+        color: "rgba(255,255,255,0.32)",
+        fontSize: 13
+      }
+    }, "Nalo\u017Ei grafiko", React.createElement("br", null), React.createElement("span", {
+      style: {
+        fontSize: 10,
+        color: "rgba(255,255,255,0.18)"
+      }
+    }, "PNG transparentno \xB7 JPG / WEBP ok")))), React.createElement("input", {
+      ref: fileRef,
+      type: "file",
+      accept: "image/*",
+      onChange: handleFile,
+      style: {
+        display: "none"
+      }
+    })), React.createElement("div", {
+      style: {
+        background: "rgba(255,255,255,0.022)",
+        border: "1px solid rgba(255,255,255,0.07)",
+        borderRadius: 14,
+        padding: "14px",
+        marginBottom: 11
+      }
+    }, React.createElement("div", {
+      style: {
+        fontSize: 10,
+        color: "rgba(255,255,255,0.28)",
+        fontFamily: "'DM Mono',monospace",
+        letterSpacing: "0.12em",
+        textTransform: "uppercase",
+        marginBottom: 10
+      }
+    }, "Additional Reference Images"), React.createElement("button", {
+      onClick: () => refsRef.current.click(),
+      style: {
+        padding: "8px 12px",
+        borderRadius: 8,
+        border: "1px solid rgba(90,180,255,0.22)",
+        background: "rgba(90,180,255,0.07)",
+        color: "rgba(160,210,255,0.95)",
+        fontSize: 11,
+        cursor: "pointer"
+      }
+    }, "Add up to 3 style / model / background refs"), React.createElement("input", {
+      ref: refsRef,
+      type: "file",
+      accept: "image/*",
+      multiple: true,
+      onChange: handleReferenceFiles,
+      style: {
+        display: "none"
+      }
+    }), referenceImages.length > 0 && React.createElement("div", {
+      style: {
+        display: "flex",
+        gap: 8,
+        marginTop: 10,
+        flexWrap: "wrap"
+      }
+    }, referenceImages.map((ref, i) => React.createElement("div", {
+      key: ref.name + i,
+      style: {
+        display: "flex",
+        alignItems: "center",
+        gap: 7,
+        padding: "6px 8px",
+        borderRadius: 8,
+        background: "rgba(255,255,255,0.04)",
+        border: "1px solid rgba(255,255,255,0.07)"
+      }
+    }, React.createElement("img", {
+      src: ref.dataUrl,
+      alt: "",
+      style: {
+        width: 34,
+        height: 34,
+        objectFit: "cover",
+        borderRadius: 6
+      }
+    }), React.createElement("span", {
+      style: {
+        fontSize: 10,
+        color: "rgba(255,255,255,0.45)",
+        maxWidth: 130,
+        overflow: "hidden",
+        textOverflow: "ellipsis",
+        whiteSpace: "nowrap"
+      }
+    }, ref.name))))), React.createElement("div", {
+      style: {
+        display: "grid",
+        gridTemplateColumns: "1fr 1fr",
+        gap: 11,
+        marginBottom: 11
+      }
+    }, [{
+      label: "🎯 Niche",
+      key: "niche",
+      opts: NICHE
+    }, {
+      label: "👤 Audience",
+      key: "audience",
+      opts: AUDIENCE
+    }].map(({
+      label,
+      key,
+      opts
+    }) => React.createElement("div", {
+      key: key,
+      style: {
+        background: "rgba(255,255,255,0.022)",
+        border: "1px solid rgba(255,255,255,0.07)",
+        borderRadius: 14,
+        padding: "12px 14px"
+      }
+    }, React.createElement("div", {
+      style: {
+        fontSize: 10,
+        color: "rgba(255,255,255,0.28)",
+        fontFamily: "'DM Mono',monospace",
+        letterSpacing: "0.12em",
+        textTransform: "uppercase",
+        marginBottom: 9
+      }
+    }, label), React.createElement("div", {
+      style: {
+        display: "flex",
+        flexWrap: "wrap",
+        gap: 5
+      }
+    }, opts.map(o => React.createElement(Tag, {
+      key: o,
+      active: form[key] === o,
+      onClick: () => setForm(f => ({
+        ...f,
+        [key]: o
+      }))
+    }, o)))))), React.createElement("div", {
+      style: {
+        background: "rgba(255,255,255,0.022)",
+        border: "1px solid rgba(255,255,255,0.07)",
+        borderRadius: 14,
+        padding: "12px 14px",
+        marginBottom: 11
+      }
+    }, React.createElement("div", {
+      style: {
+        fontSize: 10,
+        color: "rgba(255,255,255,0.28)",
+        fontFamily: "'DM Mono',monospace",
+        letterSpacing: "0.12em",
+        textTransform: "uppercase",
+        marginBottom: 9
+      }
+    }, "Auto-suggested Targeted Audience"), React.createElement("div", {
+      style: {
+        display: "flex",
+        flexWrap: "wrap",
+        gap: 5
+      }
+    }, TARGET_AUDIENCES.map(o => React.createElement(Tag, {
+      key: o,
+      active: form.audience === o,
+      onClick: () => setForm(f => ({
+        ...f,
+        audience: o
+      }))
+    }, o)))), React.createElement("div", {
+      style: {
+        background: "rgba(255,255,255,0.022)",
+        border: "1px solid rgba(255,255,255,0.07)",
+        borderRadius: 14,
+        padding: "13px 15px",
+        marginBottom: 14
+      }
+    }, React.createElement("div", {
+      style: {
+        fontSize: 10,
+        color: "rgba(255,255,255,0.28)",
+        fontFamily: "'DM Mono',monospace",
+        letterSpacing: "0.12em",
+        textTransform: "uppercase",
+        marginBottom: 11
+      }
+    }, "\u2699\uFE0F Podrobnosti"), React.createElement("div", {
+      style: {
+        display: "grid",
+        gridTemplateColumns: "1fr 1fr 1fr",
+        gap: 10,
+        marginBottom: 10
+      }
+    }, React.createElement("div", null, React.createElement("div", {
+      style: {
+        fontSize: 9,
+        color: "rgba(255,255,255,0.22)",
+        marginBottom: 4,
+        fontFamily: "'DM Mono',monospace"
+      }
+    }, "TIP MAJICE"), React.createElement("select", {
+      value: form.shirtType,
+      onChange: e => setForm(f => ({
+        ...f,
+        shirtType: e.target.value,
+        shirtModel: e.target.value === "__match_picture__" ? "" : e.target.value
+      }))
+    }, SHIRT_TYPES.map(s => React.createElement("option", {
+      key: s.value,
+      value: s.value
+    }, s.label)))), React.createElement("div", null, React.createElement("div", {
+      style: {
+        fontSize: 9,
+        color: "rgba(255,255,255,0.22)",
+        marginBottom: 4,
+        fontFamily: "'DM Mono',monospace"
+      }
+    }, "IME MAJICE ZA RAZISKAVO"), React.createElement("input", {
+      type: "text",
+      placeholder: "npr. Comfort Colors 1717",
+      value: form.shirtName,
+      onChange: e => setForm(f => ({
+        ...f,
+        shirtName: e.target.value
+      }))
+    })), React.createElement("div", null, React.createElement("div", {
+      style: {
+        fontSize: 9,
+        color: "rgba(255,255,255,0.22)",
+        marginBottom: 4,
+        fontFamily: "'DM Mono',monospace"
+      }
+    }, "\u0160TEVILO MOCKUPOV"), React.createElement("select", {
+      value: form.mockupCount,
+      onChange: e => setForm(f => ({
+        ...f,
+        mockupCount: parseInt(e.target.value)
+      }))
+    }, COUNT_OPTIONS.map(o => React.createElement("option", {
+      key: o.value,
+      value: o.value
+    }, o.label))))), React.createElement("label", {
+      style: {
+        display: "flex",
+        alignItems: "center",
+        gap: 8,
+        marginBottom: 10,
+        fontSize: 12,
+        color: "rgba(255,255,255,0.55)",
+        cursor: "pointer"
+      }
+    }, React.createElement("input", {
+      type: "checkbox",
+      checked: form.autoDetect,
+      onChange: e => setForm(f => ({
+        ...f,
+        autoDetect: e.target.checked
+      })),
+      style: {
+        width: 16
+      }
+    }), "Autodetect Shirt Design", analyzing && React.createElement("span", {
+      style: {
+        color: "#FFDC64",
+        fontFamily: "'DM Mono',monospace",
+        fontSize: 10
+      }
+    }, "analyzing...")), designAnalysis && React.createElement("div", {
+      style: {
+        background: "rgba(90,180,255,0.06)",
+        border: "1px solid rgba(90,180,255,0.16)",
+        borderRadius: 8,
+        padding: "8px 10px",
+        marginBottom: 10,
+        fontSize: 11,
+        color: "rgba(190,220,255,0.82)",
+        lineHeight: 1.45
+      }
+    }, designAnalysis), React.createElement("div", {
+      style: {
+        display: "grid",
+        gridTemplateColumns: "1fr",
+        gap: 10,
+        marginBottom: 10
+      }
+    }, React.createElement("div", null, React.createElement("div", {
+      style: {
+        fontSize: 9,
+        color: "rgba(255,255,255,0.22)",
+        marginBottom: 4,
+        fontFamily: "'DM Mono',monospace"
+      }
+    }, "SLOG BLAGOVNE ZNAMKE"), React.createElement("input", {
+      type: "text",
+      placeholder: "npr. Toplo, zemeljsko\u2026",
+      value: form.brandStyle,
+      onChange: e => setForm(f => ({
+        ...f,
+        brandStyle: e.target.value
+      }))
+    }))), React.createElement("div", {
+      style: {
+        fontSize: 9,
+        color: "rgba(255,255,255,0.22)",
+        marginBottom: 4,
+        fontFamily: "'DM Mono',monospace"
+      }
+    }, "OPCIJSKA NAVODILA ZA SCENO"), React.createElement("textarea", {
+      rows: 2,
+      placeholder: "npr. Prijetna jesenska vzdu\u0161je, topla jantarna svetloba\u2026",
+      value: form.sceneDirection,
+      onChange: e => setForm(f => ({
+        ...f,
+        sceneDirection: e.target.value
+      }))
+    }), React.createElement("div", {
+      style: {
+        marginTop: 12,
+        padding: "12px 12px",
+        borderRadius: 12,
+        border: "1px solid rgba(255,220,100,0.12)",
+        background: "rgba(255,220,100,0.03)"
+      }
+    }, React.createElement("div", {
+      style: {
+        display: "flex",
+        justifyContent: "space-between",
+        alignItems: "center",
+        gap: 10,
+        marginBottom: 10
+      }
+    }, React.createElement("div", null, React.createElement("div", {
+      style: {
+        fontSize: 10,
+        color: "rgba(255,255,255,0.28)",
+        fontFamily: "'DM Mono',monospace",
+        letterSpacing: "0.12em",
+        textTransform: "uppercase"
+      }
+    }, "Prompt Learning & Stats"), React.createElement("div", {
+      style: {
+        fontSize: 11,
+        color: "rgba(255,255,255,0.42)",
+        marginTop: 3
+      }
+    }, "Local-only ratings are used to bias future prompt generation.")), React.createElement("label", {
+      style: {
+        display: "flex",
+        alignItems: "center",
+        gap: 8,
+        fontSize: 11,
+        color: "rgba(255,255,255,0.55)",
+        cursor: "pointer",
+        whiteSpace: "nowrap"
+      }
+    }, React.createElement("input", {
+      type: "checkbox",
+      checked: learningEnabled,
+      onChange: e => setLearningEnabled(e.target.checked),
+      style: {
+        width: 16
+      }
+    }), "Use learning")), promptStats.total > 0 ? React.createElement(React.Fragment, null, React.createElement("div", {
+      style: {
+        display: "grid",
+        gridTemplateColumns: "repeat(3,1fr)",
+        gap: 8,
+        marginBottom: 10
+      }
+    }, React.createElement("div", {
+      style: {
+        padding: "9px 10px",
+        borderRadius: 10,
+        background: "rgba(0,0,0,0.28)",
+        border: "1px solid rgba(255,255,255,0.06)"
+      }
+    }, React.createElement("div", {
+      style: {
+        fontSize: 10,
+        color: "rgba(255,255,255,0.28)",
+        fontFamily: "'DM Mono',monospace"
+      }
+    }, "Rated"), React.createElement("div", {
+      style: {
+        fontSize: 16,
+        fontWeight: 700,
+        color: "#fff",
+        marginTop: 3
+      }
+    }, promptStats.total)), React.createElement("div", {
+      style: {
+        padding: "9px 10px",
+        borderRadius: 10,
+        background: "rgba(0,0,0,0.28)",
+        border: "1px solid rgba(255,255,255,0.06)"
+      }
+    }, React.createElement("div", {
+      style: {
+        fontSize: 10,
+        color: "rgba(255,255,255,0.28)",
+        fontFamily: "'DM Mono',monospace"
+      }
+    }, "Average"), React.createElement("div", {
+      style: {
+        fontSize: 16,
+        fontWeight: 700,
+        color: "#FFDC64",
+        marginTop: 3
+      }
+    }, promptStats.avg, "\u2605")), React.createElement("div", {
+      style: {
+        padding: "9px 10px",
+        borderRadius: 10,
+        background: "rgba(0,0,0,0.28)",
+        border: "1px solid rgba(255,255,255,0.06)"
+      }
+    }, React.createElement("div", {
+      style: {
+        fontSize: 10,
+        color: "rgba(255,255,255,0.28)",
+        fontFamily: "'DM Mono',monospace"
+      }
+    }, "4-5\u2605"), React.createElement("div", {
+      style: {
+        fontSize: 16,
+        fontWeight: 700,
+        color: "#7EE8A2",
+        marginTop: 3
+      }
+    }, promptStats.strong))), React.createElement("div", {
+      style: {
+        display: "grid",
+        gridTemplateColumns: "1fr",
+        gap: 8
+      }
+    }, React.createElement("div", {
+      style: {
+        fontSize: 11,
+        color: "rgba(255,255,255,0.42)",
+        lineHeight: 1.45
+      }
+    }, React.createElement("span", {
+      style: {
+        color: "rgba(255,255,255,0.55)",
+        fontFamily: "'DM Mono',monospace",
+        fontSize: 10,
+        letterSpacing: "0.1em",
+        textTransform: "uppercase"
+      }
+    }, "Best categories"), React.createElement("br", null), promptStats.cat.length ? promptStats.cat.map(item => `${item.label} (${item.avg.toFixed(1)}★)`).join(" · ") : "No signal yet"), React.createElement("div", {
+      style: {
+        fontSize: 11,
+        color: "rgba(255,255,255,0.42)",
+        lineHeight: 1.45
+      }
+    }, React.createElement("span", {
+      style: {
+        color: "rgba(255,255,255,0.55)",
+        fontFamily: "'DM Mono',monospace",
+        fontSize: 10,
+        letterSpacing: "0.1em",
+        textTransform: "uppercase"
+      }
+    }, "Best audiences"), React.createElement("br", null), promptStats.aud.length ? promptStats.aud.map(item => `${item.label} (${item.avg.toFixed(1)}★)`).join(" · ") : "No signal yet"), React.createElement("div", {
+      style: {
+        fontSize: 11,
+        color: "rgba(255,255,255,0.42)",
+        lineHeight: 1.45
+      }
+    }, React.createElement("span", {
+      style: {
+        color: "rgba(255,255,255,0.55)",
+        fontFamily: "'DM Mono',monospace",
+        fontSize: 10,
+        letterSpacing: "0.1em",
+        textTransform: "uppercase"
+      }
+    }, "Best shirt types"), React.createElement("br", null), promptStats.shirt.length ? promptStats.shirt.map(item => `${item.label} (${item.avg.toFixed(1)}★)`).join(" · ") : "No signal yet")), React.createElement("div", {
+      style: {
+        display: "flex",
+        gap: 8,
+        flexWrap: "wrap",
+        marginTop: 10
+      }
+    }, React.createElement("button", {
+      onClick: () => setPromptRatings([]),
+      style: {
+        padding: "7px 11px",
+        borderRadius: 8,
+        border: "1px solid rgba(255,80,80,0.22)",
+        background: "rgba(255,80,80,0.07)",
+        color: "#FF8080",
+        fontSize: 10,
+        cursor: "pointer"
+      }
+    }, "Reset learning data"), React.createElement("span", {
+      style: {
+        fontSize: 10,
+        color: "rgba(255,255,255,0.26)",
+        alignSelf: "center"
+      }
+    }, "Last update: ", new Date(promptRatings[promptRatings.length - 1]?.updatedAt || promptRatings[promptRatings.length - 1]?.createdAt || Date.now()).toLocaleString()))) : React.createElement("div", {
+      style: {
+        fontSize: 11,
+        color: "rgba(255,255,255,0.38)",
+        lineHeight: 1.5
+      }
+    }, "Rate a few prompts first. The app will then show your best-performing categories, audiences, and shirt types here."))), error && React.createElement("div", {
+      style: {
+        background: "rgba(255,80,80,0.07)",
+        border: "1px solid rgba(255,80,80,0.18)",
+        borderRadius: 9,
+        padding: "10px 14px",
+        color: "#FF8080",
+        fontSize: 12,
+        marginBottom: 12
+      }
+    }, "\u26A0\uFE0F ", error), React.createElement("button", {
+      onClick: handleGenerate,
+      disabled: loading,
+      style: {
+        width: "100%",
+        padding: "13px",
+        background: loading ? "rgba(255,220,100,0.05)" : "linear-gradient(135deg,#FFDC64 0%,#FF9B40 100%)",
+        border: "none",
+        borderRadius: 12,
+        color: loading ? "rgba(255,220,100,0.35)" : "#0C0C0E",
+        fontSize: 14,
+        fontWeight: 600,
+        cursor: loading ? "not-allowed" : "pointer",
+        display: "flex",
+        alignItems: "center",
+        justifyContent: "center",
+        gap: 9,
+        transition: "all 0.2s",
+        marginBottom: 11
+      }
+    }, loading ? React.createElement(React.Fragment, null, React.createElement(Spinner, {
+      size: 17,
+      color: "rgba(255,220,100,0.5)"
+    }), React.createElement("span", null, "Generiram\u2026")) : React.createElement("span", null, "\u26A1 Generiraj ", total, " Mockup Promptov")), loading && React.createElement("div", {
+      style: {
+        background: "rgba(255,255,255,0.022)",
+        border: "1px solid rgba(255,255,255,0.07)",
+        borderRadius: 14,
+        padding: "14px 16px",
+        marginBottom: 16
+      }
+    }, React.createElement("div", {
+      style: {
+        display: "flex",
+        justifyContent: "space-between",
+        marginBottom: 6
+      }
+    }, React.createElement("span", {
+      style: {
+        fontSize: 11,
+        color: "rgba(255,255,255,0.4)",
+        fontFamily: "'DM Mono',monospace"
+      }
+    }, progLabel), React.createElement("span", {
+      style: {
+        fontSize: 11,
+        color: "#FFDC64",
+        fontFamily: "'DM Mono',monospace"
+      }
+    }, Math.round(progress), "%")), React.createElement("div", {
+      style: {
+        background: "rgba(255,255,255,0.06)",
+        borderRadius: 999,
+        height: 3,
+        overflow: "hidden",
+        marginBottom: 10
+      }
+    }, React.createElement("div", {
+      style: {
+        height: "100%",
+        background: "linear-gradient(90deg,#FFDC64,#FF9B40)",
+        borderRadius: 999,
+        width: `${progress}%`,
+        transition: "width 0.5s ease"
+      }
+    })), React.createElement("div", {
+      style: {
+        display: "grid",
+        gridTemplateColumns: `repeat(${selectedBatches().length},1fr)`,
+        gap: 6
+      }
+    }, selectedBatches().map((b, bi) => {
+      const done = results.some(r => r.catInfo?.id === b[0].id);
+      return React.createElement("div", {
+        key: bi,
+        style: {
+          background: done ? "rgba(255,220,100,0.07)" : "rgba(255,255,255,0.02)",
+          border: `1px solid ${done ? "rgba(255,220,100,0.18)" : "rgba(255,255,255,0.05)"}`,
+          borderRadius: 8,
+          padding: "7px 10px"
+        }
+      }, React.createElement("div", {
+        style: {
+          fontSize: 10,
+          color: done ? "#FFDC64" : "rgba(255,255,255,0.22)",
+          fontFamily: "'DM Mono',monospace"
+        }
+      }, done ? "✓ " : "· ", "Serija ", bi + 1), React.createElement("div", {
+        style: {
+          fontSize: 9,
+          color: "rgba(255,255,255,0.18)",
+          marginTop: 2
+        }
+      }, b.map(c => c.emoji).join(" ")));
+    }))), results.length > 0 && React.createElement("div", {
+      style: {
+        animation: "fadeUp 0.4s ease"
+      }
+    }, React.createElement("div", {
+      style: {
+        display: "flex",
+        justifyContent: "space-between",
+        alignItems: "center",
+        marginBottom: 13
+      }
+    }, React.createElement("div", {
+      style: {
+        fontSize: 10,
+        color: "rgba(255,220,100,0.6)",
+        fontFamily: "'DM Mono',monospace",
+        letterSpacing: "0.14em",
+        textTransform: "uppercase"
+      }
+    }, "\u2726 ", results.length, "/", total, " promptov \xB7 ", doneCount, " slik"), React.createElement("div", {
+      style: {
+        display: "flex",
+        gap: 7
+      }
+    }, doneCount > 0 && React.createElement("button", {
+      onClick: downloadAll,
+      style: {
+        background: "linear-gradient(135deg,#7EE8A2,#38C77E)",
+        border: "none",
+        borderRadius: 8,
+        padding: "7px 12px",
+        color: "#07100B",
+        fontSize: 10,
+        fontFamily: "'DM Mono',monospace",
+        cursor: "pointer",
+        fontWeight: 700
+      }
+    }, "Download All Mockups"), results.length === total && React.createElement("button", {
+      onClick: copyAll,
+      style: {
+        background: "rgba(255,255,255,0.05)",
+        border: "1px solid rgba(255,255,255,0.09)",
+        borderRadius: 8,
+        padding: "5px 11px",
+        color: "rgba(255,255,255,0.45)",
+        fontSize: 10,
+        fontFamily: "'DM Mono',monospace",
+        cursor: "pointer"
+      }
+    }, "Kopiraj vse"), results.length === total && React.createElement("button", {
+      onClick: handleGenAll,
+      disabled: genAllBusy,
+      style: {
+        display: "flex",
+        alignItems: "center",
+        gap: 5,
+        background: genAllBusy ? "rgba(255,220,100,0.04)" : "rgba(255,220,100,0.12)",
+        border: "1px solid rgba(255,220,100,0.25)",
+        borderRadius: 8,
+        padding: "5px 12px",
+        color: genAllBusy ? "rgba(255,220,100,0.3)" : "#FFDC64",
+        fontSize: 10,
+        fontFamily: "'DM Mono',monospace",
+        cursor: genAllBusy ? "not-allowed" : "pointer"
+      }
+    }, genAllBusy ? React.createElement(React.Fragment, null, React.createElement(Spinner, {
+      size: 11
+    }), React.createElement("span", null, "Generiram\u2026")) : React.createElement("span", null, "\uD83D\uDDBC Generiraj vseh ", total, " slik")))), doneCount > 0 && React.createElement("div", {
+      style: {
+        background: "rgba(255,255,255,0.03)",
+        border: "1px solid rgba(255,255,255,0.06)",
+        borderRadius: 10,
+        padding: "9px 13px",
+        marginBottom: 13
+      }
+    }, React.createElement("div", {
+      style: {
+        display: "flex",
+        justifyContent: "space-between",
+        marginBottom: 5
+      }
+    }, React.createElement("span", {
+      style: {
+        fontSize: 10,
+        color: "rgba(255,255,255,0.3)",
+        fontFamily: "'DM Mono',monospace"
+      }
+    }, "Generirane slike"), React.createElement("span", {
+      style: {
+        fontSize: 10,
+        color: "#7EE8A2",
+        fontFamily: "'DM Mono',monospace"
+      }
+    }, doneCount, " / ", total)), React.createElement("div", {
+      style: {
+        background: "rgba(255,255,255,0.05)",
+        borderRadius: 999,
+        height: 3
+      }
+    }, React.createElement("div", {
+      style: {
+        height: "100%",
+        background: "linear-gradient(90deg,#7EE8A2,#38C77E)",
+        borderRadius: 999,
+        width: `${doneCount / total * 100}%`,
+        transition: "width 0.4s"
+      }
+    }))), React.createElement("div", {
+      style: {
+        display: "flex",
+        gap: 5,
+        flexWrap: "wrap",
+        marginBottom: 13
+      }
+    }, TABS.filter(t => t.id === "all" || t.ids && t.ids.some(id => results.some(r => r.catInfo?.id === id))).map(t => React.createElement("button", {
+      key: t.id,
+      onClick: () => setActiveTab(t.id),
+      style: {
+        padding: "5px 12px",
+        borderRadius: 20,
+        border: activeTab === t.id ? "1.5px solid #FFDC64" : "1.5px solid rgba(255,255,255,0.08)",
+        background: activeTab === t.id ? "rgba(255,220,100,0.1)" : "transparent",
+        color: activeTab === t.id ? "#FFDC64" : "rgba(255,255,255,0.32)",
+        fontSize: 11,
+        cursor: "pointer",
+        transition: "all 0.15s"
+      }
+    }, t.label))), filtered.map(r => {
+      const gi = results.indexOf(r);
+      const id = r.catInfo?.id;
+      const rating = ratingByPromptId[r.promptId] || 0;
+      return React.createElement(MockupCard, {
+        key: id || gi,
+        result: r.data,
+        catInfo: r.catInfo,
+        index: gi,
+        isOpen: openCard === gi,
+        onToggle: () => setOpenCard(openCard === gi ? null : gi),
+        imgState: imgStates[id],
+        customPrompt: customPrompts[id],
+        onCustomPrompt: value => setCustomPrompt(id, value),
+        onGenImage: customPrompt => genImage(id, r.data.fluxPrompt, customPrompt),
+        onAiFix: () => aiFixSuggestion(id, r.data),
+        rating: rating,
+        onRate: nextRating => ratePrompt(r.promptId, nextRating, r.meta),
+        onMarkSelected: () => ratePrompt(r.promptId, rating || 0, {
+          ...r.meta,
+          selected: true
+        })
+      });
+    }))));
   }
+  ReactDOM.createRoot(document.getElementById("root")).render(React.createElement(App, null));
+} catch (err) {
+  diagLog("Render Error: " + err.message + (err.stack ? "\n" + err.stack.split("\n").slice(0, 4).join("\n") : ""));
+  showDiagIfNeeded();
+}
 </script>
 </body>
 </html>
