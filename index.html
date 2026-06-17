@@ -4,10 +4,53 @@
   <meta charset="UTF-8"/>
   <meta name="viewport" content="width=device-width, initial-scale=1.0"/>
   <title>Etsy Mockup Generator</title>
-  <script src="https://unpkg.com/react@18/umd/react.development.js"></script>
-  <script src="https://unpkg.com/react-dom@18/umd/react-dom.development.js"></script>
-  <script src="https://unpkg.com/@babel/standalone/babel.min.js"></script>
-  <script src="https://cdn.jsdelivr.net/npm/jszip@3.10.1/dist/jszip.min.js"></script>
+  <style>
+    #diag-overlay{display:none;position:fixed;inset:0;background:#0C0C0E;color:#fff;font-family:monospace;font-size:13px;padding:20px;z-index:99999;overflow:auto;white-space:pre-wrap;line-height:1.6}
+    #diag-overlay h2{color:#FF8080;margin-bottom:14px;font-size:16px}
+    #diag-overlay .diag-line{margin-bottom:8px;border-left:3px solid #FF8080;padding-left:10px}
+    #diag-overlay .diag-ok{border-left-color:#7EE8A2;color:#7EE8A2}
+  </style>
+  <script>
+    // ─── Self-diagnosing boot screen ──────────────────────────────────────────
+    // If the app never renders (CDN failure, JS error, etc.), this shows a plain-text
+    // diagnostic directly on the page — no devtools needed, works on any device.
+    window.__diag = [];
+    function diagLog(msg, ok) {
+      window.__diag.push({ msg, ok: !!ok, t: Date.now() });
+    }
+    window.addEventListener("error", function(e) {
+      diagLog("JS Error: " + (e.message || e.error?.message || "unknown") + (e.filename ? " @ " + e.filename + ":" + e.lineno : ""));
+      showDiagIfNeeded();
+    });
+    window.addEventListener("unhandledrejection", function(e) {
+      diagLog("Unhandled Promise Rejection: " + (e.reason?.message || e.reason));
+      showDiagIfNeeded();
+    });
+    function showDiagIfNeeded() {
+      var root = document.getElementById("root");
+      if (root && root.children.length > 0) return; // app rendered fine, don't show
+      var overlay = document.getElementById("diag-overlay");
+      if (!overlay) return;
+      overlay.innerHTML = "<h2>⚠ App failed to load</h2>" +
+        window.__diag.map(function(d) {
+          return "<div class='diag-line" + (d.ok ? " diag-ok" : "") + "'>" + d.msg + "</div>";
+        }).join("") +
+        "<div class='diag-line'>Screenshot this and send it — it tells us exactly what broke.</div>";
+      overlay.style.display = "block";
+    }
+    // Give the app 6 seconds to render; if #root is still empty, something failed silently.
+    setTimeout(function() {
+      var root = document.getElementById("root");
+      if (!root || root.children.length === 0) {
+        diagLog("Timeout: app did not render within 6s. Root element is empty.");
+        showDiagIfNeeded();
+      }
+    }, 6000);
+  </script>
+  <script src="https://unpkg.com/react@18/umd/react.development.js" onload="diagLog('React loaded', true)" onerror="diagLog('FAILED to load React from unpkg.com — CDN may be blocked on this network'); showDiagIfNeeded()"></script>
+  <script src="https://unpkg.com/react-dom@18/umd/react-dom.development.js" onload="diagLog('ReactDOM loaded', true)" onerror="diagLog('FAILED to load ReactDOM from unpkg.com — CDN may be blocked on this network'); showDiagIfNeeded()"></script>
+  <script src="https://unpkg.com/@babel/standalone/babel.min.js" onload="diagLog('Babel loaded', true)" onerror="diagLog('FAILED to load Babel from unpkg.com — CDN may be blocked on this network'); showDiagIfNeeded()"></script>
+  <script src="https://cdn.jsdelivr.net/npm/jszip@3.10.1/dist/jszip.min.js" onload="diagLog('JSZip loaded', true)" onerror="diagLog('FAILED to load JSZip from jsdelivr.net — CDN may be blocked on this network'); showDiagIfNeeded()"></script>
   <link href="https://fonts.googleapis.com/css2?family=DM+Sans:wght@300;400;500;600&family=DM+Mono:wght@400;500&family=Playfair+Display:wght@700&display=swap" rel="stylesheet"/>
   <style>
     *{box-sizing:border-box;margin:0;padding:0}
@@ -24,7 +67,9 @@
 </head>
 <body>
 <div id="root"></div>
+<div id="diag-overlay"></div>
 <script type="text/babel">
+  try {
 const { useState, useRef, useEffect } = React;
 const ADMIN_TOKEN_STORAGE_KEY = "etsy_mockup_admin_token";
 const PROMPT_RATINGS_STORAGE_KEY = "etsy_mockup_prompt_ratings_v1";
@@ -1354,6 +1399,10 @@ ${r.data.thumbnailNotes}`;
 }
 
 ReactDOM.createRoot(document.getElementById("root")).render(<App/>);
+  } catch (err) {
+    diagLog("Render Error: " + err.message + (err.stack ? "\n" + err.stack.split("\n").slice(0,4).join("\n") : ""));
+    showDiagIfNeeded();
+  }
 </script>
 </body>
 </html>
