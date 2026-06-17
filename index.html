@@ -233,6 +233,10 @@ try {
     description: "Allow the print on both sides when the concept needs it."
   }];
   const MOCKUP_STYLE_OPTIONS = [{
+    value: "ugc_review",
+    label: "UGC / review photo",
+    description: "Candid customer photo or social post energy."
+  }, {
     value: "presets",
     label: "Preset mockup styles",
     description: "Use the current preset category-based style system."
@@ -1768,7 +1772,7 @@ try {
       mockupCount: 18,
       autoDetect: true,
       printVisibility: "front_only",
-      mockupStyleMode: "presets",
+      mockupStyleMode: "ugc_review",
       mockupStyleBrief: ""
     });
     const [imageFile, setImageFile] = useState(null);
@@ -1853,7 +1857,7 @@ try {
       if (form.shirtType === "__match_picture__") return custom || "Match the picture";
       return custom || raw || "Unisex Classic Tee";
     };
-    const resolvedMockupStyleMode = () => form.mockupStyleMode || "presets";
+    const resolvedMockupStyleMode = () => form.mockupStyleMode || "ugc_review";
     const resolvedMockupStyleBrief = () => form.mockupStyleBrief.trim();
     const selectedCategories = () => ALL_BATCHES.flat().slice(0, form.mockupCount);
     const selectedBatches = () => {

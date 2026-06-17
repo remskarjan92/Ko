@@ -387,9 +387,11 @@ app.post("/api/generate-prompts", async (req, res) => {
     both_sides: "Print visibility mode: both sides. If the concept shows front and back, the design may appear on both sides in a realistic garment-appropriate way."
   }[printVisibility] || "Print visibility mode: match the concept's view naturally, but keep the design placement coherent and intentional.";
 
-  const mockupStyleContext = mockupStyleMode === "custom"
-    ? `Mockup style mode: custom. Use this style brief as the visual direction: ${mockupStyleBrief || "No custom style brief provided."}`
-    : "Mockup style mode: preset styles. Use the current preset mockup style system and choose the best-fitting preset visual direction for each concept.";
+  const mockupStyleContext = mockupStyleMode === "ugc_review"
+    ? "Mockup style mode: UGC / review photo. Favor candid customer-style imagery, smartphone energy, casual framing, everyday real-life context, and believable imperfections."
+    : mockupStyleMode === "custom"
+      ? `Mockup style mode: custom. Use this style brief as the visual direction: ${mockupStyleBrief || "No custom style brief provided."}`
+      : "Mockup style mode: preset styles. Use the current preset mockup style system and choose the best-fitting preset visual direction for each concept.";
 
   const diversitySummary = Array.isArray(usedAttributes) && usedAttributes.length
     ? usedAttributes.slice(-30).map(a =>
@@ -722,9 +724,11 @@ app.post("/api/generate-image", async (req, res) => {
                 : printVisibility === "both_sides"
                   ? "Print placement rule: the design may appear on both sides when the concept naturally requires it."
                   : "",
-            mockupStyleMode === "custom" && mockupStyleBrief
-              ? `Mockup style direction: ${mockupStyleBrief}`
-              : "Mockup style direction: use the current preset mockup style system and keep the output aligned with the concept's preset visual language.",
+            mockupStyleMode === "ugc_review"
+              ? "Mockup style direction: UGC / review photo. Make the result feel like a real customer photo or casual social post: candid framing, smartphone energy, informal crop, everyday buyer vibe, and believable imperfections."
+              : mockupStyleMode === "custom" && mockupStyleBrief
+                ? `Mockup style direction: ${mockupStyleBrief}`
+                : "Mockup style direction: use the current preset mockup style system and keep the output aligned with the concept's preset visual language.",
             referenceNotes.length ? `Use these additional reference image notes for style, pose, lighting, and background only; do not replace the source garment design: ${referenceNotes.join(" | ")}` : "",
             customPrompt ? `User requested change for this regeneration: ${customPrompt}. Apply it while preserving the original design exactly.` : "",
           ].filter(Boolean).join(" "),
