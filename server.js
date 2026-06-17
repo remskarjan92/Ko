@@ -43,6 +43,13 @@ function saveKeys(keys) {
   try { fs.writeFileSync(KEYS_FILE, JSON.stringify(toSave, null, 2)); } catch {}
 }
 
+// ─── Prompt generation debug log (in-memory, resets on redeploy/restart) ──────
+const PROMPT_LOG_MAX = 30;
+const promptLog = [];
+function logPromptGeneration(entry) {
+  promptLog.unshift({ ...entry, timestamp: new Date().toISOString() });
+  if (promptLog.length > PROMPT_LOG_MAX) promptLog.length = PROMPT_LOG_MAX;
+}
 function maskKey(k) {
   if (!k || k.length < 12) return k ? "••••••••" : "";
   return k.slice(0, 8) + "•".repeat(k.length - 12) + k.slice(-4);
@@ -316,15 +323,30 @@ function extractJsonArray(text) {
   cleaned = cleaned.replace(/^```(?:json)?\s*/i, "").replace(/```\s*$/, "").trim();
   const start = cleaned.indexOf("[");
   const end = cleaned.lastIndexOf("]");
-  if (start === -1 || end === -1 || end < start) return [];
+  if (start === -1 || end === -1 || end < start) {
+    console.error("[extractJsonArray] no JSON array brackets found. Raw length:", text.length, "Preview:", text.slice(0, 500));
+    return [];
+  }
   const slice = cleaned.slice(start, end + 1);
   try {
     const parsed = JSON.parse(slice);
-    return Array.isArray(parsed) ? parsed : [];
-  } catch {
+    if (!Array.isArray(parsed)) {
+      console.error("[extractJsonArray] parsed value is not an array:", typeof parsed);
+      return [];
+    }
+    return parsed;
+  } catch (err) {
+    console.error("[extractJsonArray] JSON.parse failed:", err.message, "Slice length:", slice.length, "Slice tail:", slice.slice(-300));
     return [];
   }
 }
+
+// GET /api/debug/prompts — view recent prompt-generation calls (sent + received), most recent first.
+// Protected by the same ADMIN_TOKEN as other routes. Resets on server restart/redeploy (in-memory only).
+app.get("/api/debug/prompts", (req, res) => {
+  if (!requireAdmin(req, res)) return;
+  res.json({ count: promptLog.length, max: PROMPT_LOG_MAX, entries: promptLog });
+});
 
 app.post("/api/generate-prompts", async (req, res) => {
   if (!requireAdmin(req, res)) return;
@@ -361,7 +383,7 @@ app.post("/api/generate-prompts", async (req, res) => {
       },
       body: JSON.stringify({
         systemInstruction: { parts: [{ text: SYSTEM_PROMPT }] },
-        generationConfig: { maxOutputTokens: 8000, responseMimeType: "application/json" },
+        generationConfig: { maxOutputTokens: 16000, responseMimeType: "application/json" },
         contents: [{
           role: "user",
           parts: [
@@ -381,8 +403,26 @@ app.post("/api/generate-prompts", async (req, res) => {
     if (d.error) throw new Error(d.error.message);
     const raw = getGeminiText(d);
     const concepts = extractJsonArray(raw);
-    res.json({ raw, concepts });
+    if (!concepts.length && raw) {
+      console.error("[generate-prompts] Gemini returned text but 0 concepts parsed. finishReason:", d?.candidates?.[0]?.finishReason);
+    }
+    logPromptGeneration({
+      systemPrompt: SYSTEM_PROMPT,
+      userMessage,
+      rawResponse: raw,
+      conceptsCount: concepts.length,
+      finishReason: d?.candidates?.[0]?.finishReason || null,
+      ok: concepts.length > 0,
+    });
+    res.json({ raw, concepts, warning: !concepts.length && raw ? "Gemini response could not be parsed into concepts — check server logs for raw output." : undefined });
   } catch (e) {
+    logPromptGeneration({
+      systemPrompt: SYSTEM_PROMPT,
+      userMessage,
+      rawResponse: null,
+      error: e.message,
+      ok: false,
+    });
     res.status(500).json({ error: e.message });
   }
 });
