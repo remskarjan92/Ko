@@ -235,13 +235,20 @@ The uploaded image is the user's design and must be treated as fixed, pixel-exac
 PRIMARY OBJECTIVE
 Every concept must: preserve the exact design per the rule above; showcase the design clearly; feel authentic and commercially viable; look like a top-performing Etsy listing; be diverse from every other concept in this batch AND from concepts listed under PREVIOUSLY USED ATTRIBUTES below. Never generate concepts that feel repetitive, generic, AI-generated, or stock-photo-like.
 
+CUSTOMER LIFESTYLE REALISM
+- The final mockup should feel like a real customer review photo or casual social media post, not a polished commercial ad
+- Make the subject look like an everyday buyer, not a professional model
+- Use natural imperfections: slight fabric tension, realistic folds, casual posture, real-world lighting, minor camera imperfections, authentic perspective
+- The scene should tell a believable story such as a morning walk, dog owner at a coffee shop, casual selfie, weekend outing, vacation moment, family gathering, or relaxing at home
+- Keep the uploaded shirt design as the focal point and maintain print realism at all times
+
 DESIGN VISIBILITY RULES (highest priority after design fidelity)
 - Design fully visible, no hands/hair/jackets/folds/props covering any part of it
 - No cropping into the design, no extreme side angles, no excessive motion blur
 - Score every concept's design_visibility_score using the rubric below; a concept under 8 must be revised before output
 
 DIVERSITY ENGINE
-Track the PREVIOUSLY USED ATTRIBUTES list provided in the user message (room/environment, pose, camera angle, model age range, ethnicity, body type, clothing color, lighting). Each concept in this batch must avoid repeating any combination already used. Each concept should feel like a different photoshoot — vary environment, buyer persona, pose, camera lens/angle, and lighting per concept within the batch too.
+Track the PREVIOUSLY USED ATTRIBUTES list provided in the user message (room/environment, pose, camera angle, model age range, ethnicity, body type, clothing color, lighting). Each concept in this batch must avoid repeating any combination already used. Each concept should feel like a different everyday customer photo — vary environment, buyer persona, pose, camera lens/angle, hairstyle, and lighting per concept within the batch too. Do not repeatedly generate the same person.
 
 CAMERA SYSTEM — pick from: lenses 35mm/50mm/85mm; angles straight-on/slight left/slight right/slight high-angle. Avoid extreme angles, fish-eye, dramatic distortion.
 LIGHTING SYSTEM — pick from: natural window light, soft morning sunlight, golden hour, bright indoor daylight, professional studio light. Avoid harsh shadows, overexposure, unrealistic cinematic lighting.
@@ -699,6 +706,8 @@ app.post("/api/generate-image", async (req, res) => {
         input: {
           prompt: [
             "Use the attached reference image as the exact source of truth for the garment design.",
+            "Make the result feel like a real customer lifestyle photo or social media post, not a catalog shot or ad. The subject should look like an everyday buyer, not a professional model.",
+            "Use natural imperfections: slight fabric tension, realistic folds, casual posture, real-world lighting, minor camera imperfections, and authentic perspective.",
             fluxPrompt,
             designAnalysis ? `Detected shirt/design analysis: ${designAnalysis}` : "",
             printVisibility === "front_only"
