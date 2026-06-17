@@ -18,6 +18,7 @@
     function diagLog(msg, ok) {
       window.__diag.push({ msg, ok: !!ok, t: Date.now() });
     }
+    window.__appRendered = false;
     window.addEventListener("error", function(e) {
       diagLog("JS Error: " + (e.message || e.error?.message || "unknown") + (e.filename ? " @ " + e.filename + ":" + e.lineno : ""));
       showDiagIfNeeded();
@@ -27,6 +28,11 @@
       showDiagIfNeeded();
     });
     function showDiagIfNeeded() {
+      if (window.__appRendered) {
+        var renderedOverlay = document.getElementById("diag-overlay");
+        if (renderedOverlay) renderedOverlay.style.display = "none";
+        return;
+      }
       var root = document.getElementById("root");
       if (root && root.children.length > 0) return; // app rendered fine, don't show
       var overlay = document.getElementById("diag-overlay");
@@ -38,14 +44,20 @@
         "<div class='diag-line'>Screenshot this and send it — it tells us exactly what broke.</div>";
       overlay.style.display = "block";
     }
-    // Give the app 6 seconds to render; if #root is still empty, something failed silently.
+    function markAppRendered() {
+      window.__appRendered = true;
+      diagLog("App rendered", true);
+      var overlay = document.getElementById("diag-overlay");
+      if (overlay) overlay.style.display = "none";
+    }
+    // Mobile browsers can spend several seconds downloading and transforming the inline JSX.
     setTimeout(function() {
       var root = document.getElementById("root");
-      if (!root || root.children.length === 0) {
-        diagLog("Timeout: app did not render within 6s. Root element is empty.");
+      if (!window.__appRendered && (!root || root.children.length === 0)) {
+        diagLog("Timeout: app did not render within 25s. Root element is empty.");
         showDiagIfNeeded();
       }
-    }, 6000);
+    }, 25000);
   </script>
   <script src="https://unpkg.com/react@18/umd/react.development.js" onload="diagLog('React loaded', true)" onerror="diagLog('FAILED to load React from unpkg.com — CDN may be blocked on this network'); showDiagIfNeeded()"></script>
   <script src="https://unpkg.com/react-dom@18/umd/react-dom.development.js" onload="diagLog('ReactDOM loaded', true)" onerror="diagLog('FAILED to load ReactDOM from unpkg.com — CDN may be blocked on this network'); showDiagIfNeeded()"></script>
@@ -863,6 +875,10 @@ function App() {
 
   const fileRef = useRef();
   const refsRef = useRef();
+
+  useEffect(() => {
+    if (typeof markAppRendered === "function") markAppRendered();
+  }, []);
 
   useEffect(() => {
     authedFetch("/api/keys")
