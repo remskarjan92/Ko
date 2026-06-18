@@ -1413,6 +1413,56 @@ try {
       }
     }, children);
   }
+  function SelectPanel({
+    label,
+    value,
+    options,
+    onChange,
+    hint
+  }) {
+    return React.createElement("div", {
+      style: {
+        background: "rgba(255,255,255,0.022)",
+        border: "1px solid rgba(255,255,255,0.07)",
+        borderRadius: 14,
+        padding: "12px 14px"
+      }
+    }, React.createElement("div", {
+      style: {
+        display: "flex",
+        justifyContent: "space-between",
+        alignItems: "center",
+        gap: 10,
+        marginBottom: 8
+      }
+    }, React.createElement("div", {
+      style: {
+        fontSize: 10,
+        color: "rgba(255,255,255,0.28)",
+        fontFamily: "'DM Mono',monospace",
+        letterSpacing: "0.12em",
+        textTransform: "uppercase"
+      }
+    }, label), hint && React.createElement("div", {
+      style: {
+        fontSize: 9,
+        color: "rgba(255,255,255,0.22)",
+        fontFamily: "'DM Mono',monospace"
+      }
+    }, hint)), React.createElement("select", {
+      value: value,
+      onChange: e => onChange(e.target.value)
+    }, options.map(option => {
+      const item = typeof option === "string" ? {
+        value: option,
+        label: option
+      } : option;
+      return React.createElement("option", {
+        key: item.value,
+        value: item.value
+      }, item.label);
+    })));
+  }
   function SettingsModal({
     onClose,
     onKeysUpdated
@@ -3568,7 +3618,8 @@ Correction Strength: ${mf?.strength || ""}
 THUMBNAIL NOTES:
 ${r.data.thumbnailNotes}`;
     }).join("\n\n" + "─".repeat(50) + "\n\n"));
-    const filtered = activeTab === "all" ? results : results.filter(r => TABS.find(t => t.id === activeTab)?.ids?.includes(r.catInfo?.id));
+	    const visibleTabs = TABS.filter(t => t.id === "all" || t.ids && t.ids.some(id => results.some(r => r.catInfo?.id === id)));
+	    const filtered = activeTab === "all" ? results : results.filter(r => TABS.find(t => t.id === activeTab)?.ids?.includes(r.catInfo?.id));
     const doneCount = Object.values(imgStates).filter(s => s.status === "done").length;
     const gemOk = keyInfo?.gemini?.set;
     const repOk = keyInfo?.replicate?.set;
@@ -3885,86 +3936,41 @@ ${r.data.thumbnailNotes}`;
         textOverflow: "ellipsis",
         whiteSpace: "nowrap"
       }
-    }, ref.name))))), React.createElement("div", {
-      style: {
-        display: "grid",
-        gridTemplateColumns: "1fr 1fr",
-        gap: 11,
-        marginBottom: 11
-      }
-    }, [{
-      label: "🎯 Niche",
-      key: "niche",
-      opts: NICHE
-    }, {
-      label: "👤 Audience",
-      key: "audience",
-      opts: AUDIENCE
-    }].map(({
-      label,
-      key,
-      opts
-    }) => React.createElement("div", {
-      key: key,
-      style: {
-        background: "rgba(255,255,255,0.022)",
-        border: "1px solid rgba(255,255,255,0.07)",
-        borderRadius: 14,
-        padding: "12px 14px"
-      }
-    }, React.createElement("div", {
-      style: {
-        fontSize: 10,
-        color: "rgba(255,255,255,0.28)",
-        fontFamily: "'DM Mono',monospace",
-        letterSpacing: "0.12em",
-        textTransform: "uppercase",
-        marginBottom: 9
-      }
-    }, label), React.createElement("div", {
-      style: {
-        display: "flex",
-        flexWrap: "wrap",
-        gap: 5
-      }
-    }, opts.map(o => React.createElement(Tag, {
-      key: o,
-      active: form[key] === o,
-      onClick: () => setForm(f => ({
-        ...f,
-        [key]: o
-      }))
-    }, o)))))), React.createElement("div", {
-      style: {
-        background: "rgba(255,255,255,0.022)",
-        border: "1px solid rgba(255,255,255,0.07)",
-        borderRadius: 14,
-        padding: "12px 14px",
-        marginBottom: 11
-      }
-    }, React.createElement("div", {
-      style: {
-        fontSize: 10,
-        color: "rgba(255,255,255,0.28)",
-        fontFamily: "'DM Mono',monospace",
-        letterSpacing: "0.12em",
-        textTransform: "uppercase",
-        marginBottom: 9
-      }
-    }, "Auto-suggested Targeted Audience"), React.createElement("div", {
-      style: {
-        display: "flex",
-        flexWrap: "wrap",
-        gap: 5
-      }
-    }, TARGET_AUDIENCES.map(o => React.createElement(Tag, {
-      key: o,
-      active: form.audience === o,
-      onClick: () => setForm(f => ({
-        ...f,
-        audience: o
-      }))
-    }, o)))), React.createElement("div", {
+	    }, ref.name))))), React.createElement("div", {
+	      style: {
+	        display: "grid",
+	        gridTemplateColumns: "repeat(auto-fit,minmax(180px,1fr))",
+	        gap: 11,
+	        marginBottom: 11
+	      }
+	    }, React.createElement(SelectPanel, {
+	      label: "Niche",
+	      value: form.niche,
+	      options: NICHE,
+	      hint: `${NICHE.length} options`,
+	      onChange: value => setForm(f => ({
+	        ...f,
+	        niche: value
+	      }))
+	    }), React.createElement(SelectPanel, {
+	      label: "Audience",
+	      value: form.audience,
+	      options: AUDIENCE,
+	      hint: `${AUDIENCE.length} options`,
+	      onChange: value => setForm(f => ({
+	        ...f,
+	        audience: value
+	      }))
+	    }), React.createElement(SelectPanel, {
+	      label: "Targeted Audience",
+	      value: form.audience,
+	      options: TARGET_AUDIENCES,
+	      hint: `${TARGET_AUDIENCES.length} options`,
+	      onChange: value => setForm(f => ({
+	        ...f,
+	        audience: value
+	      }))
+	    })), React.createElement("div", {
       style: {
         background: "rgba(255,255,255,0.022)",
         border: "1px solid rgba(255,255,255,0.07)",
@@ -4585,27 +4591,36 @@ ${r.data.thumbnailNotes}`;
         width: `${doneCount / total * 100}%`,
         transition: "width 0.4s"
       }
-    }))), React.createElement("div", {
-      style: {
-        display: "flex",
-        gap: 5,
-        flexWrap: "wrap",
-        marginBottom: 13
-      }
-    }, TABS.filter(t => t.id === "all" || t.ids && t.ids.some(id => results.some(r => r.catInfo?.id === id))).map(t => React.createElement("button", {
-      key: t.id,
-      onClick: () => setActiveTab(t.id),
-      style: {
-        padding: "5px 12px",
-        borderRadius: 20,
-        border: activeTab === t.id ? "1.5px solid #FFDC64" : "1.5px solid rgba(255,255,255,0.08)",
-        background: activeTab === t.id ? "rgba(255,220,100,0.1)" : "transparent",
-        color: activeTab === t.id ? "#FFDC64" : "rgba(255,255,255,0.32)",
-        fontSize: 11,
-        cursor: "pointer",
-        transition: "all 0.15s"
-      }
-    }, t.label))), filtered.map(r => {
+	    }))), React.createElement("div", {
+	      style: {
+	        marginBottom: 13
+	      }
+	    }, visibleTabs.length > 5 ? React.createElement("select", {
+	      value: activeTab,
+	      onChange: e => setActiveTab(e.target.value)
+	    }, visibleTabs.map(t => React.createElement("option", {
+	      key: t.id,
+	      value: t.id
+	    }, t.label))) : React.createElement("div", {
+	      style: {
+	        display: "flex",
+	        gap: 5,
+	        flexWrap: "wrap"
+	      }
+	    }, visibleTabs.map(t => React.createElement("button", {
+	      key: t.id,
+	      onClick: () => setActiveTab(t.id),
+	      style: {
+	        padding: "5px 12px",
+	        borderRadius: 20,
+	        border: activeTab === t.id ? "1.5px solid #FFDC64" : "1.5px solid rgba(255,255,255,0.08)",
+	        background: activeTab === t.id ? "rgba(255,220,100,0.1)" : "transparent",
+	        color: activeTab === t.id ? "#FFDC64" : "rgba(255,255,255,0.32)",
+	        fontSize: 11,
+	        cursor: "pointer",
+	        transition: "all 0.15s"
+	      }
+	    }, t.label)))), filtered.map(r => {
       const gi = results.indexOf(r);
       const id = r.catInfo?.id;
       const rating = ratingByPromptId[r.promptId] || 0;
