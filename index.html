@@ -1686,9 +1686,9 @@ try {
       desc: "Za generiranje promptov · Format: AIza...",
       ph: "AIza...",
       link: null
-    }, {
-      type: "replicate",
-      key: "rep",
+	    }, {
+	      type: "replicate",
+	      key: "rep",
       setKey: setRep,
       val: rep,
       show: showRep,
@@ -1696,32 +1696,50 @@ try {
       emoji: "🖼",
       title: "Replicate API Key",
       desc: "Za generiranje slik z Flux · Format: r8_...",
-      ph: "r8_...",
-      link: "https://replicate.com/account/api-tokens"
-    }];
-    return React.createElement("div", {
-      style: {
-        position: "fixed",
-        inset: 0,
-        background: "rgba(0,0,0,0.75)",
-        display: "flex",
-        alignItems: "center",
-        justifyContent: "center",
-        zIndex: 999,
-        padding: 20,
-        backdropFilter: "blur(4px)"
-      }
-    }, React.createElement("div", {
-      style: {
-        background: "#141416",
-        border: "1px solid rgba(255,255,255,0.1)",
-        borderRadius: 18,
-        width: "100%",
-        maxWidth: 860,
-        maxHeight: "92vh",
-        overflowY: "auto",
-        animation: "fadeUp 0.25s ease"
-      }
+	      ph: "r8_...",
+	      link: "https://replicate.com/account/api-tokens"
+	    }];
+	    const touchButton = (border, background, color, extra = {}) => ({
+	      minHeight: 42,
+	      padding: "10px 14px",
+	      borderRadius: 10,
+	      border,
+	      background,
+	      color,
+	      fontSize: 12,
+	      cursor: "pointer",
+	      fontWeight: 700,
+	      display: "inline-flex",
+	      alignItems: "center",
+	      justifyContent: "center",
+	      gap: 7,
+	      ...extra
+	    });
+	    return React.createElement("div", {
+	      style: {
+	        position: "fixed",
+	        inset: 0,
+	        background: "rgba(0,0,0,0.75)",
+	        display: "flex",
+	        alignItems: "stretch",
+	        justifyContent: "center",
+	        zIndex: 999,
+	        padding: "12px",
+	        backdropFilter: "blur(4px)"
+	      }
+	    }, React.createElement("div", {
+	      style: {
+	        background: "#141416",
+	        border: "1px solid rgba(255,255,255,0.1)",
+	        borderRadius: 18,
+	        width: "100%",
+	        maxWidth: 860,
+	        maxHeight: "calc(100vh - 24px)",
+	        display: "flex",
+	        flexDirection: "column",
+	        overflow: "hidden",
+	        animation: "fadeUp 0.25s ease"
+	      }
     }, React.createElement("div", {
       style: {
         display: "flex",
@@ -1767,10 +1785,13 @@ try {
         alignItems: "center",
         justifyContent: "center"
       }
-    }, "\xD7")), React.createElement("div", {
-      style: {
-        padding: "18px 20px"
-      }
+	    }, "\xD7")), React.createElement("div", {
+	      style: {
+	        padding: "18px 20px 0",
+	        flex: 1,
+	        overflowY: "auto",
+	        WebkitOverflowScrolling: "touch"
+	      }
     }, React.createElement("div", {
       style: {
         background: "rgba(255,255,255,0.03)",
@@ -1818,19 +1839,15 @@ try {
       style: {
         marginBottom: 10
       }
-    }), React.createElement("button", {
-      onClick: loginAdmin,
-      style: {
-        padding: "6px 12px",
-        borderRadius: 8,
-        border: "1px solid rgba(255,220,100,0.25)",
-        background: "rgba(255,220,100,0.07)",
-        color: "#FFDC64",
-        fontSize: 11,
-        cursor: "pointer",
-        fontWeight: 500
-      }
-    }, "Login")) : React.createElement("div", {
+	    }), React.createElement("button", {
+	      onClick: loginAdmin,
+	      style: {
+	        ...touchButton("1px solid rgba(255,220,100,0.35)", "rgba(255,220,100,0.1)", "#FFDC64", {
+	          width: "100%",
+	          marginTop: 2
+	        })
+	      }
+	    }, "Login")) : React.createElement("div", {
       style: {
         display: "flex",
         gap: 7,
@@ -1843,19 +1860,12 @@ try {
         color: "#7EE8A2",
         fontFamily: "'DM Mono',monospace"
       }
-    }, `Logged in as ${adminSession.username || "admin"}`), React.createElement("button", {
-      onClick: logoutAdmin,
-      style: {
-        padding: "6px 12px",
-        borderRadius: 8,
-        border: "1px solid rgba(255,80,80,0.25)",
-        background: "rgba(255,80,80,0.07)",
-        color: "#FF8080",
-        fontSize: 11,
-        cursor: "pointer",
-        fontWeight: 500
-      }
-    }, "Logout")), loginMsg && React.createElement("div", {
+	    }, `Logged in as ${adminSession.username || "admin"}`), React.createElement("button", {
+	      onClick: logoutAdmin,
+	      style: {
+	        ...touchButton("1px solid rgba(255,80,80,0.3)", "rgba(255,80,80,0.08)", "#FF8080")
+	      }
+	    }, "Logout")), loginMsg && React.createElement("div", {
       style: {
         fontSize: 10,
         color: loginMsg.includes("Invalid") ? "#FF8080" : "#7EE8A2",
@@ -1918,39 +1928,25 @@ try {
         alignItems: "center",
         flexWrap: "wrap"
       }
-    }, React.createElement("button", {
-      onClick: () => {
-        setAppTokenValue(appToken.trim());
+	    }, React.createElement("button", {
+	      onClick: () => {
+	        setAppTokenValue(appToken.trim());
         setAppAccessToken(appToken.trim());
         setAppTokenMsg(appToken.trim() ? "App token saved locally on your device." : "");
-      },
-      style: {
-        padding: "6px 12px",
-        borderRadius: 8,
-        border: "1px solid rgba(90,180,255,0.25)",
-        background: "rgba(90,180,255,0.07)",
-        color: "#8EC8FF",
-        fontSize: 11,
-        cursor: "pointer",
-        fontWeight: 500
-      }
-    }, "\uD83D\uDCBE Shrani app token"), getAppAccessToken() && React.createElement("button", {
+	      },
+	      style: {
+	        ...touchButton("1px solid rgba(90,180,255,0.32)", "rgba(90,180,255,0.09)", "#8EC8FF")
+	      }
+	    }, "\uD83D\uDCBE Shrani app token"), getAppAccessToken() && React.createElement("button", {
       onClick: () => {
         setAppAccessToken("");
         setAppTokenValue("");
         setAppTokenMsg("");
-      },
-      style: {
-        padding: "6px 12px",
-        borderRadius: 8,
-        border: "1px solid rgba(255,80,80,0.25)",
-        background: "rgba(255,80,80,0.07)",
-        color: "#FF8080",
-        fontSize: 11,
-        cursor: "pointer",
-        fontWeight: 500
-      }
-    }, "\uD83D\uDDD1 Odstrani app token"), appTokenMsg && React.createElement("span", {
+	      },
+	      style: {
+	        ...touchButton("1px solid rgba(255,80,80,0.3)", "rgba(255,80,80,0.08)", "#FF8080")
+	      }
+	    }, "\uD83D\uDDD1 Odstrani app token"), appTokenMsg && React.createElement("span", {
       style: {
         fontSize: 10,
         color: "#7EE8A2",
@@ -2043,44 +2039,25 @@ try {
         gap: 7,
         flexWrap: "wrap"
       }
-    }, React.createElement("button", {
-      onClick: loadResearch,
-      disabled: researchLoading,
-      style: {
-        padding: "7px 12px",
-        borderRadius: 8,
-        border: "1px solid rgba(255,220,100,0.24)",
-        background: "rgba(255,220,100,0.07)",
-        color: "#FFDC64",
-        fontSize: 11,
-        cursor: researchLoading ? "wait" : "pointer",
-        fontWeight: 600
-      }
-    }, researchLoading ? "Nalagam..." : "Naloži"), React.createElement("button", {
-      onClick: () => downloadResearchExport("csv"),
-      style: {
-        padding: "7px 12px",
-        borderRadius: 8,
-        border: "1px solid rgba(126,232,162,0.24)",
-        background: "rgba(126,232,162,0.07)",
-        color: "#7EE8A2",
-        fontSize: 11,
-        cursor: "pointer",
-        fontWeight: 600
-      }
-    }, "CSV"), React.createElement("button", {
-      onClick: () => downloadResearchExport("json"),
-      style: {
-        padding: "7px 12px",
-        borderRadius: 8,
-        border: "1px solid rgba(90,180,255,0.24)",
-        background: "rgba(90,180,255,0.07)",
-        color: "#8EC8FF",
-        fontSize: 11,
-        cursor: "pointer",
-        fontWeight: 600
-      }
-    }, "JSON"))), React.createElement("div", {
+	    }, React.createElement("button", {
+	      onClick: loadResearch,
+	      disabled: researchLoading,
+	      style: {
+	        ...touchButton("1px solid rgba(255,220,100,0.32)", "rgba(255,220,100,0.09)", "#FFDC64", {
+	          cursor: researchLoading ? "wait" : "pointer"
+	        })
+	      }
+	    }, researchLoading ? "Nalagam..." : "Naloži"), React.createElement("button", {
+	      onClick: () => downloadResearchExport("csv"),
+	      style: {
+	        ...touchButton("1px solid rgba(126,232,162,0.32)", "rgba(126,232,162,0.09)", "#7EE8A2")
+	      }
+	    }, "CSV"), React.createElement("button", {
+	      onClick: () => downloadResearchExport("json"),
+	      style: {
+	        ...touchButton("1px solid rgba(90,180,255,0.32)", "rgba(90,180,255,0.09)", "#8EC8FF")
+	      }
+	    }, "JSON"))), React.createElement("div", {
       style: {
         display: "grid",
         gridTemplateColumns: "repeat(4,1fr)",
@@ -2477,36 +2454,21 @@ try {
         alignItems: "center",
         flexWrap: "wrap"
       }
-    }, React.createElement("button", {
-      onClick: () => test(type),
-      disabled: st[key] === "loading",
-      style: {
-        display: "flex",
-        alignItems: "center",
-        gap: 5,
-        padding: "6px 12px",
-        borderRadius: 8,
-        border: "1px solid rgba(255,220,100,0.25)",
-        background: "rgba(255,220,100,0.07)",
-        color: "#FFDC64",
-        fontSize: 11,
-        cursor: "pointer",
-        fontWeight: 500
-      }
+	    }, React.createElement("button", {
+	      onClick: () => test(type),
+	      disabled: st[key] === "loading",
+	      style: {
+	        ...touchButton("1px solid rgba(255,220,100,0.32)", "rgba(255,220,100,0.09)", "#FFDC64", {
+	          cursor: st[key] === "loading" ? "wait" : "pointer"
+	        })
+	      }
     }, st[key] === "loading" ? React.createElement(React.Fragment, null, React.createElement(Spinner, {
       size: 11
-    }), React.createElement("span", null, "Testiram\u2026")) : React.createElement("span", null, "\uD83D\uDD0C Testiraj")), info?.[type]?.set && !info?.[type]?.fromEnv && React.createElement("button", {
-      onClick: () => del(type),
-      style: {
-        padding: "6px 12px",
-        borderRadius: 8,
-        border: "1px solid rgba(255,80,80,0.25)",
-        background: "rgba(255,80,80,0.07)",
-        color: "#FF8080",
-        fontSize: 11,
-        cursor: "pointer",
-        fontWeight: 500
-      }
+	    }), React.createElement("span", null, "Testiram\u2026")) : React.createElement("span", null, "\uD83D\uDD0C Testiraj")), info?.[type]?.set && !info?.[type]?.fromEnv && React.createElement("button", {
+	      onClick: () => del(type),
+	      style: {
+	        ...touchButton("1px solid rgba(255,80,80,0.3)", "rgba(255,80,80,0.08)", "#FF8080")
+	      }
     }, "\uD83D\uDDD1 Zbri\u0161i"), msg[key] && React.createElement("span", {
       style: {
         fontSize: 11,
@@ -2525,19 +2487,26 @@ try {
       style: {
         color: "rgba(255,220,100,0.5)"
       }
-    }, link)))), React.createElement("div", {
-      style: {
-        display: "flex",
-        gap: 9,
-        marginTop: 4
-      }
+	    }, link)))), React.createElement("div", {
+	      style: {
+	        display: "flex",
+	        gap: 9,
+	        margin: "4px -20px 0",
+	        padding: "12px 20px calc(12px + env(safe-area-inset-bottom))",
+	        position: "sticky",
+	        bottom: 0,
+	        background: "linear-gradient(180deg,rgba(20,20,22,0.88),#141416 38%)",
+	        borderTop: "1px solid rgba(255,255,255,0.08)",
+	        boxShadow: "0 -12px 24px rgba(0,0,0,0.28)"
+	      }
     }, React.createElement("button", {
       onClick: save,
       disabled: saving || !gem && !rep,
-      style: {
-        flex: 1,
-        padding: "11px",
-        background: saving || !gem && !rep ? "rgba(255,220,100,0.08)" : "linear-gradient(135deg,#FFDC64,#FF9B40)",
+	      style: {
+	        flex: 1,
+	        minHeight: 46,
+	        padding: "12px",
+	        background: saving || !gem && !rep ? "rgba(255,220,100,0.08)" : "linear-gradient(135deg,#FFDC64,#FF9B40)",
         border: "none",
         borderRadius: 10,
         color: saving || !gem && !rep ? "rgba(255,220,100,0.3)" : "#0C0C0E",
@@ -2553,10 +2522,11 @@ try {
       size: 13,
       color: "rgba(255,220,100,0.5)"
     }), React.createElement("span", null, "Shranjujem\u2026")) : React.createElement("span", null, "\uD83D\uDCBE Shrani klju\u010De")), React.createElement("button", {
-      onClick: onClose,
-      style: {
-        padding: "11px 18px",
-        background: "rgba(255,255,255,0.05)",
+	      onClick: onClose,
+	      style: {
+	        minHeight: 46,
+	        padding: "12px 20px",
+	        background: "rgba(255,255,255,0.05)",
         border: "1px solid rgba(255,255,255,0.1)",
         borderRadius: 10,
         color: "rgba(255,255,255,0.4)",
