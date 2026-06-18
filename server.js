@@ -2,12 +2,36 @@
 const express = require("express");
 const path    = require("path");
 const fs      = require("fs");
+const crypto  = require("crypto");
+const pkg     = require("./package.json");
 
 const app      = express();
 const PORT     = process.env.PORT || 3000;
 const KEYS_FILE = path.join(__dirname, "..", ".etsy-mockup-keys.json");
 const ADMIN_TOKEN = process.env.ADMIN_TOKEN || "";
+const APP_ACCESS_TOKEN = process.env.APP_ACCESS_TOKEN || "";
+const ADMIN_USERNAME = process.env.ADMIN_USERNAME || "";
+const ADMIN_PASSWORD_HASH = process.env.ADMIN_PASSWORD_HASH || "";
+const ADMIN_SESSION_SECRET = process.env.ADMIN_SESSION_SECRET || "";
+const ADMIN_SESSION_COOKIE = "ko_admin_session";
+const ADMIN_SESSION_TTL_MS = 1000 * 60 * 60 * 12;
+const ADMIN_LOGIN_RATE_WINDOW_MS = 60 * 1000;
+const ADMIN_LOGIN_RATE_MAX = 8;
 const FLORENCE_VERSION = "da53547e17d45b9cfb48174b2f18af8b83ca020fa76db62136bf9c6616762595";
+const SUPABASE_URL = (process.env.SUPABASE_URL || "").replace(/\/+$/, "");
+const SUPABASE_SERVICE_ROLE_KEY = process.env.SUPABASE_SERVICE_ROLE_KEY || "";
+const ANALYTICS_HMAC_SECRET = process.env.ANALYTICS_HMAC_SECRET || "";
+const ANALYTICS_SCHEMA = "analytics_private";
+const ANALYTICS_MAX_EVENTS = 100;
+const ANALYTICS_MAX_PAYLOAD_BYTES = 160 * 1024;
+const ANALYTICS_RATE_WINDOW_MS = 60 * 1000;
+const ANALYTICS_RATE_MAX = 30;
+const ADMIN_ANALYTICS_CACHE_MS = 45 * 1000;
+const ANALYTICS_GENERATION_TYPES = new Set(["generation_started", "generation_succeeded", "generation_failed"]);
+const ANALYTICS_INTERACTION_TYPES = new Set(["rating_set", "regenerate_clicked", "ai_fix_clicked", "download_png", "download_zip", "export_selected", "copy_prompt", "select_favorite"]);
+const analyticsRateBuckets = new Map();
+const adminAnalyticsCache = new Map();
+const adminLoginRateBuckets = new Map();
 
 app.use(express.json({ limit: "25mb" }));
 app.use(express.static(__dirname));
@@ -65,11 +89,151 @@ function getAuthToken(req) {
   return "";
 }
 
+function parseCookies(req) {
+  const header = req.get("cookie") || "";
+  return Object.fromEntries(header.split(";").map(part => {
+    const index = part.indexOf("=");
+    if (index === -1) return null;
+    const key = decodeURIComponent(part.slice(0, index).trim());
+    const value = decodeURIComponent(part.slice(index + 1).trim());
+    return [key, value];
+  }).filter(Boolean));
+}
+
+function base64UrlEncode(value) {
+  return Buffer.from(value).toString("base64url");
+}
+
+function base64UrlDecode(value) {
+  return Buffer.from(value, "base64url").toString("utf8");
+}
+
+function timingSafeEqualString(a, b) {
+  const left = Buffer.from(String(a || ""));
+  const right = Buffer.from(String(b || ""));
+  if (left.length !== right.length) return false;
+  return crypto.timingSafeEqual(left, right);
+}
+
+function adminSessionConfigured() {
+  return !!(ADMIN_USERNAME && ADMIN_PASSWORD_HASH && ADMIN_SESSION_SECRET);
+}
+
+function signAdminSession(payload) {
+  const body = base64UrlEncode(JSON.stringify(payload));
+  const sig = crypto.createHmac("sha256", ADMIN_SESSION_SECRET).update(body).digest("base64url");
+  return `${body}.${sig}`;
+}
+
+function verifyAdminSessionToken(token) {
+  if (!adminSessionConfigured() || !token || !token.includes(".")) return null;
+  const [body, sig] = token.split(".");
+  const expected = crypto.createHmac("sha256", ADMIN_SESSION_SECRET).update(body).digest("base64url");
+  if (!timingSafeEqualString(sig, expected)) return null;
+  try {
+    const payload = JSON.parse(base64UrlDecode(body));
+    if (payload?.role !== "admin") return null;
+    if (payload?.username !== ADMIN_USERNAME) return null;
+    if (!payload?.exp || Date.now() > Number(payload.exp)) return null;
+    return payload;
+  } catch {
+    return null;
+  }
+}
+
+function getAdminSession(req) {
+  return verifyAdminSessionToken(parseCookies(req)[ADMIN_SESSION_COOKIE]);
+}
+
+function adminCookieParts(maxAgeMs = ADMIN_SESSION_TTL_MS) {
+  const parts = [
+    "Path=/",
+    "HttpOnly",
+    "SameSite=Lax",
+    `Max-Age=${Math.max(0, Math.floor(maxAgeMs / 1000))}`,
+  ];
+  if (process.env.NODE_ENV === "production") parts.push("Secure");
+  return parts;
+}
+
+function setAdminSessionCookie(res, username) {
+  const token = signAdminSession({
+    role: "admin",
+    username,
+    iat: Date.now(),
+    exp: Date.now() + ADMIN_SESSION_TTL_MS,
+  });
+  res.setHeader("Set-Cookie", `${ADMIN_SESSION_COOKIE}=${encodeURIComponent(token)}; ${adminCookieParts().join("; ")}`);
+}
+
+function clearAdminSessionCookie(res) {
+  res.setHeader("Set-Cookie", `${ADMIN_SESSION_COOKIE}=; ${adminCookieParts(0).join("; ")}; Expires=Thu, 01 Jan 1970 00:00:00 GMT`);
+}
+
+function verifyAdminPassword(password) {
+  const [scheme, iterationsRaw, saltHex, hashHex] = String(ADMIN_PASSWORD_HASH || "").split("$");
+  if (scheme !== "pbkdf2") return false;
+  const iterations = Number(iterationsRaw);
+  if (!Number.isInteger(iterations) || iterations < 100000 || !saltHex || !hashHex) return false;
+  try {
+    const salt = Buffer.from(saltHex, "hex");
+    const expected = Buffer.from(hashHex, "hex");
+    const actual = crypto.pbkdf2Sync(String(password || ""), salt, iterations, expected.length, "sha256");
+    return actual.length === expected.length && crypto.timingSafeEqual(actual, expected);
+  } catch {
+    return false;
+  }
+}
+
+function rateLimitAdminLogin(req, res) {
+  const key = hashRateLimitKey(req);
+  const now = Date.now();
+  const bucket = adminLoginRateBuckets.get(key) || { count: 0, resetAt: now + ADMIN_LOGIN_RATE_WINDOW_MS };
+  if (bucket.resetAt <= now) {
+    bucket.count = 0;
+    bucket.resetAt = now + ADMIN_LOGIN_RATE_WINDOW_MS;
+  }
+  bucket.count += 1;
+  adminLoginRateBuckets.set(key, bucket);
+  if (bucket.count > ADMIN_LOGIN_RATE_MAX) {
+    res.status(429).json({ error: "Too many login attempts" });
+    return false;
+  }
+  return true;
+}
+
+function getAppAccessToken(req) {
+  const header = req.get("x-app-token") || "";
+  if (header) return header;
+
+  const auth = req.get("authorization") || "";
+  if (auth.toLowerCase().startsWith("bearer ")) return auth.slice(7).trim();
+
+  return "";
+}
+
 function requireAdmin(req, res) {
-  if (!ADMIN_TOKEN) return true;
-  if (getAuthToken(req) === ADMIN_TOKEN) return true;
+  if (getAdminSession(req)) return true;
+  const token = getAuthToken(req);
+  if (ADMIN_TOKEN && token && token === ADMIN_TOKEN) return true;
+  if (!adminSessionConfigured() && !ADMIN_TOKEN) {
+    res.status(503).json({ error: "Admin access is not configured" });
+    return false;
+  }
   res.status(401).json({ error: "Unauthorized" });
   return false;
+}
+
+function requireAppAccess(req, res) {
+  if (!APP_ACCESS_TOKEN) return true;
+  if (getAppAccessToken(req) === APP_ACCESS_TOKEN) return true;
+  res.status(401).json({ error: "Unauthorized" });
+  return false;
+}
+
+function sendAdminError(res, label, error, status = 500) {
+  console.error(`[${label}] failed:`, error.message);
+  res.status(status).json({ error: "Admin request failed" });
 }
 
 function keySource(type) {
@@ -136,6 +300,562 @@ async function fetchJsonWithRetry(url, options, { retries = 2, delayMs = 900, la
   }
   throw lastError || new Error(`${label} failed`);
 }
+
+function analyticsConfigReady() {
+  return !!(SUPABASE_URL && SUPABASE_SERVICE_ROLE_KEY && ANALYTICS_HMAC_SECRET);
+}
+
+function hashInstallId(installId) {
+  return crypto.createHmac("sha256", ANALYTICS_HMAC_SECRET).update(String(installId)).digest("hex");
+}
+
+function hashRateLimitKey(req) {
+  const source = req.ip || req.headers["x-forwarded-for"] || req.socket?.remoteAddress || "unknown";
+  return crypto.createHash("sha256").update(String(source)).digest("hex");
+}
+
+function rateLimitAnalytics(req, res) {
+  const key = hashRateLimitKey(req);
+  const now = Date.now();
+  const bucket = analyticsRateBuckets.get(key) || { count: 0, resetAt: now + ANALYTICS_RATE_WINDOW_MS };
+  if (bucket.resetAt <= now) {
+    bucket.count = 0;
+    bucket.resetAt = now + ANALYTICS_RATE_WINDOW_MS;
+  }
+  bucket.count += 1;
+  analyticsRateBuckets.set(key, bucket);
+  if (bucket.count > ANALYTICS_RATE_MAX) {
+    res.status(429).json({ error: "Too many analytics requests" });
+    return false;
+  }
+  return true;
+}
+
+function isUuid(value) {
+  return /^[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i.test(String(value || ""));
+}
+
+function safeText(value, max = 120) {
+  if (value === undefined || value === null) return null;
+  return String(value).replace(/[\u0000-\u001f\u007f]/g, "").slice(0, max);
+}
+
+function safePrimitiveText(value, max = 120) {
+  if (!["string", "number", "boolean"].includes(typeof value)) return null;
+  return safeText(value, max);
+}
+
+function safeInteger(value, min = 0, max = 2147483647) {
+  const n = Number(value);
+  if (!Number.isFinite(n)) return null;
+  return Math.max(min, Math.min(max, Math.round(n)));
+}
+
+const ANALYTICS_COMMON_METADATA_FIELDS = [
+  "generationId",
+  "clientGenerationId",
+  "batchId",
+  "conceptId",
+  "conceptFingerprint",
+  "listingRole",
+  "category",
+  "mode",
+  "printVisibility",
+  "provider",
+  "modelName",
+];
+const ANALYTICS_EVENT_METADATA_FIELDS = Object.fromEntries(Object.entries({
+  generation_started: [...ANALYTICS_COMMON_METADATA_FIELDS, "outcome", "latencyMs"],
+  generation_succeeded: [...ANALYTICS_COMMON_METADATA_FIELDS, "outcome", "latencyMs", "imageCount"],
+  generation_failed: [...ANALYTICS_COMMON_METADATA_FIELDS, "outcome", "failureCode", "latencyMs", "reasonCodes"],
+  rating_set: [...ANALYTICS_COMMON_METADATA_FIELDS, "rating"],
+  regenerate_clicked: [...ANALYTICS_COMMON_METADATA_FIELDS, "regenerateReason", "reasonCodes"],
+  ai_fix_clicked: [...ANALYTICS_COMMON_METADATA_FIELDS, "fixType", "reasonCodes"],
+  download_png: [...ANALYTICS_COMMON_METADATA_FIELDS, "fileType"],
+  download_zip: [...ANALYTICS_COMMON_METADATA_FIELDS, "fileType", "exportType", "imageCount"],
+  export_selected: [...ANALYTICS_COMMON_METADATA_FIELDS, "exportType", "fileType", "imageCount"],
+  copy_prompt: [...ANALYTICS_COMMON_METADATA_FIELDS],
+  select_favorite: [...ANALYTICS_COMMON_METADATA_FIELDS],
+}).map(([eventType, fields]) => [eventType, new Set(fields)]));
+
+const ANALYTICS_NUMERIC_METADATA_FIELDS = new Set([
+  "latencyMs",
+  "rating",
+  "imageCount",
+]);
+
+function sanitizeAnalyticsMetadata(eventType, payload = {}) {
+  const allowedFields = ANALYTICS_EVENT_METADATA_FIELDS[eventType] || new Set();
+  const allowed = {};
+  for (const [key, value] of Object.entries(payload || {})) {
+    if (!allowedFields.has(key) || value === undefined || value === null) continue;
+    if (key === "reasonCodes") {
+      if (Array.isArray(value)) {
+        allowed[key] = value
+          .filter(item => typeof item === "string" || typeof item === "number" || typeof item === "boolean")
+          .slice(0, 10)
+          .map(item => safeText(item, 80));
+      }
+      continue;
+    }
+    if (ANALYTICS_NUMERIC_METADATA_FIELDS.has(key)) {
+      const n = safeInteger(value, key === "rating" ? 1 : 0, key === "rating" ? 5 : 2147483647);
+      if (n !== null) allowed[key] = n;
+      continue;
+    }
+    if (typeof value === "string" || typeof value === "number" || typeof value === "boolean") {
+      allowed[key] = safeText(value, 160);
+    }
+  }
+  return allowed;
+}
+
+async function supabaseRestInsert(table, rows, { onConflict, merge = false } = {}) {
+  if (!rows.length) return;
+  const url = new URL(`${SUPABASE_URL}/rest/v1/${table}`);
+  if (onConflict) url.searchParams.set("on_conflict", onConflict);
+  const prefer = ["return=minimal"];
+  if (onConflict) prefer.push(`resolution=${merge ? "merge-duplicates" : "ignore-duplicates"}`);
+
+  const res = await fetch(url, {
+    method: "POST",
+    headers: {
+      apikey: SUPABASE_SERVICE_ROLE_KEY,
+      Authorization: `Bearer ${SUPABASE_SERVICE_ROLE_KEY}`,
+      "Content-Type": "application/json",
+      "Content-Profile": ANALYTICS_SCHEMA,
+      Prefer: prefer.join(","),
+    },
+    body: JSON.stringify(rows),
+  });
+  if (!res.ok) {
+    const text = await res.text().catch(() => "");
+    throw new Error(`Supabase ${table} insert failed (${res.status}): ${text.slice(0, 240)}`);
+  }
+}
+
+async function supabaseRestPatch(table, matchColumn, matchValue, row) {
+  const url = new URL(`${SUPABASE_URL}/rest/v1/${table}`);
+  url.searchParams.set(matchColumn, `eq.${matchValue}`);
+  const res = await fetch(url, {
+    method: "PATCH",
+    headers: {
+      apikey: SUPABASE_SERVICE_ROLE_KEY,
+      Authorization: `Bearer ${SUPABASE_SERVICE_ROLE_KEY}`,
+      "Content-Type": "application/json",
+      "Content-Profile": ANALYTICS_SCHEMA,
+      Prefer: "return=minimal",
+    },
+    body: JSON.stringify(row),
+  });
+  if (!res.ok) {
+    const text = await res.text().catch(() => "");
+    throw new Error(`Supabase ${table} update failed (${res.status}): ${text.slice(0, 240)}`);
+  }
+}
+
+function analyticsFiltersFromQuery(query = {}) {
+  const filters = {};
+  const map = {
+    mode: "mode",
+    printVisibility: "print_visibility",
+    listingRole: "listing_role",
+    category: "category",
+    provider: "provider",
+    modelName: "model_name",
+  };
+  for (const [inputKey, column] of Object.entries(map)) {
+    const value = safeText(query[inputKey], 180);
+    if (value) filters[column] = value;
+  }
+  const dateFrom = safeText(query.dateFrom, 20);
+  const dateTo = safeText(query.dateTo, 20);
+  if (dateFrom) filters.dateFrom = dateFrom;
+  if (dateTo) filters.dateTo = dateTo;
+  return filters;
+}
+
+function cacheKeyForAdminAnalytics(scope, filters = {}) {
+  return `${scope}:${JSON.stringify(Object.keys(filters).sort().reduce((acc, key) => {
+    acc[key] = filters[key];
+    return acc;
+  }, {}))}`;
+}
+
+async function withAdminAnalyticsCache(scope, filters, loader) {
+  const key = cacheKeyForAdminAnalytics(scope, filters);
+  const now = Date.now();
+  const cached = adminAnalyticsCache.get(key);
+  if (cached && cached.expiresAt > now) return { ...cached.value, cached: true };
+  const value = await loader();
+  adminAnalyticsCache.set(key, { value, expiresAt: now + ADMIN_ANALYTICS_CACHE_MS });
+  return { ...value, cached: false };
+}
+
+async function supabaseRestSelect(view, { filters = {}, order = "", limit = 1000 } = {}) {
+  if (!analyticsConfigReady()) throw new Error("Analytics ingest is not configured");
+  const url = new URL(`${SUPABASE_URL}/rest/v1/${view}`);
+  url.searchParams.set("select", "*");
+  if (filters.dateFrom) url.searchParams.set("day", `gte.${filters.dateFrom}`);
+  if (filters.dateTo) url.searchParams.append("day", `lte.${filters.dateTo}`);
+  for (const [column, value] of Object.entries(filters)) {
+    if (column === "dateFrom" || column === "dateTo") continue;
+    url.searchParams.set(column, `eq.${value}`);
+  }
+  if (order) url.searchParams.set("order", order);
+  if (limit) url.searchParams.set("limit", String(limit));
+
+  const res = await fetch(url, {
+    headers: {
+      apikey: SUPABASE_SERVICE_ROLE_KEY,
+      Authorization: `Bearer ${SUPABASE_SERVICE_ROLE_KEY}`,
+      Accept: "application/json",
+      "Accept-Profile": ANALYTICS_SCHEMA,
+    },
+  });
+  if (!res.ok) {
+    const text = await res.text().catch(() => "");
+    throw new Error(`Supabase ${view} select failed (${res.status}): ${text.slice(0, 240)}`);
+  }
+  return await res.json();
+}
+
+function addProxyMetrics(row = {}) {
+  const generations = Number(row.generations_total) || 0;
+  const succeeded = Number(row.generations_succeeded) || 0;
+  const failed = Number(row.generations_failed) || 0;
+  const downloads = Number(row.downloads ?? row.download_count) || 0;
+  const exportsCount = Number(row.exports ?? row.export_count) || 0;
+  const favorites = Number(row.favorites) || 0;
+  const regenerates = Number(row.regenerates ?? row.regenerate_count) || 0;
+  const aiFixes = Number(row.ai_fixes ?? row.ai_fix_count) || 0;
+  const avgRating = Number(row.avg_rating);
+  const saveRate = generations ? ((downloads + exportsCount + favorites) / generations) * 100 : null;
+  const regenerateRate = generations ? (regenerates / generations) * 100 : null;
+  const fixRate = generations ? (aiFixes / generations) * 100 : null;
+  const riskProxy = generations ? ((failed + regenerates + aiFixes) / generations) * 100 : null;
+  const ratingScore = Number.isFinite(avgRating) ? (avgRating / 5) * 100 : 0;
+  const saveScore = saveRate === null ? 0 : Math.min(100, saveRate);
+  const successScore = generations ? (succeeded / generations) * 100 : 0;
+  const trustProxy = generations || Number.isFinite(avgRating)
+    ? Number(((ratingScore * 0.45) + (saveScore * 0.35) + (successScore * 0.2)).toFixed(2))
+    : null;
+  return {
+    ...row,
+    save_rate_proxy: saveRate === null ? null : Number(saveRate.toFixed(2)),
+    regenerate_rate: regenerateRate === null ? null : Number(regenerateRate.toFixed(2)),
+    fix_rate: fixRate === null ? null : Number(fixRate.toFixed(2)),
+    trust_proxy: trustProxy,
+    risk_proxy: riskProxy === null ? null : Number(riskProxy.toFixed(2)),
+  };
+}
+
+function aggregateMetrics(rows = []) {
+  const totals = rows.reduce((acc, row) => {
+    const generations = Number(row.generations_total) || 0;
+    const succeeded = Number(row.generations_succeeded) || 0;
+    const failed = Number(row.generations_failed) || 0;
+    const ratings = Number(row.ratings_count) || 0;
+    const latency = Number(row.avg_latency_ms);
+    acc.generations_total += generations;
+    acc.generations_succeeded += succeeded;
+    acc.generations_failed += failed;
+    acc.ratings_count += ratings;
+    acc.rating_weighted += (Number(row.avg_rating) || 0) * ratings;
+    acc.downloads += Number(row.downloads) || 0;
+    acc.exports += Number(row.exports) || 0;
+    acc.regenerates += Number(row.regenerates) || 0;
+    acc.ai_fixes += Number(row.ai_fixes) || 0;
+    acc.favorites += Number(row.favorites) || 0;
+    if (Number.isFinite(latency) && generations > 0) {
+      acc.latency_weighted += latency * generations;
+      acc.latency_count += generations;
+    }
+    return acc;
+  }, {
+    generations_total: 0,
+    generations_succeeded: 0,
+    generations_failed: 0,
+    ratings_count: 0,
+    rating_weighted: 0,
+    downloads: 0,
+    exports: 0,
+    regenerates: 0,
+    ai_fixes: 0,
+    favorites: 0,
+    latency_weighted: 0,
+    latency_count: 0,
+  });
+
+  return addProxyMetrics({
+    generations_total: totals.generations_total,
+    generations_succeeded: totals.generations_succeeded,
+    generations_failed: totals.generations_failed,
+    success_rate: totals.generations_total ? Number(((totals.generations_succeeded / totals.generations_total) * 100).toFixed(2)) : null,
+    avg_latency_ms: totals.latency_count ? Math.round(totals.latency_weighted / totals.latency_count) : null,
+    ratings_count: totals.ratings_count,
+    avg_rating: totals.ratings_count ? Number((totals.rating_weighted / totals.ratings_count).toFixed(2)) : null,
+    downloads: totals.downloads,
+    exports: totals.exports,
+    regenerates: totals.regenerates,
+    ai_fixes: totals.ai_fixes,
+    favorites: totals.favorites,
+  });
+}
+
+function aggregateByDay(rows = []) {
+  const grouped = new Map();
+  for (const row of rows) {
+    const day = row.day;
+    const list = grouped.get(day) || [];
+    list.push(row);
+    grouped.set(day, list);
+  }
+  return Array.from(grouped.entries())
+    .sort(([a], [b]) => String(a).localeCompare(String(b)))
+    .map(([day, dayRows]) => addProxyMetrics({ day, ...aggregateMetrics(dayRows) }));
+}
+
+function aggregateConceptRows(rows = []) {
+  const grouped = new Map();
+  for (const row of rows) {
+    const key = [
+      row.listing_role || "",
+      row.category || "",
+      row.mode || "",
+      row.print_visibility || "",
+    ].join("\u001f");
+    const list = grouped.get(key) || [];
+    list.push(row);
+    grouped.set(key, list);
+  }
+  return Array.from(grouped.entries()).map(([key, groupRows]) => {
+    const [listing_role, category, mode, print_visibility] = key.split("\u001f");
+    const metrics = aggregateMetrics(groupRows);
+    const recentFailures = groupRows
+      .filter(row => Number(row.generations_failed) > 0)
+      .sort((a, b) => String(b.day).localeCompare(String(a.day)))
+      .slice(0, 5)
+      .map(row => ({
+        day: row.day,
+        generations_failed: Number(row.generations_failed) || 0,
+        provider: row.provider || null,
+        model_name: row.model_name || null,
+      }));
+    return addProxyMetrics({
+      listing_role,
+      category,
+      mode,
+      print_visibility,
+      generations_total: metrics.generations_total,
+      generations_succeeded: metrics.generations_succeeded,
+      generations_failed: metrics.generations_failed,
+      success_rate: metrics.success_rate,
+      avg_rating: metrics.avg_rating,
+      download_count: metrics.downloads,
+      export_count: metrics.exports,
+      regenerate_count: metrics.regenerates,
+      ai_fix_count: metrics.ai_fixes,
+      favorites: metrics.favorites,
+      recent_failures: recentFailures,
+      sanitized_metadata: {
+        listing_role,
+        category,
+        mode,
+        print_visibility,
+      },
+    });
+  }).sort((a, b) => (b.generations_total || 0) - (a.generations_total || 0));
+}
+
+function csvEscape(value) {
+  if (value === null || value === undefined) return "";
+  const text = String(value);
+  return /[",\n]/.test(text) ? `"${text.replace(/"/g, '""')}"` : text;
+}
+
+function toCsv(rows = []) {
+  if (!rows.length) return "";
+  const columns = Object.keys(rows[0]);
+  return [
+    columns.join(","),
+    ...rows.map(row => columns.map(column => csvEscape(row[column])).join(",")),
+  ].join("\n");
+}
+
+async function loadAdminResearchBundle(filters) {
+  const dailyRows = await supabaseRestSelect("v_daily_metrics", { filters, order: "day.asc", limit: 5000 });
+  const timeseries = aggregateByDay(dailyRows);
+  const breakdown = aggregateConceptRows(dailyRows).slice(0, 250);
+  return {
+    filters,
+    summary: aggregateMetrics(dailyRows),
+    timeseries,
+    breakdown,
+  };
+}
+
+function normalizeAnalyticsEvent(event, clientInstallHash) {
+  const eventType = safeText(event?.eventType, 80);
+  if (!eventType || (!ANALYTICS_GENERATION_TYPES.has(eventType) && !ANALYTICS_INTERACTION_TYPES.has(eventType))) {
+    return { error: "unsupported_event_type" };
+  }
+  if (!isUuid(event?.clientEventId)) return { error: "invalid_client_event_id" };
+
+  const payload = event.payload && typeof event.payload === "object" ? event.payload : {};
+  const createdAt = Date.parse(event.createdAt) ? new Date(event.createdAt).toISOString() : new Date().toISOString();
+  const metadata = sanitizeAnalyticsMetadata(eventType, payload);
+
+  if (ANALYTICS_GENERATION_TYPES.has(eventType)) {
+    const outcome = eventType === "generation_succeeded" ? "succeeded" : eventType === "generation_failed" ? "failed" : "started";
+    return {
+      table: "generation",
+      row: {
+        event_id: crypto.randomUUID(),
+        client_event_id: event.clientEventId,
+        client_install_hash: clientInstallHash,
+        batch_id: isUuid(payload.batchId) ? payload.batchId : null,
+        concept_id: safePrimitiveText(payload.conceptId || payload.clientGenerationId, 80),
+        design_fingerprint: safePrimitiveText(payload.conceptFingerprint, 128),
+        mode: safePrimitiveText(payload.mode, 80),
+        print_visibility: safePrimitiveText(payload.printVisibility, 80),
+        listing_role: safePrimitiveText(payload.listingRole, 80),
+        category: safePrimitiveText(payload.category, 160),
+        provider: safePrimitiveText(payload.provider, 80),
+        model_name: safePrimitiveText(payload.modelName, 120),
+        outcome,
+        failure_code: outcome === "failed" ? safePrimitiveText(payload.failureCode, 160) : null,
+        latency_ms: safeInteger(payload.latencyMs),
+        metadata,
+        created_at: createdAt,
+      },
+    };
+  }
+
+  return {
+    table: "interaction",
+      row: {
+        event_id: crypto.randomUUID(),
+        client_event_id: event.clientEventId,
+        client_install_hash: clientInstallHash,
+        generation_event_id: isUuid(payload.generationId) ? payload.generationId : null,
+        event_type: eventType,
+        rating: eventType === "rating_set" ? safeInteger(payload.rating, 1, 5) : null,
+      dwell_ms: null,
+      metadata,
+      created_at: createdAt,
+    },
+  };
+}
+
+app.post("/api/analytics/events/bulk", async (req, res) => {
+  if (!rateLimitAnalytics(req, res)) return;
+  const rawSize = Buffer.byteLength(JSON.stringify(req.body || {}), "utf8");
+  if (rawSize > ANALYTICS_MAX_PAYLOAD_BYTES) {
+    return res.status(413).json({ error: "Analytics payload too large" });
+  }
+
+  const { installId, consent, events, locale } = req.body || {};
+  if (consent !== true) return res.status(403).json({ error: "Analytics consent required" });
+  if (!analyticsConfigReady()) {
+    return res.status(503).json({ error: "Analytics ingest is not configured" });
+  }
+  if (!installId || typeof installId !== "string" || installId.length > 128) {
+    return res.status(400).json({ error: "Invalid installId" });
+  }
+  if (!Array.isArray(events)) return res.status(400).json({ error: "events must be an array" });
+  if (events.length > ANALYTICS_MAX_EVENTS) {
+    return res.status(413).json({ error: `Max ${ANALYTICS_MAX_EVENTS} analytics events per batch` });
+  }
+
+  const clientInstallHash = hashInstallId(installId);
+  const generationRows = [];
+  const interactionRows = [];
+  const rejected = [];
+  const seenClientEventIds = new Set();
+
+  events.forEach((event, index) => {
+    const normalized = normalizeAnalyticsEvent(event, clientInstallHash);
+    if (normalized.error) {
+      rejected.push({ index, error: normalized.error });
+      return;
+    }
+    const clientEventId = normalized.row.client_event_id;
+    if (seenClientEventIds.has(clientEventId)) {
+      rejected.push({ index, error: "duplicate_client_event_id" });
+      return;
+    }
+    seenClientEventIds.add(clientEventId);
+    if (normalized.table === "generation") generationRows.push(normalized.row);
+    else interactionRows.push(normalized.row);
+  });
+
+  try {
+    const nowIso = new Date().toISOString();
+    const clientUpdate = {
+      last_seen_at: nowIso,
+      consent_analytics: true,
+      locale: safeText(locale || req.get("accept-language"), 80),
+      app_version: safeText(pkg.version, 40),
+      opt_out_at: null,
+    };
+
+    await supabaseRestInsert("clients", [{
+      client_install_hash: clientInstallHash,
+      first_seen_at: nowIso,
+      ...clientUpdate,
+    }], { onConflict: "client_install_hash" });
+    await supabaseRestPatch("clients", "client_install_hash", clientInstallHash, clientUpdate);
+
+    await supabaseRestInsert("generation_events", generationRows, { onConflict: "client_event_id" });
+    await supabaseRestInsert("interaction_events", interactionRows, { onConflict: "client_event_id" });
+
+    res.json({
+      accepted: generationRows.length + interactionRows.length,
+      acceptedClientEventIds: [
+        ...generationRows.map(row => row.client_event_id),
+        ...interactionRows.map(row => row.client_event_id),
+      ],
+      rejected,
+    });
+  } catch (e) {
+    console.error("[analytics ingest] failed:", e.message);
+    res.status(502).json({ error: "Analytics ingest failed" });
+  }
+});
+
+// ─── Admin session auth ───────────────────────────────────────────────────────
+app.get("/api/admin/session", (req, res) => {
+  const session = getAdminSession(req);
+  res.json({
+    authenticated: !!session,
+    username: session?.username || null,
+    configured: adminSessionConfigured(),
+    tokenFallbackEnabled: !!ADMIN_TOKEN,
+  });
+});
+
+app.post("/api/admin/login", (req, res) => {
+  if (!adminSessionConfigured()) {
+    return res.status(503).json({ error: "Admin login is not configured" });
+  }
+  if (!rateLimitAdminLogin(req, res)) return;
+
+  const { username, password } = req.body || {};
+  const usernameOk = timingSafeEqualString(username, ADMIN_USERNAME);
+  const passwordOk = verifyAdminPassword(password);
+  if (!usernameOk || !passwordOk) {
+    return res.status(401).json({ error: "Invalid username or password" });
+  }
+
+  setAdminSessionCookie(res, ADMIN_USERNAME);
+  res.json({ ok: true, username: ADMIN_USERNAME });
+});
+
+app.post("/api/admin/logout", (req, res) => {
+  clearAdminSessionCookie(res);
+  res.json({ ok: true });
+});
 
 // ─── Key management ───────────────────────────────────────────────────────────
 app.get("/api/keys", (req, res) => {
@@ -882,7 +1602,7 @@ app.get("/api/debug/prompts", (req, res) => {
 });
 
 app.post("/api/generate-prompts", async (req, res) => {
-  if (!requireAdmin(req, res)) return;
+  if (!requireAppAccess(req, res)) return;
   const {
     batch, imageBase64, imageType,
     brandStyle, niche, audience, shirtModel, shirtName, shirtMode, designAnalysis, autoDetect, sceneDirection, mockupCount,
@@ -1130,7 +1850,7 @@ async function toDataUrl(imageUrl) {
 }
 
 app.post("/api/analyze-shirt", async (req, res) => {
-  if (!requireAdmin(req, res)) return;
+  if (!requireAppAccess(req, res)) return;
   const { imageBase64, imageType } = req.body;
   const { replicate } = loadKeys();
   if (!replicate)
@@ -1151,7 +1871,7 @@ app.post("/api/analyze-shirt", async (req, res) => {
 });
 
 app.post("/api/ai-fix-suggestion", async (req, res) => {
-  if (!requireAdmin(req, res)) return;
+  if (!requireAppAccess(req, res)) return;
   const { fluxPrompt, qaChecklist, customPrompt, imageBase64, imageType, printVisibility, mockupStyleMode, mockupStyleBrief, listingRole = "", listingRolePhase = "", listingRoleVariant = "", visiblePrint, riskAnalysis = {}, businessScores = {}, categoryResearch = "", shirtResearch = "" } = req.body;
   const { gemini } = loadKeys();
   if (!gemini)
@@ -1227,7 +1947,7 @@ No preamble, no extra commentary — just the correction prompt.` },
 });
 
 app.post("/api/generate-image", async (req, res) => {
-  if (!requireAdmin(req, res)) return;
+  if (!requireAppAccess(req, res)) return;
   const {
     fluxPrompt,
     customPrompt,
@@ -1358,6 +2078,91 @@ app.post("/api/generate-image", async (req, res) => {
   } catch (e) {
     console.error(`[generate-image ${requestId}] error`, e.message);
     res.status(500).json({ error: `[generate-image ${requestId}] ${e.message}` });
+  }
+});
+
+app.get("/api/admin/research/summary", async (req, res) => {
+  if (!requireAdmin(req, res)) return;
+  try {
+    const filters = analyticsFiltersFromQuery(req.query);
+    const data = await withAdminAnalyticsCache("summary", filters, async () => {
+      const rows = await supabaseRestSelect("v_daily_metrics", { filters, limit: 5000 });
+      return { filters, summary: aggregateMetrics(rows) };
+    });
+    res.json(data);
+  } catch (e) {
+    sendAdminError(res, "admin research summary", e);
+  }
+});
+
+app.get("/api/admin/research/timeseries", async (req, res) => {
+  if (!requireAdmin(req, res)) return;
+  try {
+    const filters = analyticsFiltersFromQuery(req.query);
+    const data = await withAdminAnalyticsCache("timeseries", filters, async () => {
+      const rows = await supabaseRestSelect("v_daily_metrics", { filters, order: "day.asc", limit: 5000 });
+      return { filters, rows: aggregateByDay(rows) };
+    });
+    res.json(data);
+  } catch (e) {
+    sendAdminError(res, "admin research timeseries", e);
+  }
+});
+
+app.get("/api/admin/research/breakdown", async (req, res) => {
+  if (!requireAdmin(req, res)) return;
+  try {
+    const filters = analyticsFiltersFromQuery(req.query);
+    const data = await withAdminAnalyticsCache("breakdown", filters, async () => {
+      const rows = await supabaseRestSelect("v_daily_metrics", { filters, order: "day.desc", limit: 5000 });
+      return { filters, rows: aggregateConceptRows(rows).slice(0, 250) };
+    });
+    res.json(data);
+  } catch (e) {
+    sendAdminError(res, "admin research breakdown", e);
+  }
+});
+
+app.get("/api/admin/research/export.json", async (req, res) => {
+  if (!requireAdmin(req, res)) return;
+  try {
+    const filters = analyticsFiltersFromQuery(req.query);
+    const data = await withAdminAnalyticsCache("export-json", filters, () => loadAdminResearchBundle(filters));
+    res.json(data);
+  } catch (e) {
+    sendAdminError(res, "admin research export json", e);
+  }
+});
+
+app.get("/api/admin/research/export.csv", async (req, res) => {
+  if (!requireAdmin(req, res)) return;
+  try {
+    const filters = analyticsFiltersFromQuery(req.query);
+    const data = await withAdminAnalyticsCache("export-csv", filters, () => loadAdminResearchBundle(filters));
+    const rows = data.breakdown.map(row => ({
+      listing_role: row.listing_role,
+      category: row.category,
+      mode: row.mode,
+      print_visibility: row.print_visibility,
+      generations_total: row.generations_total,
+      success_rate: row.success_rate,
+      avg_rating: row.avg_rating,
+      save_rate_proxy: row.save_rate_proxy,
+      regenerate_rate: row.regenerate_rate,
+      fix_rate: row.fix_rate,
+      trust_proxy: row.trust_proxy,
+      risk_proxy: row.risk_proxy,
+      downloads: row.download_count,
+      exports: row.export_count,
+      regenerates: row.regenerate_count,
+      ai_fixes: row.ai_fix_count,
+      favorites: row.favorites,
+    }));
+    res.setHeader("Content-Type", "text/csv; charset=utf-8");
+    res.setHeader("Content-Disposition", "attachment; filename=\"ko-research-analytics.csv\"");
+    res.send(toCsv(rows));
+  } catch (e) {
+    sendAdminError(res, "admin research export csv", e);
   }
 });
 

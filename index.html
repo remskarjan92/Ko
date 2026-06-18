@@ -86,10 +86,34 @@ try {
     useRef,
     useEffect
   } = React;
-  const ADMIN_TOKEN_STORAGE_KEY = "etsy_mockup_admin_token";
+  const APP_ACCESS_TOKEN_STORAGE_KEY = "ko.appAccessToken";
   const PROMPT_RATINGS_STORAGE_KEY = "etsy_mockup_prompt_ratings_v1";
   const PROMPT_LEARNING_ENABLED_KEY = "etsy_mockup_prompt_learning_enabled_v1";
   const DIVERSITY_HISTORY_STORAGE_KEY = "etsy_mockup_diversity_history_v1";
+  const ANALYTICS_INSTALL_ID_KEY = "ko.analytics.installId";
+  const ANALYTICS_CONSENT_KEY = "ko.analytics.consent";
+  const ANALYTICS_OUTBOX_KEY = "ko.analytics.outbox.v1";
+  const DEBUG_FLAGS_KEY = "ko.debug.flags";
+  const ANALYTICS_DB_NAME = "ko.analytics.v1";
+  const ANALYTICS_STORE_NAME = "outbox";
+  const ANALYTICS_MAX_FLUSH_EVENTS = 100;
+  const ANALYTICS_MAX_RETRY_ATTEMPTS = 3;
+  const ANALYTICS_EVENT_TYPES = new Set(["generation_started", "generation_succeeded", "generation_failed", "rating_set", "regenerate_clicked", "ai_fix_clicked", "download_png", "download_zip", "export_selected", "copy_prompt", "select_favorite"]);
+  const ANALYTICS_COMMON_PAYLOAD_FIELDS = ["generationId", "clientGenerationId", "batchId", "conceptId", "conceptFingerprint", "listingRole", "category", "mode", "printVisibility", "provider", "modelName"];
+  const ANALYTICS_EVENT_PAYLOAD_FIELDS = Object.fromEntries(Object.entries({
+    generation_started: [...ANALYTICS_COMMON_PAYLOAD_FIELDS, "outcome", "latencyMs"],
+    generation_succeeded: [...ANALYTICS_COMMON_PAYLOAD_FIELDS, "outcome", "latencyMs", "imageCount"],
+    generation_failed: [...ANALYTICS_COMMON_PAYLOAD_FIELDS, "outcome", "failureCode", "latencyMs", "reasonCodes"],
+    rating_set: [...ANALYTICS_COMMON_PAYLOAD_FIELDS, "rating"],
+    regenerate_clicked: [...ANALYTICS_COMMON_PAYLOAD_FIELDS, "regenerateReason", "reasonCodes"],
+    ai_fix_clicked: [...ANALYTICS_COMMON_PAYLOAD_FIELDS, "fixType", "reasonCodes"],
+    download_png: [...ANALYTICS_COMMON_PAYLOAD_FIELDS, "fileType"],
+    download_zip: [...ANALYTICS_COMMON_PAYLOAD_FIELDS, "fileType", "exportType", "imageCount"],
+    export_selected: [...ANALYTICS_COMMON_PAYLOAD_FIELDS, "exportType", "fileType", "imageCount"],
+    copy_prompt: [...ANALYTICS_COMMON_PAYLOAD_FIELDS],
+    select_favorite: [...ANALYTICS_COMMON_PAYLOAD_FIELDS]
+  }).map(([eventType, fields]) => [eventType, new Set(fields)]));
+  let analyticsFlushTimer = null;
   const ALL_BATCHES = [[{
     id: 1,
     emoji: "🤍",
@@ -441,16 +465,19 @@ try {
     const parts = [`mockup-${String(index + 1).padStart(2, "0")}`, slugifyName(result?.conceptName), slugifyName(result?.category || catInfo?.name)].filter(Boolean);
     return `${parts.join("-")}.png`;
   }
-  function getAdminToken() {
-    return localStorage.getItem(ADMIN_TOKEN_STORAGE_KEY) || "";
+  function getAppAccessToken() {
+    return localStorage.getItem(APP_ACCESS_TOKEN_STORAGE_KEY) || "";
   }
-  function setAdminToken(token) {
-    if (token) localStorage.setItem(ADMIN_TOKEN_STORAGE_KEY, token);else localStorage.removeItem(ADMIN_TOKEN_STORAGE_KEY);
+  function setAppAccessToken(token) {
+    if (token) localStorage.setItem(APP_ACCESS_TOKEN_STORAGE_KEY, token);else localStorage.removeItem(APP_ACCESS_TOKEN_STORAGE_KEY);
   }
-  function authHeaders() {
-    const token = getAdminToken();
+  function adminHeaders() {
+    return {};
+  }
+  function appAccessHeaders() {
+    const token = getAppAccessToken();
     return token ? {
-      "x-admin-token": token
+      "x-app-token": token
     } : {};
   }
   async function compressImageDataUrl(dataUrl, {
@@ -477,18 +504,52 @@ try {
     ctx.drawImage(img, 0, 0, width, height);
     return canvas.toDataURL(mimeType, quality);
   }
-  async function authedFetch(path, options = {}) {
+  async function adminFetch(path, options = {}) {
     const headers = {
       ...(options.headers || {}),
-      ...authHeaders()
+      ...adminHeaders()
     };
     return fetch(path, {
       ...options,
+      credentials: "same-origin",
       headers
     });
   }
+  async function appFetch(path, options = {}) {
+    const headers = {
+      ...(options.headers || {}),
+      ...appAccessHeaders()
+    };
+    return fetch(path, {
+      ...options,
+      credentials: "same-origin",
+      headers
+    });
+  }
+  const authedFetch = adminFetch;
   async function apiFetch(path, body) {
-    const res = await authedFetch(path, {
+    const res = await appFetch(path, {
+      method: "POST",
+      headers: {
+        "Content-Type": "application/json"
+      },
+      body: JSON.stringify(body)
+    });
+    const text = await res.text();
+    let d = {};
+    try {
+      d = text ? JSON.parse(text) : {};
+    } catch {
+      d = {};
+    }
+    if (!res.ok) {
+      const detail = d?.error || d?.message || text.trim();
+      throw new Error(detail || `Server error ${res.status}`);
+    }
+    return d;
+  }
+  async function adminApiFetch(path, body) {
+    const res = await adminFetch(path, {
       method: "POST",
       headers: {
         "Content-Type": "application/json"
@@ -541,6 +602,252 @@ try {
       localStorage.setItem(key, JSON.stringify(value));
     } catch {}
   }
+  function makeUuid() {
+    if (window.crypto?.randomUUID) return window.crypto.randomUUID();
+    return "xxxxxxxx-xxxx-4xxx-yxxx-xxxxxxxxxxxx".replace(/[xy]/g, c => {
+      const r = Math.random() * 16 | 0;
+      const v = c === "x" ? r : r & 3 | 8;
+      return v.toString(16);
+    });
+  }
+  function getAnalyticsDebugFlags() {
+    return loadJsonStorage(DEBUG_FLAGS_KEY, {});
+  }
+  function shouldLogAnalytics() {
+    return getAnalyticsDebugFlags()?.logAnalytics === true;
+  }
+  function getAnalyticsInstallId() {
+    let installId = localStorage.getItem(ANALYTICS_INSTALL_ID_KEY);
+    if (!installId) {
+      installId = makeUuid();
+      try {
+        localStorage.setItem(ANALYTICS_INSTALL_ID_KEY, installId);
+      } catch {}
+    }
+    return installId;
+  }
+  function getAnalyticsConsent() {
+    const existing = loadJsonStorage(ANALYTICS_CONSENT_KEY, null);
+    if (existing && typeof existing === "object" && typeof existing.analytics === "boolean") return existing;
+    const fallback = {
+      analytics: false,
+      updatedAt: new Date().toISOString()
+    };
+    saveJsonStorage(ANALYTICS_CONSENT_KEY, fallback);
+    return fallback;
+  }
+  function setAnalyticsConsent(value) {
+    const next = {
+      analytics: !!value,
+      updatedAt: new Date().toISOString()
+    };
+    saveJsonStorage(ANALYTICS_CONSENT_KEY, next);
+    return next;
+  }
+  function openAnalyticsDb() {
+    return new Promise((resolve, reject) => {
+      if (!window.indexedDB) return reject(new Error("IndexedDB unavailable"));
+      const request = indexedDB.open(ANALYTICS_DB_NAME, 1);
+      request.onupgradeneeded = () => {
+        const db = request.result;
+        if (!db.objectStoreNames.contains(ANALYTICS_STORE_NAME)) {
+          db.createObjectStore(ANALYTICS_STORE_NAME, {
+            keyPath: "clientEventId"
+          });
+        }
+      };
+      request.onsuccess = () => resolve(request.result);
+      request.onerror = () => reject(request.error || new Error("IndexedDB open failed"));
+    });
+  }
+  async function addAnalyticsEventToIndexedDb(event) {
+    const db = await openAnalyticsDb();
+    return new Promise((resolve, reject) => {
+      const tx = db.transaction(ANALYTICS_STORE_NAME, "readwrite");
+      tx.objectStore(ANALYTICS_STORE_NAME).put(event);
+      tx.oncomplete = () => {
+        db.close();
+        resolve();
+      };
+      tx.onerror = () => {
+        db.close();
+        reject(tx.error || new Error("IndexedDB write failed"));
+      };
+    });
+  }
+  async function readAnalyticsEventsFromIndexedDb() {
+    const db = await openAnalyticsDb();
+    return new Promise((resolve, reject) => {
+      const tx = db.transaction(ANALYTICS_STORE_NAME, "readonly");
+      const request = tx.objectStore(ANALYTICS_STORE_NAME).getAll();
+      request.onsuccess = () => resolve(request.result || []);
+      request.onerror = () => reject(request.error || new Error("IndexedDB read failed"));
+      tx.oncomplete = () => db.close();
+      tx.onerror = () => db.close();
+    });
+  }
+  async function deleteAnalyticsEventsFromIndexedDb(ids) {
+    if (!ids.length) return;
+    const db = await openAnalyticsDb();
+    return new Promise((resolve, reject) => {
+      const tx = db.transaction(ANALYTICS_STORE_NAME, "readwrite");
+      const store = tx.objectStore(ANALYTICS_STORE_NAME);
+      ids.forEach(id => store.delete(id));
+      tx.oncomplete = () => {
+        db.close();
+        resolve();
+      };
+      tx.onerror = () => {
+        db.close();
+        reject(tx.error || new Error("IndexedDB delete failed"));
+      };
+    });
+  }
+  async function putAnalyticsEventsToIndexedDb(events) {
+    if (!events.length) return;
+    const db = await openAnalyticsDb();
+    return new Promise((resolve, reject) => {
+      const tx = db.transaction(ANALYTICS_STORE_NAME, "readwrite");
+      const store = tx.objectStore(ANALYTICS_STORE_NAME);
+      events.forEach(event => store.put(event));
+      tx.oncomplete = () => {
+        db.close();
+        resolve();
+      };
+      tx.onerror = () => {
+        db.close();
+        reject(tx.error || new Error("IndexedDB update failed"));
+      };
+    });
+  }
+  function addAnalyticsEventToLocalStorage(event) {
+    const outbox = loadJsonStorage(ANALYTICS_OUTBOX_KEY, []);
+    const next = Array.isArray(outbox) ? [...outbox, event].slice(-500) : [event];
+    saveJsonStorage(ANALYTICS_OUTBOX_KEY, next);
+  }
+  function getLocalAnalyticsOutbox() {
+    const outbox = loadJsonStorage(ANALYTICS_OUTBOX_KEY, []);
+    return Array.isArray(outbox) ? outbox : [];
+  }
+  function removeLocalAnalyticsEvents(ids) {
+    const remove = new Set(ids);
+    saveJsonStorage(ANALYTICS_OUTBOX_KEY, getLocalAnalyticsOutbox().filter(event => !remove.has(event.clientEventId)));
+  }
+  function updateLocalAnalyticsEvents(events) {
+    if (!events.length) return;
+    const byId = new Map(getLocalAnalyticsOutbox().map(event => [event.clientEventId, event]));
+    events.forEach(event => byId.set(event.clientEventId, event));
+    saveJsonStorage(ANALYTICS_OUTBOX_KEY, Array.from(byId.values()).slice(-500));
+  }
+  function sanitizeAnalyticsPayload(eventType, payload = {}) {
+    const allowedFields = ANALYTICS_EVENT_PAYLOAD_FIELDS[eventType] || new Set();
+    const clean = {};
+    Object.entries(payload || {}).forEach(([key, value]) => {
+      if (!allowedFields.has(key) || value === undefined || value === null) return;
+      if (key === "reasonCodes") {
+        if (Array.isArray(value)) clean[key] = value.filter(item => ["string", "number", "boolean"].includes(typeof item)).slice(0, 10).map(String);
+        return;
+      }
+      if (["string", "number", "boolean"].includes(typeof value)) clean[key] = value;
+    });
+    return clean;
+  }
+  function analyticsContext(meta = {}, promptId = "") {
+    return {
+      clientGenerationId: promptId || "",
+      conceptId: promptId || "",
+      conceptFingerprint: meta.categoryId || "",
+      listingRole: meta.listingRole || "",
+      category: meta.categoryName || "",
+      mode: meta.mockupStyleMode || "",
+      printVisibility: meta.printVisibility || ""
+    };
+  }
+  async function trackAnalyticsEvent(eventType, payload = {}) {
+    if (!ANALYTICS_EVENT_TYPES.has(eventType)) return null;
+    const event = {
+      clientEventId: makeUuid(),
+      installId: getAnalyticsInstallId(),
+      eventType,
+      createdAt: new Date().toISOString(),
+      payload: sanitizeAnalyticsPayload(eventType, payload),
+      retryAttempts: 0
+    };
+    try {
+      await addAnalyticsEventToIndexedDb(event);
+    } catch {
+      addAnalyticsEventToLocalStorage(event);
+    }
+    if (shouldLogAnalytics()) console.log("[ko analytics]", event);
+    scheduleAnalyticsFlush();
+    return event;
+  }
+  function analyticsWireEvent(event) {
+    return {
+      clientEventId: event.clientEventId,
+      installId: event.installId,
+      eventType: event.eventType,
+      createdAt: event.createdAt,
+      payload: sanitizeAnalyticsPayload(event.eventType, event.payload || {})
+    };
+  }
+  function scheduleAnalyticsFlush() {
+    if (analyticsFlushTimer) return;
+    analyticsFlushTimer = setTimeout(() => {
+      analyticsFlushTimer = null;
+      flushAnalyticsOutbox().catch(() => {});
+    }, 2000);
+  }
+  async function flushAnalyticsOutbox() {
+    const consent = getAnalyticsConsent();
+    const localEvents = getLocalAnalyticsOutbox();
+    let idbEvents = [];
+    try {
+      idbEvents = await readAnalyticsEventsFromIndexedDb();
+    } catch {}
+    const byId = new Map([...idbEvents, ...localEvents].map(event => [event.clientEventId, event]));
+    const pending = Array.from(byId.values()).filter(event => (Number(event.retryAttempts) || 0) < ANALYTICS_MAX_RETRY_ATTEMPTS);
+    if (!consent.analytics || !pending.length) return pending;
+
+    const batch = pending.slice(0, ANALYTICS_MAX_FLUSH_EVENTS);
+    try {
+      const res = await authedFetch("/api/analytics/events/bulk", {
+        method: "POST",
+        headers: {
+          "Content-Type": "application/json"
+        },
+        body: JSON.stringify({
+          installId: getAnalyticsInstallId(),
+          consent: true,
+          locale: navigator.language || "",
+          events: batch.map(analyticsWireEvent)
+        })
+      });
+      if (!res.ok) throw new Error(`analytics flush failed ${res.status}`);
+      const data = await res.json().catch(() => ({}));
+      const acceptedIds = Array.isArray(data.acceptedClientEventIds) ? data.acceptedClientEventIds : [];
+      if (acceptedIds.length) {
+        removeLocalAnalyticsEvents(acceptedIds);
+        await deleteAnalyticsEventsFromIndexedDb(acceptedIds).catch(() => {});
+      }
+      return Array.from(byId.values()).filter(event => !acceptedIds.includes(event.clientEventId));
+    } catch {
+      const retryEvents = batch.map(event => ({
+        ...event,
+        retryAttempts: (Number(event.retryAttempts) || 0) + 1
+      }));
+      updateLocalAnalyticsEvents(retryEvents);
+      await putAnalyticsEventsToIndexedDb(retryEvents).catch(() => {});
+      return pending;
+    }
+  }
+  window.KOAnalytics = {
+    trackAnalyticsEvent,
+    getAnalyticsInstallId,
+    getAnalyticsConsent,
+    setAnalyticsConsent,
+    flushAnalyticsOutbox
+  };
   function makePromptId() {
     return `${Date.now()}-${Math.random().toString(36).slice(2, 8)}`;
   }
@@ -737,6 +1044,229 @@ try {
       }
     }, value));
   }
+  function fmtMetric(value, suffix = "") {
+    if (value === null || value === undefined || value === "") return "—";
+    if (typeof value === "number") return `${Number.isInteger(value) ? value : value.toFixed(2)}${suffix}`;
+    return `${value}${suffix}`;
+  }
+  function KpiCard({
+    label,
+    value
+  }) {
+    return React.createElement("div", {
+      style: {
+        padding: "9px 10px",
+        borderRadius: 9,
+        background: "rgba(0,0,0,0.28)",
+        border: "1px solid rgba(255,255,255,0.06)"
+      }
+    }, React.createElement("div", {
+      style: {
+        fontSize: 9,
+        color: "rgba(255,255,255,0.3)",
+        fontFamily: "'DM Mono',monospace",
+        textTransform: "uppercase"
+      }
+    }, label), React.createElement("div", {
+      style: {
+        fontSize: 16,
+        fontWeight: 700,
+        color: "#fff",
+        marginTop: 4
+      }
+    }, value));
+  }
+  function TinyTable({
+    columns,
+    rows,
+    onRowClick
+  }) {
+    return React.createElement("div", {
+      style: {
+        overflowX: "auto",
+        border: "1px solid rgba(255,255,255,0.06)",
+        borderRadius: 9
+      }
+    }, React.createElement("table", {
+      style: {
+        width: "100%",
+        borderCollapse: "collapse",
+        fontSize: 10,
+        color: "rgba(255,255,255,0.66)"
+      }
+    }, React.createElement("thead", null, React.createElement("tr", null, columns.map(col => React.createElement("th", {
+      key: col.key,
+      style: {
+        textAlign: "left",
+        padding: "7px 8px",
+        borderBottom: "1px solid rgba(255,255,255,0.06)",
+        color: "rgba(255,255,255,0.32)",
+        fontFamily: "'DM Mono',monospace",
+        whiteSpace: "nowrap"
+      }
+    }, col.label)))), React.createElement("tbody", null, rows.length ? rows.map((row, idx) => React.createElement("tr", {
+      key: idx,
+      onClick: onRowClick ? () => onRowClick(row) : undefined,
+      style: {
+        cursor: onRowClick ? "pointer" : "default"
+      }
+    }, columns.map(col => React.createElement("td", {
+      key: col.key,
+      style: {
+        padding: "7px 8px",
+        borderBottom: idx === rows.length - 1 ? "none" : "1px solid rgba(255,255,255,0.04)",
+        whiteSpace: "nowrap"
+      }
+    }, col.render ? col.render(row) : row[col.key] ?? "—")))) : React.createElement("tr", null, React.createElement("td", {
+      colSpan: columns.length,
+      style: {
+        padding: "10px 8px",
+        color: "rgba(255,255,255,0.32)"
+      }
+    }, "No data")))));
+  }
+  function ratePercent(numerator, denominator) {
+    const n = Number(numerator) || 0;
+    const d = Number(denominator) || 0;
+    return d ? Number((n / d * 100).toFixed(2)) : null;
+  }
+  function LineChart({
+    rows
+  }) {
+    const width = 520;
+    const height = 150;
+    const pad = 24;
+    const data = rows || [];
+    if (!data.length) return React.createElement("div", {
+      style: {
+        color: "rgba(255,255,255,0.32)",
+        fontSize: 11,
+        padding: 16
+      }
+    }, "No trend data");
+    const maxGen = Math.max(1, ...data.map(row => Number(row.generations_total) || 0));
+    const point = (idx, value, max) => {
+      const x = pad + (data.length === 1 ? 0 : idx / (data.length - 1) * (width - pad * 2));
+      const y = height - pad - (Number(value) || 0) / max * (height - pad * 2);
+      return `${x},${y}`;
+    };
+    const genLine = data.map((row, idx) => point(idx, row.generations_total, maxGen)).join(" ");
+    const successLine = data.map((row, idx) => point(idx, row.success_rate || 0, 100)).join(" ");
+    const ratingLine = data.map((row, idx) => point(idx, (Number(row.avg_rating) || 0) * 20, 100)).join(" ");
+    return React.createElement("div", null, React.createElement("svg", {
+      viewBox: `0 0 ${width} ${height}`,
+      style: {
+        width: "100%",
+        height: 170,
+        background: "rgba(0,0,0,0.22)",
+        border: "1px solid rgba(255,255,255,0.06)",
+        borderRadius: 9
+      }
+    }, React.createElement("polyline", {
+      points: genLine,
+      fill: "none",
+      stroke: "#FFDC64",
+      strokeWidth: 2
+    }), React.createElement("polyline", {
+      points: successLine,
+      fill: "none",
+      stroke: "#7EE8A2",
+      strokeWidth: 2
+    }), React.createElement("polyline", {
+      points: ratingLine,
+      fill: "none",
+      stroke: "#5AB4FF",
+      strokeWidth: 2
+    }), data.map((row, idx) => React.createElement("text", {
+      key: row.day || idx,
+      x: pad + (data.length === 1 ? 0 : idx / (data.length - 1) * (width - pad * 2)),
+      y: height - 6,
+      fill: "rgba(255,255,255,0.35)",
+      fontSize: 8,
+      textAnchor: idx === 0 ? "start" : idx === data.length - 1 ? "end" : "middle"
+    }, String(row.day || "").slice(5)))), React.createElement("div", {
+      style: {
+        display: "flex",
+        gap: 10,
+        flexWrap: "wrap",
+        marginTop: 6,
+        fontSize: 10,
+        color: "rgba(255,255,255,0.48)"
+      }
+    }, React.createElement("span", null, "■ Generations"), React.createElement("span", {
+      style: {
+        color: "#7EE8A2"
+      }
+    }, "■ Success rate"), React.createElement("span", {
+      style: {
+        color: "#5AB4FF"
+      }
+    }, "■ Avg rating x20")));
+  }
+  function BarList({
+    rows,
+    labelKey,
+    valueKey,
+    title,
+    suffix = ""
+  }) {
+    const data = (rows || []).slice(0, 8);
+    const max = Math.max(1, ...data.map(row => Number(row[valueKey]) || 0));
+    return React.createElement("div", {
+      style: {
+        padding: 10,
+        borderRadius: 9,
+        background: "rgba(0,0,0,0.22)",
+        border: "1px solid rgba(255,255,255,0.06)"
+      }
+    }, React.createElement("div", {
+      style: {
+        fontSize: 10,
+        color: "rgba(255,255,255,0.32)",
+        fontFamily: "'DM Mono',monospace",
+        marginBottom: 8,
+        textTransform: "uppercase"
+      }
+    }, title), data.length ? data.map((row, idx) => React.createElement("div", {
+      key: `${row[labelKey] || idx}-${idx}`,
+      style: {
+        marginBottom: 7
+      }
+    }, React.createElement("div", {
+      style: {
+        display: "flex",
+        justifyContent: "space-between",
+        gap: 8,
+        fontSize: 10,
+        color: "rgba(255,255,255,0.62)",
+        marginBottom: 3
+      }
+    }, React.createElement("span", {
+      style: {
+        overflow: "hidden",
+        textOverflow: "ellipsis",
+        whiteSpace: "nowrap"
+      }
+    }, row[labelKey] || "Unknown"), React.createElement("span", null, fmtMetric(row[valueKey], suffix))), React.createElement("div", {
+      style: {
+        height: 5,
+        borderRadius: 999,
+        background: "rgba(255,255,255,0.06)",
+        overflow: "hidden"
+      }
+    }, React.createElement("div", {
+      style: {
+        width: `${Math.max(2, (Number(row[valueKey]) || 0) / max * 100)}%`,
+        height: "100%",
+        background: "linear-gradient(90deg,#FFDC64,#7EE8A2)"
+      }
+    })))) : React.createElement("div", {
+      style: {
+        color: "rgba(255,255,255,0.32)",
+        fontSize: 11
+      }
+    }, "No data"));
+  }
   function ManualFixCard({
     mf
   }) {
@@ -889,10 +1419,18 @@ try {
   }) {
     const [gem, setGem] = useState("");
     const [rep, setRep] = useState("");
-    const [adminToken, setAdminTokenValue] = useState(getAdminToken());
+    const [appToken, setAppTokenValue] = useState(getAppAccessToken());
     const [showGem, setShowGem] = useState(false);
     const [showRep, setShowRep] = useState(false);
-    const [showAdmin, setShowAdmin] = useState(false);
+    const [showAppToken, setShowAppToken] = useState(false);
+    const [loginUsername, setLoginUsername] = useState("");
+    const [loginPassword, setLoginPassword] = useState("");
+    const [loginMsg, setLoginMsg] = useState("");
+    const [adminSession, setAdminSession] = useState({
+      authenticated: false,
+      configured: false,
+      username: null
+    });
     const [st, setSt] = useState({
       gemini: "idle",
       rep: "idle"
@@ -903,7 +1441,37 @@ try {
     });
     const [info, setInfo] = useState(null);
     const [saving, setSaving] = useState(false);
-    const [tokenMsg, setTokenMsg] = useState(getAdminToken() ? "Token saved locally on your device (never sent publicly)." : "");
+    const [appTokenMsg, setAppTokenMsg] = useState(getAppAccessToken() ? "App token saved locally on your device." : "");
+    const [researchFilters, setResearchFilters] = useState({
+      dateFrom: "",
+      dateTo: "",
+      mode: "",
+      printVisibility: "",
+      listingRole: "",
+      category: "",
+      provider: "",
+      modelName: ""
+    });
+    const [researchData, setResearchData] = useState({
+      summary: null,
+      timeseries: [],
+      breakdown: []
+    });
+    const [researchLoading, setResearchLoading] = useState(false);
+    const [researchError, setResearchError] = useState("");
+    const [selectedResearchRow, setSelectedResearchRow] = useState(null);
+    const loadSession = () => adminFetch("/api/admin/session").then(r => r.json()).then(d => {
+      setAdminSession(d);
+      return d;
+    }).catch(() => {
+      const fallback = {
+        authenticated: false,
+        configured: false,
+        username: null
+      };
+      setAdminSession(fallback);
+      return fallback;
+    });
     const loadInfo = () => authedFetch("/api/keys").then(r => {
       if (r.status === 401) {
         setInfo({
@@ -916,24 +1484,114 @@ try {
       if (d) setInfo(d);
     }).catch(() => {});
     useEffect(() => {
-      loadInfo();
+      loadSession().then(session => {
+        if (session.authenticated) loadInfo();
+        else setInfo({
+          authRequired: true
+        });
+      });
     }, []);
     const sc = s => s === "ok" ? "#7EE8A2" : s === "fail" ? "#FF8080" : "rgba(255,255,255,0.35)";
     const si = s => s === "ok" ? "✓" : s === "fail" ? "✗" : s === "loading" ? "…" : "";
-    const syncAdminToken = () => {
-      const token = adminToken.trim();
-      if (token) {
-        setAdminToken(token);
-        setAdminTokenValue(token);
-        return token;
+    const setResearchFilter = (key, value) => setResearchFilters(filters => ({
+      ...filters,
+      [key]: value
+    }));
+    const loadResearch = async () => {
+      setResearchLoading(true);
+      setResearchError("");
+      const params = new URLSearchParams(Object.entries(researchFilters).filter(([, value]) => value));
+      const query = params.toString() ? `?${params.toString()}` : "";
+      try {
+        const [summary, timeseries, breakdown] = await Promise.all([
+          authedFetch(`/api/admin/research/summary${query}`).then(async r => {
+            const d = await r.json();
+            if (!r.ok) throw new Error(d.error || `Server error ${r.status}`);
+            return d;
+          }),
+          authedFetch(`/api/admin/research/timeseries${query}`).then(async r => {
+            const d = await r.json();
+            if (!r.ok) throw new Error(d.error || `Server error ${r.status}`);
+            return d;
+          }),
+          authedFetch(`/api/admin/research/breakdown${query}`).then(async r => {
+            const d = await r.json();
+            if (!r.ok) throw new Error(d.error || `Server error ${r.status}`);
+            return d;
+          })
+        ]);
+        setResearchData({
+          summary: summary.summary || null,
+          timeseries: timeseries.rows || [],
+          breakdown: breakdown.rows || []
+        });
+        setSelectedResearchRow(null);
+      } catch (e) {
+        setResearchError(e.message);
+      } finally {
+        setResearchLoading(false);
       }
-      return getAdminToken();
     };
-    const handleAdminTokenChange = e => {
+    const researchQuery = () => {
+      const params = new URLSearchParams(Object.entries(researchFilters).filter(([, value]) => value));
+      return params.toString() ? `?${params.toString()}` : "";
+    };
+    const downloadResearchExport = async format => {
+      try {
+        const res = await authedFetch(`/api/admin/research/export.${format}${researchQuery()}`);
+        if (!res.ok) {
+          const d = await res.json().catch(() => ({}));
+          throw new Error(d.error || `Server error ${res.status}`);
+        }
+        const blob = await res.blob();
+        const url = URL.createObjectURL(blob);
+        const a = document.createElement("a");
+        a.href = url;
+        a.download = `ko-research-analytics.${format}`;
+        a.click();
+        URL.revokeObjectURL(url);
+      } catch (e) {
+        setResearchError(e.message);
+      }
+    };
+    const loginAdmin = async () => {
+      setLoginMsg("");
+      try {
+        const res = await adminFetch("/api/admin/login", {
+          method: "POST",
+          headers: {
+            "Content-Type": "application/json"
+          },
+          body: JSON.stringify({
+            username: loginUsername,
+            password: loginPassword
+          })
+        });
+        const d = await res.json().catch(() => ({}));
+        if (!res.ok) throw new Error(d.error || "Login failed");
+        setLoginPassword("");
+        setLoginMsg("Logged in.");
+        const session = await loadSession();
+        if (session.authenticated) loadInfo();
+      } catch {
+        setLoginMsg("Invalid username or password.");
+      }
+    };
+    const logoutAdmin = async () => {
+      await adminFetch("/api/admin/logout", {
+        method: "POST"
+      }).catch(() => {});
+      setInfo({
+        authRequired: true
+      });
+      setLoginMsg("Logged out.");
+      await loadSession();
+    };
+    const handleAppTokenChange = e => {
       const next = e.target.value;
-      setAdminTokenValue(next);
-      setAdminToken(next);
-      setTokenMsg(next.trim() ? "Token saved locally on your device (never sent publicly)." : "");
+      setAppTokenValue(next);
+      setAppAccessToken(next);
+      setAppTokenMsg(next.trim() ? "App token saved locally on your device." : "");
     };
     const test = async type => {
       setSt(s => ({
@@ -968,17 +1626,16 @@ try {
     const save = async () => {
       if (!gem && !rep) return;
       setSaving(true);
-      const token = syncAdminToken();
-      if (!token) {
+      if (!adminSession.authenticated) {
         setSaving(false);
-        alert("Admin token manjka. Najprej ga vnesi in shrani.");
+        alert("Admin login manjka. Najprej se prijavi.");
         return;
       }
       const body = {};
       if (gem) body.gemini = gem;
       if (rep) body.replicate = rep;
       try {
-        await apiFetch("/api/keys", body);
+        await adminApiFetch("/api/keys", body);
         const d = await authedFetch("/api/keys").then(r => r.json());
         setInfo(d);
         setGem("");
@@ -1060,7 +1717,7 @@ try {
         border: "1px solid rgba(255,255,255,0.1)",
         borderRadius: 18,
         width: "100%",
-        maxWidth: 500,
+        maxWidth: 860,
         maxHeight: "92vh",
         overflowY: "auto",
         animation: "fadeUp 0.25s ease"
@@ -1136,24 +1793,113 @@ try {
       style: {
         fontSize: 14
       }
-    }, "\uD83D\uDD10"), "Admin Access Token"), React.createElement("div", {
+    }, "\uD83D\uDD10"), "Admin Login"), React.createElement("div", {
       style: {
         fontSize: 10,
         color: "rgba(255,255,255,0.28)",
         marginBottom: 10
       }
-    }, "Optional local browser token used when `ADMIN_TOKEN` is enabled on the server. It is saved immediately as you paste or type it."), React.createElement("div", {
+    }, "Login uses a secure HTTP-only session cookie. Admin passwords are never stored in localStorage."), !adminSession.authenticated ? React.createElement(React.Fragment, null, React.createElement("input", {
+      type: "text",
+      placeholder: "Username",
+      value: loginUsername,
+      onChange: e => setLoginUsername(e.target.value),
+      style: {
+        marginBottom: 8
+      }
+    }), React.createElement("input", {
+      type: "password",
+      placeholder: "Password",
+      value: loginPassword,
+      onChange: e => setLoginPassword(e.target.value),
+      onKeyDown: e => {
+        if (e.key === "Enter") loginAdmin();
+      },
+      style: {
+        marginBottom: 10
+      }
+    }), React.createElement("button", {
+      onClick: loginAdmin,
+      style: {
+        padding: "6px 12px",
+        borderRadius: 8,
+        border: "1px solid rgba(255,220,100,0.25)",
+        background: "rgba(255,220,100,0.07)",
+        color: "#FFDC64",
+        fontSize: 11,
+        cursor: "pointer",
+        fontWeight: 500
+      }
+    }, "Login")) : React.createElement("div", {
+      style: {
+        display: "flex",
+        gap: 7,
+        alignItems: "center",
+        flexWrap: "wrap"
+      }
+    }, React.createElement("span", {
+      style: {
+        fontSize: 11,
+        color: "#7EE8A2",
+        fontFamily: "'DM Mono',monospace"
+      }
+    }, `Logged in as ${adminSession.username || "admin"}`), React.createElement("button", {
+      onClick: logoutAdmin,
+      style: {
+        padding: "6px 12px",
+        borderRadius: 8,
+        border: "1px solid rgba(255,80,80,0.25)",
+        background: "rgba(255,80,80,0.07)",
+        color: "#FF8080",
+        fontSize: 11,
+        cursor: "pointer",
+        fontWeight: 500
+      }
+    }, "Logout")), loginMsg && React.createElement("div", {
+      style: {
+        fontSize: 10,
+        color: loginMsg.includes("Invalid") ? "#FF8080" : "#7EE8A2",
+        fontFamily: "'DM Mono',monospace",
+        marginTop: 8
+      }
+    }, loginMsg)), React.createElement("div", {
+      style: {
+        marginTop: 12,
+        paddingTop: 12,
+        borderTop: "1px solid rgba(255,255,255,0.06)"
+      }
+    }, React.createElement("div", {
+      style: {
+        fontSize: 12,
+        fontWeight: 600,
+        color: "#fff",
+        display: "flex",
+        alignItems: "center",
+        gap: 7,
+        marginBottom: 4
+      }
+    }, React.createElement("span", {
+      style: {
+        fontSize: 14
+      }
+    }, "\uD83D\uDD11"), "App Access Token"), React.createElement("div", {
+      style: {
+        fontSize: 10,
+        color: "rgba(255,255,255,0.28)",
+        marginBottom: 10
+      }
+    }, "Optional local token for generation when `APP_ACCESS_TOKEN` is enabled on the server."), React.createElement("div", {
       style: {
         position: "relative",
         marginBottom: 10
       }
     }, React.createElement("input", {
-      type: showAdmin ? "text" : "password",
-      placeholder: "Paste admin token here",
-      value: adminToken,
-      onChange: handleAdminTokenChange
+      type: showAppToken ? "text" : "password",
+      placeholder: "Paste app access token here",
+      value: appToken,
+      onChange: handleAppTokenChange
     }), React.createElement("button", {
-      onClick: () => setShowAdmin(s => !s),
+      onClick: () => setShowAppToken(s => !s),
       style: {
         position: "absolute",
         right: 9,
@@ -1165,7 +1911,7 @@ try {
         color: "rgba(255,255,255,0.3)",
         fontSize: 13
       }
-    }, showAdmin ? "🙈" : "👁")), React.createElement("div", {
+    }, showAppToken ? "\uD83D\uDE48" : "\uD83D\uDC41")), React.createElement("div", {
       style: {
         display: "flex",
         gap: 7,
@@ -1174,27 +1920,25 @@ try {
       }
     }, React.createElement("button", {
       onClick: () => {
-        setAdminTokenValue(adminToken.trim());
-        setAdminToken(adminToken.trim());
-        setTokenMsg(adminToken.trim() ? "Token saved locally on your device (never sent publicly)." : "");
-        loadInfo();
+        setAppTokenValue(appToken.trim());
+        setAppAccessToken(appToken.trim());
+        setAppTokenMsg(appToken.trim() ? "App token saved locally on your device." : "");
       },
       style: {
         padding: "6px 12px",
         borderRadius: 8,
-        border: "1px solid rgba(255,220,100,0.25)",
-        background: "rgba(255,220,100,0.07)",
-        color: "#FFDC64",
+        border: "1px solid rgba(90,180,255,0.25)",
+        background: "rgba(90,180,255,0.07)",
+        color: "#8EC8FF",
         fontSize: 11,
         cursor: "pointer",
         fontWeight: 500
       }
-    }, "\uD83D\uDCBE Shrani token"), getAdminToken() && React.createElement("button", {
+    }, "\uD83D\uDCBE Shrani app token"), getAppAccessToken() && React.createElement("button", {
       onClick: () => {
-        setAdminToken("");
-        setAdminTokenValue("");
-        setTokenMsg("");
-        loadInfo();
+        setAppAccessToken("");
+        setAppTokenValue("");
+        setAppTokenMsg("");
       },
       style: {
         padding: "6px 12px",
@@ -1206,13 +1950,13 @@ try {
         cursor: "pointer",
         fontWeight: 500
       }
-    }, "\uD83D\uDDD1 Odstrani token"), tokenMsg && React.createElement("span", {
+    }, "\uD83D\uDDD1 Odstrani app token"), appTokenMsg && React.createElement("span", {
       style: {
         fontSize: 10,
         color: "#7EE8A2",
         fontFamily: "'DM Mono',monospace"
       }
-    }, tokenMsg))), info?.authRequired && React.createElement("div", {
+    }, appTokenMsg))), info?.authRequired && React.createElement("div", {
       style: {
         background: "rgba(80,130,255,0.08)",
         border: "1px solid rgba(80,130,255,0.2)",
@@ -1222,7 +1966,7 @@ try {
         color: "rgba(190,210,255,0.9)",
         fontSize: 12
       }
-    }, "\uD83D\uDD10 This browser is not authenticated yet. Paste the admin token above, then save it locally."), info && !info.authRequired && React.createElement("div", {
+    }, "\uD83D\uDD10 This browser is not authenticated yet. Log in above to access admin tools."), info && !info.authRequired && React.createElement("div", {
       style: {
         display: "flex",
         gap: 8,
@@ -1265,7 +2009,404 @@ try {
         color: "rgba(255,255,255,0.18)",
         marginTop: 2
       }
-    }, info[k].masked)))), configs.map(({
+    }, info[k].masked)))), info && !info.authRequired && React.createElement("div", {
+      style: {
+        background: "rgba(255,255,255,0.03)",
+        border: "1px solid rgba(255,255,255,0.07)",
+        borderRadius: 12,
+        padding: "14px",
+        marginBottom: 12
+      }
+    }, React.createElement("div", {
+      style: {
+        display: "flex",
+        justifyContent: "space-between",
+        alignItems: "center",
+        gap: 10,
+        marginBottom: 12
+      }
+    }, React.createElement("div", null, React.createElement("div", {
+      style: {
+        fontSize: 12,
+        fontWeight: 600,
+        color: "#fff"
+      }
+    }, "Poglobljeno raziskovanje"), React.createElement("div", {
+      style: {
+        fontSize: 10,
+        color: "rgba(255,255,255,0.28)",
+        marginTop: 3
+      }
+    }, "Admin-only analytics from server-side Supabase views.")), React.createElement("div", {
+      style: {
+        display: "flex",
+        gap: 7,
+        flexWrap: "wrap"
+      }
+    }, React.createElement("button", {
+      onClick: loadResearch,
+      disabled: researchLoading,
+      style: {
+        padding: "7px 12px",
+        borderRadius: 8,
+        border: "1px solid rgba(255,220,100,0.24)",
+        background: "rgba(255,220,100,0.07)",
+        color: "#FFDC64",
+        fontSize: 11,
+        cursor: researchLoading ? "wait" : "pointer",
+        fontWeight: 600
+      }
+    }, researchLoading ? "Nalagam..." : "Naloži"), React.createElement("button", {
+      onClick: () => downloadResearchExport("csv"),
+      style: {
+        padding: "7px 12px",
+        borderRadius: 8,
+        border: "1px solid rgba(126,232,162,0.24)",
+        background: "rgba(126,232,162,0.07)",
+        color: "#7EE8A2",
+        fontSize: 11,
+        cursor: "pointer",
+        fontWeight: 600
+      }
+    }, "CSV"), React.createElement("button", {
+      onClick: () => downloadResearchExport("json"),
+      style: {
+        padding: "7px 12px",
+        borderRadius: 8,
+        border: "1px solid rgba(90,180,255,0.24)",
+        background: "rgba(90,180,255,0.07)",
+        color: "#8EC8FF",
+        fontSize: 11,
+        cursor: "pointer",
+        fontWeight: 600
+      }
+    }, "JSON"))), React.createElement("div", {
+      style: {
+        display: "grid",
+        gridTemplateColumns: "repeat(4,1fr)",
+        gap: 8,
+        marginBottom: 12
+      }
+    }, React.createElement("input", {
+      type: "date",
+      value: researchFilters.dateFrom,
+      onChange: e => setResearchFilter("dateFrom", e.target.value)
+    }), React.createElement("input", {
+      type: "date",
+      value: researchFilters.dateTo,
+      onChange: e => setResearchFilter("dateTo", e.target.value)
+    }), React.createElement("select", {
+      value: researchFilters.mode,
+      onChange: e => setResearchFilter("mode", e.target.value)
+    }, React.createElement("option", {
+      value: ""
+    }, "All modes"), MOCKUP_STYLE_OPTIONS.map(o => React.createElement("option", {
+      key: o.value,
+      value: o.value
+    }, o.label))), React.createElement("select", {
+      value: researchFilters.printVisibility,
+      onChange: e => setResearchFilter("printVisibility", e.target.value)
+    }, React.createElement("option", {
+      value: ""
+    }, "All visibility"), PRINT_VISIBILITY_OPTIONS.map(o => React.createElement("option", {
+      key: o.value,
+      value: o.value
+    }, o.label))), React.createElement("select", {
+      value: researchFilters.listingRole,
+      onChange: e => setResearchFilter("listingRole", e.target.value)
+    }, React.createElement("option", {
+      value: ""
+    }, "All roles"), LISTING_ROLE_OPTIONS.map(o => React.createElement("option", {
+      key: o.value,
+      value: o.value
+    }, o.label))), React.createElement("input", {
+      type: "text",
+      placeholder: "Category",
+      value: researchFilters.category,
+      onChange: e => setResearchFilter("category", e.target.value)
+    }), React.createElement("input", {
+      type: "text",
+      placeholder: "Provider",
+      value: researchFilters.provider,
+      onChange: e => setResearchFilter("provider", e.target.value)
+    }), React.createElement("input", {
+      type: "text",
+      placeholder: "Model",
+      value: researchFilters.modelName,
+      onChange: e => setResearchFilter("modelName", e.target.value)
+    })), researchError && React.createElement("div", {
+      style: {
+        padding: "9px 10px",
+        borderRadius: 8,
+        background: "rgba(255,80,80,0.08)",
+        border: "1px solid rgba(255,80,80,0.18)",
+        color: "#FF8080",
+        fontSize: 11,
+        marginBottom: 10
+      }
+    }, researchError), researchData.summary && React.createElement(React.Fragment, null, React.createElement("div", {
+      style: {
+        display: "grid",
+        gridTemplateColumns: "repeat(4,1fr)",
+        gap: 8,
+        marginBottom: 12
+      }
+    }, React.createElement(KpiCard, {
+      label: "Generations",
+      value: fmtMetric(researchData.summary.generations_total)
+    }), React.createElement(KpiCard, {
+      label: "Success",
+      value: fmtMetric(researchData.summary.success_rate, "%")
+    }), React.createElement(KpiCard, {
+      label: "Avg rating",
+      value: fmtMetric(researchData.summary.avg_rating)
+    }), React.createElement(KpiCard, {
+      label: "Downloads",
+      value: fmtMetric(researchData.summary.downloads)
+    }), React.createElement(KpiCard, {
+      label: "Regenerates",
+      value: fmtMetric(researchData.summary.regenerates)
+    }), React.createElement(KpiCard, {
+      label: "AI fixes",
+      value: fmtMetric(researchData.summary.ai_fixes)
+    }), React.createElement(KpiCard, {
+      label: "Favorites",
+      value: fmtMetric(researchData.summary.favorites)
+    }), React.createElement(KpiCard, {
+      label: "Avg latency",
+      value: researchData.summary.avg_latency_ms ? `${researchData.summary.avg_latency_ms}ms` : "—"
+    }), React.createElement(KpiCard, {
+      label: "Save rate proxy",
+      value: fmtMetric(researchData.summary.save_rate_proxy, "%")
+    }), React.createElement(KpiCard, {
+      label: "Regenerate rate",
+      value: fmtMetric(researchData.summary.regenerate_rate, "%")
+    }), React.createElement(KpiCard, {
+      label: "Fix rate",
+      value: fmtMetric(researchData.summary.fix_rate, "%")
+    }), React.createElement(KpiCard, {
+      label: "Risk proxy",
+      value: fmtMetric(researchData.summary.risk_proxy, "%")
+    })), React.createElement("div", {
+      style: {
+        fontSize: 10,
+        color: "rgba(255,255,255,0.32)",
+        fontFamily: "'DM Mono',monospace",
+        marginBottom: 6,
+        textTransform: "uppercase"
+      }
+    }, "Trend chart"), React.createElement(LineChart, {
+      rows: researchData.timeseries
+    }), React.createElement("div", {
+      style: {
+        display: "grid",
+        gridTemplateColumns: "1fr 1fr",
+        gap: 10,
+        margin: "12px 0"
+      }
+    }, React.createElement(BarList, {
+      title: "Best listing roles/categories",
+      rows: researchData.breakdown,
+      labelKey: "listing_role",
+      valueKey: "save_rate_proxy",
+      suffix: "%"
+    }), React.createElement(BarList, {
+      title: "Highest regenerate rate",
+      rows: [...researchData.breakdown].sort((a, b) => (b.regenerate_rate || 0) - (a.regenerate_rate || 0)),
+      labelKey: "category",
+      valueKey: "regenerate_rate",
+      suffix: "%"
+    })), React.createElement("div", {
+      style: {
+        display: "grid",
+        gridTemplateColumns: "repeat(3,1fr)",
+        gap: 8,
+        marginBottom: 12
+      }
+    }, React.createElement(KpiCard, {
+      label: "Succeeded",
+      value: fmtMetric(researchData.summary.generations_succeeded)
+    }), React.createElement(KpiCard, {
+      label: "Failed",
+      value: fmtMetric(researchData.summary.generations_failed)
+    }), React.createElement(KpiCard, {
+      label: "Trust proxy",
+      value: fmtMetric(researchData.summary.trust_proxy)
+    })), React.createElement("div", {
+      style: {
+        fontSize: 10,
+        color: "rgba(255,255,255,0.32)",
+        fontFamily: "'DM Mono',monospace",
+        marginBottom: 6,
+        textTransform: "uppercase"
+      }
+    }, "Daily table"), React.createElement(TinyTable, {
+      columns: [{
+        key: "day",
+        label: "Day"
+      }, {
+        key: "generations_total",
+        label: "Gen"
+      }, {
+        key: "success_rate",
+        label: "Success",
+        render: row => fmtMetric(row.success_rate, "%")
+      }, {
+        key: "avg_rating",
+        label: "Rating",
+        render: row => fmtMetric(row.avg_rating)
+      }, {
+        key: "downloads",
+        label: "DL"
+      }, {
+        key: "regenerates",
+        label: "Regen"
+      }, {
+        key: "ai_fixes",
+        label: "Fix"
+      }, {
+        key: "avg_latency_ms",
+        label: "Latency",
+        render: row => row.avg_latency_ms ? `${row.avg_latency_ms}ms` : "—"
+      }],
+      rows: researchData.timeseries
+    }), React.createElement("div", {
+      style: {
+        fontSize: 10,
+        color: "rgba(255,255,255,0.32)",
+        fontFamily: "'DM Mono',monospace",
+        margin: "12px 0 6px",
+        textTransform: "uppercase"
+      }
+    }, "Breakdown"), React.createElement(TinyTable, {
+      columns: [{
+        key: "listing_role",
+        label: "Role"
+      }, {
+        key: "category",
+        label: "Category"
+      }, {
+        key: "mode",
+        label: "Mode"
+      }, {
+        key: "print_visibility",
+        label: "Print"
+      }, {
+        key: "generations_total",
+        label: "Gen"
+      }, {
+        key: "success_rate",
+        label: "Success",
+        render: row => fmtMetric(row.success_rate, "%")
+      }, {
+        key: "avg_rating",
+        label: "Rating",
+        render: row => fmtMetric(row.avg_rating)
+      }, {
+        key: "download_count",
+        label: "DL"
+      }, {
+        key: "save_rate_proxy",
+        label: "Save proxy",
+        render: row => fmtMetric(row.save_rate_proxy, "%")
+      }, {
+        key: "regenerate_rate",
+        label: "Regen %",
+        render: row => fmtMetric(row.regenerate_rate, "%")
+      }, {
+        key: "fix_rate",
+        label: "Fix %",
+        render: row => fmtMetric(row.fix_rate, "%")
+      }, {
+        key: "risk_proxy",
+        label: "Risk proxy",
+        render: row => fmtMetric(row.risk_proxy, "%")
+      }, {
+        key: "regenerate_count",
+        label: "Regen"
+      }, {
+        key: "ai_fix_count",
+        label: "Fix"
+      }],
+      rows: researchData.breakdown,
+      onRowClick: setSelectedResearchRow
+    })), selectedResearchRow && React.createElement("div", {
+      style: {
+        marginTop: 12,
+        padding: 12,
+        borderRadius: 10,
+        background: "rgba(0,0,0,0.32)",
+        border: "1px solid rgba(255,220,100,0.16)"
+      }
+    }, React.createElement("div", {
+      style: {
+        display: "flex",
+        justifyContent: "space-between",
+        alignItems: "center",
+        gap: 10,
+        marginBottom: 10
+      }
+    }, React.createElement("div", null, React.createElement("div", {
+      style: {
+        fontSize: 12,
+        fontWeight: 700,
+        color: "#fff"
+      }
+    }, selectedResearchRow.listing_role || "Unknown role"), React.createElement("div", {
+      style: {
+        fontSize: 10,
+        color: "rgba(255,255,255,0.38)",
+        marginTop: 2
+      }
+    }, selectedResearchRow.category || "No category")), React.createElement("button", {
+      onClick: () => setSelectedResearchRow(null),
+      style: {
+        border: "1px solid rgba(255,255,255,0.08)",
+        background: "rgba(255,255,255,0.04)",
+        color: "rgba(255,255,255,0.5)",
+        borderRadius: 8,
+        padding: "5px 9px",
+        cursor: "pointer"
+      }
+    }, "Close")), React.createElement("div", {
+      style: {
+        display: "grid",
+        gridTemplateColumns: "repeat(4,1fr)",
+        gap: 8,
+        marginBottom: 10
+      }
+    }, React.createElement(KpiCard, {
+      label: "Success",
+      value: fmtMetric(selectedResearchRow.success_rate, "%")
+    }), React.createElement(KpiCard, {
+      label: "Avg rating",
+      value: fmtMetric(selectedResearchRow.avg_rating)
+    }), React.createElement(KpiCard, {
+      label: "Regen rate",
+      value: fmtMetric(selectedResearchRow.regenerate_rate, "%")
+    }), React.createElement(KpiCard, {
+      label: "AI fix rate",
+      value: fmtMetric(selectedResearchRow.fix_rate, "%")
+    })), React.createElement("div", {
+      style: {
+        display: "grid",
+        gridTemplateColumns: "1fr 1fr",
+        gap: 10
+      }
+    }, React.createElement(Field, {
+      label: "Sanitized Metadata",
+      value: JSON.stringify(selectedResearchRow.sanitized_metadata || {
+        listing_role: selectedResearchRow.listing_role,
+        category: selectedResearchRow.category,
+        mode: selectedResearchRow.mode,
+        print_visibility: selectedResearchRow.print_visibility
+      }, null, 2),
+      accent: "rgba(90,180,255,0.22)"
+    }), React.createElement(Field, {
+      label: "Recent Failures",
+      value: (selectedResearchRow.recent_failures || []).length ? JSON.stringify(selectedResearchRow.recent_failures, null, 2) : `Aggregate failed generations: ${selectedResearchRow.generations_failed || 0}`,
+      accent: "rgba(255,120,120,0.22)"
+    })))), configs.map(({
       type,
       key,
       setKey,
@@ -1432,6 +2573,7 @@ try {
     onToggle,
     imgState,
     customPrompt,
+    analyticsContext: analyticsCtx = {},
     onCustomPrompt,
     onGenImage,
     onAiFix,
@@ -1574,7 +2716,13 @@ try {
     }), React.createElement("span", null, "Generating")) : done ? React.createElement(React.Fragment, null, "\u21BB ", React.createElement("span", null, "Regenerate")) : React.createElement(React.Fragment, null, "\uD83D\uDDBC ", React.createElement("span", null, "Generate"))), done && imgState?.url ? React.createElement("a", {
       href: imgState.url,
       download: downloadName,
-      onClick: onMarkSelected,
+      onClick: () => {
+        trackAnalyticsEvent("download_png", {
+          ...analyticsCtx,
+          fileType: "png"
+        });
+        onMarkSelected();
+      },
       style: {
         display: "inline-flex",
         alignItems: "center",
@@ -1938,6 +3086,8 @@ try {
     const refsRef = useRef();
     useEffect(() => {
       if (typeof markAppRendered === "function") markAppRendered();
+      getAnalyticsInstallId();
+      getAnalyticsConsent();
     }, []);
     useEffect(() => {
       authedFetch("/api/keys").then(r => {
@@ -2069,6 +3219,11 @@ try {
       const activeBatches = selectedBatches();
       const labels = ["Generiram flat lays in product posnetke…", "Generiram model in selfie posnetke…", "Generiram lifestyle in editorial posnetke…"];
       const all = [];
+      trackAnalyticsEvent("generation_started", {
+        printVisibility: form.printVisibility,
+        mode: resolvedMockupStyleMode(),
+        outcome: "started"
+      });
       try {
         const analysis = form.autoDetect ? designAnalysis || (await analyzeDesign()) : "";
         const learningContext = learningEnabled ? promptStats.learningContext : "";
@@ -2162,7 +3317,19 @@ try {
         }
         setDiversityHistory(runningHistory);
         setProgLabel(`Vseh ${form.mockupCount} promptov je pripravljenih!`);
+        trackAnalyticsEvent("generation_succeeded", {
+          mode: resolvedMockupStyleMode(),
+          printVisibility: form.printVisibility,
+          outcome: "succeeded",
+          imageCount: all.length
+        });
       } catch (e) {
+        trackAnalyticsEvent("generation_failed", {
+          mode: resolvedMockupStyleMode(),
+          printVisibility: form.printVisibility,
+          outcome: "failed",
+          failureCode: "prompt_generation_failed"
+        });
         setError("Napaka: " + e.message);
       } finally {
         setLoading(false);
@@ -2170,12 +3337,18 @@ try {
     };
     const genImage = async (id, fluxPrompt, customPrompt = "", meta = {}) => {
       const resolvedCustom = resolveRegenerationPrompt(id, customPrompt);
+      const target = results.find(r => r.catInfo.id === id);
+      trackAnalyticsEvent("regenerate_clicked", {
+        ...analyticsContext(target?.meta || meta, target?.promptId || ""),
+        listingRole: meta.listingRole || target?.data?.listingRole || target?.meta?.listingRole || "",
+        mode: meta.mockupStyleMode || target?.meta?.mockupStyleMode || resolvedMockupStyleMode(),
+        regenerateReason: resolvedCustom ? "custom_change" : "standard"
+      });
       setImg(id, {
         status: "loading",
         error: "",
         lastAction: resolvedCustom ? "regenerate_with_context" : "regenerate"
       });
-      const target = results.find(r => r.catInfo.id === id);
       if (target?.promptId) setPromptRating(target.promptId, ratingByPromptId[target.promptId] || 0, {
         regenerated: true,
         categoryName: target.meta?.categoryName,
@@ -2288,6 +3461,13 @@ try {
       setGenAllBusy(false);
     };
     const aiFixSuggestion = async (id, result) => {
+      const target = results.find(r => r.catInfo.id === id);
+      trackAnalyticsEvent("ai_fix_clicked", {
+        ...analyticsContext(target?.meta || {}, target?.promptId || ""),
+        listingRole: result.listingRole || target?.meta?.listingRole || "",
+        mode: target?.meta?.mockupStyleMode || resolvedMockupStyleMode(),
+        fixType: imgStates[id]?.url ? "image_fix" : "prompt_fix"
+      });
       setImg(id, {
         fixing: true,
         error: ""
@@ -2323,6 +3503,12 @@ try {
       }
     };
     const ratePrompt = (promptId, rating, meta = {}) => {
+      if (Number(rating) > 0) {
+        trackAnalyticsEvent("rating_set", {
+          rating,
+          ...analyticsContext(meta, promptId)
+        });
+      }
       setPromptRating(promptId, rating, meta);
     };
     const downloadAll = async () => {
@@ -2332,6 +3518,13 @@ try {
         image: imgStates[r.catInfo?.id]?.url
       })).filter(item => item.image);
       if (!done.length) return;
+      trackAnalyticsEvent("download_zip", {
+        imageCount: done.length,
+        fileType: "zip",
+        exportType: "bulk_mockup_zip",
+        mode: resolvedMockupStyleMode(),
+        printVisibility: form.printVisibility
+      });
       const zip = new JSZip();
       done.forEach(({
         result,
@@ -3455,6 +4648,7 @@ ${r.data.thumbnailNotes}`;
         onToggle: () => setOpenCard(openCard === gi ? null : gi),
         imgState: imgStates[id],
         customPrompt: customPrompts[id],
+        analyticsContext: analyticsContext(r.meta, r.promptId),
         onCustomPrompt: value => setCustomPrompt(id, value),
         onGenImage: customPrompt => genImage(id, r.data.fluxPrompt, customPrompt, r.meta),
         onAiFix: () => aiFixSuggestion(id, r.data),
