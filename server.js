@@ -27,7 +27,7 @@ const ANALYTICS_MAX_PAYLOAD_BYTES = 160 * 1024;
 const ANALYTICS_RATE_WINDOW_MS = 60 * 1000;
 const ANALYTICS_RATE_MAX = 30;
 const ADMIN_ANALYTICS_CACHE_MS = 45 * 1000;
-const LEARNING_MIN_SAMPLES = Number(process.env.LEARNING_MIN_SAMPLES || 1);
+const LEARNING_MIN_SAMPLES = Number(process.env.LEARNING_MIN_SAMPLES || 5);
 const LEARNING_REFRESH_TTL_MS = Number(process.env.LEARNING_REFRESH_TTL_MS || 15 * 60 * 1000);
 const RESEARCH_EXPORT_MAX_ROWS = Number(process.env.RESEARCH_EXPORT_MAX_ROWS || 5000);
 const ANALYTICS_GENERATION_TYPES = new Set(["generation_started", "generation_succeeded", "generation_failed"]);
@@ -360,6 +360,7 @@ const ANALYTICS_COMMON_METADATA_FIELDS = [
   "batchId",
   "conceptId",
   "conceptFingerprint",
+  "promptHash",
   "promptVersion",
   "productType",
   "listingRole",
@@ -582,7 +583,7 @@ function safeLimit(value, fallback = 20, max = 100) {
 }
 
 function safeMinSamples(value) {
-  return Math.max(1, safeInteger(value, 1, 100000) || LEARNING_MIN_SAMPLES);
+  return Math.max(5, safeInteger(value, 1, 100000) || LEARNING_MIN_SAMPLES);
 }
 
 const LEARNING_DIMENSIONS = new Set([
@@ -676,6 +677,7 @@ function aggregatePromptVersions(rows = []) {
       downloads: 0,
       exports: 0,
       regenerates: 0,
+      promptHashes: new Set(),
     };
     const samples = Number(row.sample_count) || 0;
     const ratings = Number(row.rating_count) || 0;
@@ -687,12 +689,14 @@ function aggregatePromptVersions(rows = []) {
     item.downloads += Number(row.download_count) || 0;
     item.exports += Number(row.export_count) || 0;
     item.regenerates += Number(row.regenerate_count) || 0;
+    if (row.prompt_hash) item.promptHashes.add(String(row.prompt_hash));
     grouped.set(key, item);
   }
   return Array.from(grouped.values()).map(item => ({
     prompt_version: item.prompt_version,
     concept_count: item.concept_count,
     sample_count: item.sample_count,
+    prompt_hash_count: item.promptHashes.size,
     avg_success_score: item.sample_count ? Number((item.score_weighted / Math.max(item.sample_count, 1)).toFixed(2)) : null,
     avg_rating: item.rating_weight ? Number((item.rating_weighted / item.rating_weight).toFixed(2)) : null,
     download_rate: item.sample_count ? Number((item.downloads / item.sample_count).toFixed(5)) : 0,

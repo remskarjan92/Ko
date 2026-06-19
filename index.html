@@ -99,7 +99,7 @@ try {
   const ANALYTICS_MAX_FLUSH_EVENTS = 100;
   const ANALYTICS_MAX_RETRY_ATTEMPTS = 3;
   const ANALYTICS_EVENT_TYPES = new Set(["generation_started", "generation_succeeded", "generation_failed", "rating_set", "regenerate_clicked", "ai_fix_clicked", "download_png", "download_zip", "export_selected", "copy_prompt", "select_favorite"]);
-  const ANALYTICS_COMMON_PAYLOAD_FIELDS = ["generationId", "clientGenerationId", "batchId", "conceptId", "conceptFingerprint", "promptVersion", "productType", "listingRole", "category", "mode", "printVisibility", "provider", "modelName", "targetBuyer", "environment", "pose", "cameraSetup", "lighting", "shirtType"];
+  const ANALYTICS_COMMON_PAYLOAD_FIELDS = ["generationId", "clientGenerationId", "batchId", "conceptId", "conceptFingerprint", "promptHash", "promptVersion", "productType", "listingRole", "category", "mode", "printVisibility", "provider", "modelName", "targetBuyer", "environment", "pose", "cameraSetup", "lighting", "shirtType"];
   const ANALYTICS_EVENT_PAYLOAD_FIELDS = Object.fromEntries(Object.entries({
     generation_started: [...ANALYTICS_COMMON_PAYLOAD_FIELDS, "outcome", "latencyMs"],
     generation_succeeded: [...ANALYTICS_COMMON_PAYLOAD_FIELDS, "outcome", "latencyMs", "imageCount"],
@@ -614,6 +614,14 @@ try {
       return v.toString(16);
     });
   }
+  function stablePromptHash(value = "") {
+    let hash = 0xcbf29ce484222325n;
+    for (const ch of String(value)) {
+      hash ^= BigInt(ch.codePointAt(0));
+      hash = (hash * 0x100000001b3n) & 0xffffffffffffffffn;
+    }
+    return `p_${hash.toString(16).padStart(16, "0")}`;
+  }
   function getAnalyticsDebugFlags() {
     return loadJsonStorage(DEBUG_FLAGS_KEY, {});
   }
@@ -761,6 +769,7 @@ try {
       clientGenerationId: promptId || "",
       conceptId: promptId || "",
       conceptFingerprint: meta.categoryId || "",
+      promptHash: meta.promptHash || "",
       promptVersion: "v1",
       productType: "shirt",
       listingRole: meta.listingRole || "",
@@ -1516,7 +1525,7 @@ try {
       exportDataset: "breakdown",
       product_type: "all",
       dimension_type: "listing_role",
-      min_samples: "1",
+      min_samples: "5",
       limit: "20",
       x: "audience",
       y: "mockup_style_mode"
@@ -2479,6 +2488,9 @@ try {
       columns: [{
         key: "prompt_version",
         label: "Version"
+      }, {
+        key: "prompt_hash_count",
+        label: "Hashes"
       }, {
         key: "concept_count",
         label: "Concepts"
@@ -3568,6 +3580,7 @@ try {
               pose: parsed[j]?.pose || "",
               cameraSetup: parsed[j]?.cameraSetup || "",
               lighting: parsed[j]?.lighting || "",
+              promptHash: stablePromptHash(parsed[j]?.fluxPrompt || ""),
               generatedAt: new Date().toISOString()
             },
             data: parsed[j] || {

@@ -17,6 +17,7 @@ with generation_base as (
   select
     coalesce(nullif(concept_id, ''), metadata->>'conceptId', metadata->>'clientGenerationId', 'unknown') as concept_id,
     coalesce(nullif(design_fingerprint, ''), metadata->>'conceptFingerprint', coalesce(nullif(concept_id, ''), metadata->>'conceptId', metadata->>'clientGenerationId', 'unknown')) as concept_fingerprint,
+    nullif(coalesce(metadata->>'promptHash', metadata->>'prompt_hash'), '') as prompt_hash,
     nullif(coalesce(prompt_version, metadata->>'promptVersion'), '') as prompt_version,
     nullif(coalesce(product_type, metadata->>'productType'), '') as product_type,
     nullif(coalesce(listing_role, metadata->>'listingRole'), '') as listing_role,
@@ -38,12 +39,13 @@ with generation_base as (
     min(created_at) as first_seen_at,
     max(created_at) as last_seen_at
   from analytics_private.generation_events
-  group by 1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14
+  group by 1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15
 ),
 interaction_base as (
   select
     coalesce(metadata->>'conceptId', metadata->>'clientGenerationId', 'unknown') as concept_id,
     coalesce(metadata->>'conceptFingerprint', metadata->>'conceptId', metadata->>'clientGenerationId', 'unknown') as concept_fingerprint,
+    nullif(coalesce(metadata->>'promptHash', metadata->>'prompt_hash'), '') as prompt_hash,
     nullif(metadata->>'promptVersion', '') as prompt_version,
     nullif(metadata->>'productType', '') as product_type,
     nullif(metadata->>'listingRole', '') as listing_role,
@@ -65,17 +67,18 @@ interaction_base as (
     min(created_at) as first_seen_at,
     max(created_at) as last_seen_at
   from analytics_private.interaction_events
-  group by 1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14
+  group by 1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15
 ),
 combined as (
   select * from generation_base
   union all
   select * from interaction_base
 )
-select
-  concept_id,
-  coalesce(nullif(max(concept_fingerprint), ''), concept_id) as concept_fingerprint,
-  nullif(max(prompt_version), '') as prompt_version,
+  select
+    concept_id,
+    coalesce(nullif(max(concept_fingerprint), ''), concept_id) as concept_fingerprint,
+    nullif(max(prompt_hash), '') as prompt_hash,
+    nullif(max(prompt_version), '') as prompt_version,
   nullif(max(product_type), '') as product_type,
   nullif(max(listing_role), '') as listing_role,
   nullif(max(category), '') as category,
@@ -102,6 +105,7 @@ group by concept_id;
 create table if not exists analytics_private.concept_scores (
   concept_id text primary key,
   concept_fingerprint text not null,
+  prompt_hash text,
   prompt_version text,
   product_type text,
   listing_role text,
@@ -181,7 +185,7 @@ begin
   delete from analytics_private.concept_scores;
 
   insert into analytics_private.concept_scores (
-    concept_id, concept_fingerprint, prompt_version, product_type, listing_role, category,
+    concept_id, concept_fingerprint, prompt_hash, prompt_version, product_type, listing_role, category,
     audience, mockup_style_mode, environment, pose, camera_setup, lighting, shirt_type,
     print_visibility, sample_count, rating_count, avg_rating, download_count, export_count,
     regenerate_count, download_rate, export_rate, regenerate_rate, success_score_raw,
@@ -193,7 +197,7 @@ begin
       least(1, coalesce(b.download_count::numeric / nullif(b.sample_count, 0), 0)) as download_rate_calc,
       least(1, coalesce(b.export_count::numeric / nullif(b.sample_count, 0), 0)) as export_rate_calc,
       least(1, coalesce(b.regenerate_count::numeric / nullif(b.sample_count, 0), 0)) as regenerate_rate_calc,
-      round(least(1.0, coalesce(b.sample_count, 0)::numeric / 5.0), 5) as confidence_weight_calc
+      round(least(1.0, coalesce(b.sample_count, 0)::numeric / 10.0), 5) as confidence_weight_calc
     from analytics_private.v_learning_concept_base b
     where b.sample_count > 0
   ),
@@ -211,6 +215,7 @@ begin
   select
     concept_id,
     concept_fingerprint,
+    prompt_hash,
     prompt_version,
     product_type,
     listing_role,
