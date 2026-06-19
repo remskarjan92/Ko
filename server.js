@@ -701,6 +701,20 @@ function aggregatePromptVersions(rows = []) {
   })).sort((a, b) => (b.avg_success_score || 0) - (a.avg_success_score || 0) || (b.sample_count || 0) - (a.sample_count || 0));
 }
 
+function buildLearningSummaryFromRows({ conceptRows = [], dimensionRows = [], promptVersionRows = [], minSamples = 1, productType = "all" } = {}) {
+  return {
+    generated_at: new Date().toISOString(),
+    min_samples: minSamples,
+    product_type: productType,
+    cards: {
+      best_concept: conceptRows[0] || null,
+      best_dimension: dimensionRows[0] || null,
+      worst_dimension: dimensionRows.length ? dimensionRows[dimensionRows.length - 1] : null,
+      best_prompt_version: promptVersionRows[0] || null,
+    },
+  };
+}
+
 async function loadPromptVersions(options = {}) {
   const { minSamples } = learningParams(options);
   const rows = await supabaseRestQuery("concept_scores", {
@@ -742,12 +756,26 @@ async function loadDimensionHeatmap(options = {}) {
 async function loadLearningSummary(options = {}) {
   const minSamples = safeMinSamples(options.min_samples || options.minSamples);
   const productType = safeText(options.product_type || options.productType || "all", 80) || "all";
-  const dimensionParams = { sample_count: `gte.${minSamples}` };
-  if (productType && productType !== "all") dimensionParams.product_type = `eq.${productType}`;
   const [topConcepts, bestDimensions, worstDimensions, promptVersions] = await Promise.all([
     loadTopConcepts({ ...options, mode: "top", limit: 1, min_samples: minSamples }),
-    supabaseRestQuery("dimension_scores", { params: dimensionParams, order: "success_score.desc,sample_count.desc", limit: 1 }),
-    supabaseRestQuery("dimension_scores", { params: dimensionParams, order: "success_score.asc,sample_count.desc", limit: 1 }),
+    supabaseRestQuery("dimension_scores", {
+      params: (() => {
+        const params = { sample_count: `gte.${minSamples}` };
+        if (productType && productType !== "all") params.product_type = `eq.${productType}`;
+        return params;
+      })(),
+      order: "success_score.desc,sample_count.desc",
+      limit: 1,
+    }),
+    supabaseRestQuery("dimension_scores", {
+      params: (() => {
+        const params = { sample_count: `gte.${minSamples}` };
+        if (productType && productType !== "all") params.product_type = `eq.${productType}`;
+        return params;
+      })(),
+      order: "success_score.asc,sample_count.desc",
+      limit: 1,
+    }),
     loadPromptVersions({ ...options, min_samples: minSamples }),
   ]);
   return {
@@ -760,6 +788,65 @@ async function loadLearningSummary(options = {}) {
       worst_dimension: worstDimensions[0] || null,
       best_prompt_version: promptVersions.rows[0] || null,
     },
+  };
+}
+
+async function loadLearningBundle(options = {}) {
+  const { minSamples, productType } = learningParams(options);
+  const conceptParams = { sample_count: `gte.${minSamples}` };
+  if (productType && productType !== "all") conceptParams.product_type = `eq.${productType}`;
+  const dimensionParams = { sample_count: `gte.${minSamples}` };
+  if (productType && productType !== "all") dimensionParams.product_type = `eq.${productType}`;
+  const [conceptRows, dimensionRows] = await Promise.all([
+    supabaseRestQuery("concept_scores", {
+      params: conceptParams,
+      order: "success_score.desc,sample_count.desc",
+      limit: RESEARCH_EXPORT_MAX_ROWS,
+    }),
+    supabaseRestQuery("dimension_scores", {
+      params: dimensionParams,
+      order: "success_score.desc,sample_count.desc",
+      limit: RESEARCH_EXPORT_MAX_ROWS,
+    }),
+  ]);
+  const promptVersionRows = aggregatePromptVersions(conceptRows);
+  const topConcepts = conceptRows.slice(0, safeLimit(options.limit, 20, 200));
+  const bottomConcepts = [...conceptRows].sort((a, b) => (a.success_score || 0) - (b.success_score || 0) || (b.sample_count || 0) - (a.sample_count || 0)).slice(0, safeLimit(options.limit, 20, 200));
+  const x = LEARNING_DIMENSIONS.has(options.x) ? options.x : "audience";
+  const y = LEARNING_DIMENSIONS.has(options.y) ? options.y : "mockup_style_mode";
+  const heatmapGrouped = new Map();
+  for (const row of conceptRows) {
+    const xValue = row[x];
+    const yValue = row[y];
+    if (!xValue || !yValue) continue;
+    const key = `${xValue}\u001f${yValue}`;
+    const item = heatmapGrouped.get(key) || { product_type: productType, x_value: xValue, y_value: yValue, sample_count: 0, score_weighted: 0 };
+    const samples = Number(row.sample_count) || 0;
+    item.sample_count += samples;
+    item.score_weighted += (Number(row.success_score) || 0) * samples;
+    heatmapGrouped.set(key, item);
+  }
+  const heatmap = Array.from(heatmapGrouped.values()).map(item => ({
+    product_type: item.product_type,
+    x_value: item.x_value,
+    y_value: item.y_value,
+    sample_count: item.sample_count,
+    success_score: item.sample_count ? Number((item.score_weighted / item.sample_count).toFixed(2)) : 0,
+  })).sort((a, b) => b.success_score - a.success_score || b.sample_count - a.sample_count);
+  const summary = buildLearningSummaryFromRows({
+    conceptRows: topConcepts,
+    dimensionRows,
+    promptVersionRows,
+    minSamples,
+    productType,
+  });
+  return {
+    ...summary,
+    topConcepts,
+    bottomConcepts,
+    dimensionLeaderboard: dimensionRows.slice(0, safeLimit(options.limit, 20, 200)),
+    promptVersions: promptVersionRows,
+    heatmap: heatmap.slice(0, safeLimit(options.limit, 20, 200)),
   };
 }
 
@@ -2405,6 +2492,20 @@ app.get("/api/admin/research/learning-summary", async (req, res) => {
     res.json(data);
   } catch (e) {
     sendAdminError(res, "admin research learning summary", e);
+  }
+});
+
+app.get("/api/admin/research/learning-bundle", async (req, res) => {
+  if (!requireAdmin(req, res)) return;
+  try {
+    const options = { ...req.query };
+    const data = await withAdminAnalyticsCache("learning-bundle", options, async () => {
+      const refreshed = await ensureLearningFresh({ force: options.refresh === "1" || options.refresh === "true" });
+      return { refreshed, ...(await loadLearningBundle(options)) };
+    });
+    res.json(data);
+  } catch (e) {
+    sendAdminError(res, "admin research learning bundle", e);
   }
 });
 

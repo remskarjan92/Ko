@@ -1587,57 +1587,45 @@ try {
       });
       const learningQuery = `?${learningParams.toString()}`;
       try {
-      const [summary, timeseries, breakdown] = await Promise.all([
-        authedFetch(`/api/admin/research/summary${query}`).then(async r => {
-          const d = await r.json();
-          if (!r.ok) throw new Error(d.error || `Server error ${r.status}`);
-          return d;
+        const [summary, timeseries, breakdown, learningBundle] = await Promise.all([
+          authedFetch(`/api/admin/research/summary${query}`).then(async r => {
+            const d = await r.json();
+            if (!r.ok) throw new Error(d.error || `Server error ${r.status}`);
+            return d;
           }),
           authedFetch(`/api/admin/research/timeseries${query}`).then(async r => {
             const d = await r.json();
             if (!r.ok) throw new Error(d.error || `Server error ${r.status}`);
             return d;
           }),
-        authedFetch(`/api/admin/research/breakdown${query}`).then(async r => {
-          const d = await r.json();
-          if (!r.ok) throw new Error(d.error || `Server error ${r.status}`);
-          return d;
-        })
-      ]);
-      const fetchOptional = url => authedFetch(url).then(async r => {
-        const d = await r.json().catch(() => ({}));
-        if (!r.ok) return null;
-        return d;
-      }).catch(() => null);
-      const [learningSummary, topConcepts, bottomConcepts, dimensionLeaderboard, promptVersions, heatmap] = await Promise.all([
-        fetchOptional(`/api/admin/research/learning-summary${learningQuery}`),
-        fetchOptional(`/api/admin/research/top-concepts${learningQuery}&mode=top`),
-        fetchOptional(`/api/admin/research/top-concepts${learningQuery}&mode=bottom`),
-        fetchOptional(`/api/admin/research/dimension-leaderboard${learningQuery}`),
-        fetchOptional(`/api/admin/research/prompt-versions${learningQuery}`),
-        fetchOptional(`/api/admin/research/dimension-heatmap${learningQuery}`)
-      ]);
-      setResearchData({
-        summary: summary.summary || null,
-        timeseries: timeseries.rows || [],
-        breakdown: breakdown.rows || [],
-        learningSummary: learningSummary?.cards || null,
-        topConcepts: topConcepts?.rows || [],
-        bottomConcepts: bottomConcepts?.rows || [],
-        dimensionLeaderboard: dimensionLeaderboard?.rows || [],
-        promptVersions: promptVersions?.rows || [],
-        heatmap: heatmap?.rows || []
-      });
+          authedFetch(`/api/admin/research/breakdown${query}`).then(async r => {
+            const d = await r.json();
+            if (!r.ok) throw new Error(d.error || `Server error ${r.status}`);
+            return d;
+          }),
+          authedFetch(`/api/admin/research/learning-bundle${learningQuery}`).then(async r => {
+            const d = await r.json();
+            if (!r.ok) throw new Error(d.error || `Server error ${r.status}`);
+            return d;
+          }).catch(() => null)
+        ]);
+        setResearchData({
+          summary: summary.summary || null,
+          timeseries: timeseries.rows || [],
+          breakdown: breakdown.rows || [],
+          learningSummary: learningBundle?.cards || null,
+          topConcepts: learningBundle?.topConcepts || [],
+          bottomConcepts: learningBundle?.bottomConcepts || [],
+          dimensionLeaderboard: learningBundle?.dimensionLeaderboard || [],
+          promptVersions: learningBundle?.promptVersions || [],
+          heatmap: learningBundle?.heatmap || []
+        });
         setSelectedResearchRow(null);
       } catch (e) {
         setResearchError(e.message);
       } finally {
         setResearchLoading(false);
       }
-    };
-    const researchQuery = () => {
-      const params = new URLSearchParams(Object.entries(researchFilters).filter(([, value]) => value));
-      return params.toString() ? `?${params.toString()}` : "";
     };
     const downloadResearchExport = async format => {
       try {
