@@ -27,6 +27,9 @@ const ANALYTICS_MAX_PAYLOAD_BYTES = 160 * 1024;
 const ANALYTICS_RATE_WINDOW_MS = 60 * 1000;
 const ANALYTICS_RATE_MAX = 30;
 const ADMIN_ANALYTICS_CACHE_MS = 45 * 1000;
+const LEARNING_MIN_SAMPLES = Number(process.env.LEARNING_MIN_SAMPLES || 1);
+const LEARNING_REFRESH_TTL_MS = Number(process.env.LEARNING_REFRESH_TTL_MS || 15 * 60 * 1000);
+const RESEARCH_EXPORT_MAX_ROWS = Number(process.env.RESEARCH_EXPORT_MAX_ROWS || 5000);
 const ANALYTICS_GENERATION_TYPES = new Set(["generation_started", "generation_succeeded", "generation_failed"]);
 const ANALYTICS_INTERACTION_TYPES = new Set(["rating_set", "regenerate_clicked", "ai_fix_clicked", "download_png", "download_zip", "export_selected", "copy_prompt", "select_favorite"]);
 const analyticsRateBuckets = new Map();
@@ -357,12 +360,20 @@ const ANALYTICS_COMMON_METADATA_FIELDS = [
   "batchId",
   "conceptId",
   "conceptFingerprint",
+  "promptVersion",
+  "productType",
   "listingRole",
   "category",
   "mode",
   "printVisibility",
   "provider",
   "modelName",
+  "targetBuyer",
+  "environment",
+  "pose",
+  "cameraSetup",
+  "lighting",
+  "shirtType",
 ];
 const ANALYTICS_EVENT_METADATA_FIELDS = Object.fromEntries(Object.entries({
   generation_started: [...ANALYTICS_COMMON_METADATA_FIELDS, "outcome", "latencyMs"],
@@ -442,6 +453,8 @@ async function supabaseRestPatch(table, matchColumn, matchValue, row) {
     headers: {
       apikey: SUPABASE_SERVICE_ROLE_KEY,
       Authorization: `Bearer ${SUPABASE_SERVICE_ROLE_KEY}`,
+      Accept: "application/json",
+      "Accept-Profile": ANALYTICS_SCHEMA,
       "Content-Type": "application/json",
       "Content-Profile": ANALYTICS_SCHEMA,
       Prefer: "return=minimal",
@@ -518,6 +531,236 @@ async function supabaseRestSelect(view, { filters = {}, order = "", limit = 1000
     throw new Error(`Supabase ${view} select failed (${res.status}): ${text.slice(0, 240)}`);
   }
   return await res.json();
+}
+
+async function supabaseRestQuery(resource, { params = {}, order = "", limit = 1000, select = "*" } = {}) {
+  if (!analyticsConfigReady()) throw new Error("Analytics ingest is not configured");
+  const url = new URL(`${SUPABASE_URL}/rest/v1/${resource}`);
+  url.searchParams.set("select", select);
+  for (const [key, value] of Object.entries(params)) {
+    if (value !== undefined && value !== null && value !== "") url.searchParams.set(key, String(value));
+  }
+  if (order) url.searchParams.set("order", order);
+  if (limit) url.searchParams.set("limit", String(limit));
+
+  const res = await fetch(url, {
+    headers: {
+      apikey: SUPABASE_SERVICE_ROLE_KEY,
+      Authorization: `Bearer ${SUPABASE_SERVICE_ROLE_KEY}`,
+      Accept: "application/json",
+      "Accept-Profile": ANALYTICS_SCHEMA,
+    },
+  });
+  if (!res.ok) {
+    const text = await res.text().catch(() => "");
+    throw new Error(`Supabase ${resource} query failed (${res.status}): ${text.slice(0, 240)}`);
+  }
+  return await res.json();
+}
+
+async function supabaseRestRpc(functionName) {
+  if (!analyticsConfigReady()) throw new Error("Analytics ingest is not configured");
+  const res = await fetch(`${SUPABASE_URL}/rest/v1/rpc/${functionName}`, {
+    method: "POST",
+    headers: {
+      apikey: SUPABASE_SERVICE_ROLE_KEY,
+      Authorization: `Bearer ${SUPABASE_SERVICE_ROLE_KEY}`,
+      "Content-Type": "application/json",
+      "Content-Profile": ANALYTICS_SCHEMA,
+      Prefer: "return=minimal",
+    },
+    body: JSON.stringify({}),
+  });
+  if (!res.ok) {
+    const text = await res.text().catch(() => "");
+    throw new Error(`Supabase RPC ${functionName} failed (${res.status}): ${text.slice(0, 240)}`);
+  }
+}
+
+function safeLimit(value, fallback = 20, max = 100) {
+  return Math.max(1, Math.min(max, safeInteger(value, 1, max) || fallback));
+}
+
+function safeMinSamples(value) {
+  return Math.max(1, safeInteger(value, 1, 100000) || LEARNING_MIN_SAMPLES);
+}
+
+const LEARNING_DIMENSIONS = new Set([
+  "listing_role",
+  "mockup_style_mode",
+  "environment",
+  "camera_setup",
+  "pose",
+  "lighting",
+  "shirt_type",
+  "print_visibility",
+  "audience",
+  "category",
+  "product_type",
+]);
+
+let learningRefreshInFlight = null;
+
+function learningParams(query = {}) {
+  const mode = query.mode === "bottom" ? "bottom" : "top";
+  const productType = safeText(query.product_type || query.productType || "all", 80) || "all";
+  return {
+    mode,
+    limit: safeLimit(query.limit, 20, 200),
+    minSamples: safeMinSamples(query.min_samples || query.minSamples),
+    productType,
+    refresh: query.refresh === "1" || query.refresh === "true",
+  };
+}
+
+async function ensureLearningFresh({ force = false } = {}) {
+  const latest = await supabaseRestQuery("concept_scores", {
+    select: "updated_at",
+    order: "updated_at.desc",
+    limit: 1,
+  });
+  const latestMs = latest[0]?.updated_at ? Date.parse(latest[0].updated_at) : 0;
+  if (!(force || !latestMs || Date.now() - latestMs > LEARNING_REFRESH_TTL_MS)) return false;
+  if (!learningRefreshInFlight) {
+    learningRefreshInFlight = (async () => {
+      await supabaseRestRpc("refresh_learning_scores");
+      adminAnalyticsCache.clear();
+      return true;
+    })().finally(() => {
+      learningRefreshInFlight = null;
+    });
+  }
+  await learningRefreshInFlight;
+  return true;
+}
+
+async function loadTopConcepts(options = {}) {
+  const { mode, limit, minSamples, productType } = learningParams(options);
+  const params = { sample_count: `gte.${minSamples}` };
+  if (productType && productType !== "all") params.product_type = `eq.${productType}`;
+  const rows = await supabaseRestQuery("concept_scores", {
+    params,
+    order: mode === "bottom" ? "success_score.asc,sample_count.desc" : "success_score.desc,sample_count.desc",
+    limit,
+  });
+  return { mode, limit, min_samples: minSamples, product_type: productType, rows };
+}
+
+async function loadDimensionLeaderboard(options = {}) {
+  const base = learningParams(options);
+  const dimensionType = LEARNING_DIMENSIONS.has(options.dimension_type) ? options.dimension_type : "listing_role";
+  const params = {
+    dimension_type: `eq.${dimensionType}`,
+    sample_count: `gte.${base.minSamples}`,
+  };
+  if (base.productType) params.product_type = `eq.${base.productType}`;
+  const rows = await supabaseRestQuery("dimension_scores", {
+    params,
+    order: base.mode === "bottom" ? "success_score.asc,sample_count.desc" : "success_score.desc,sample_count.desc",
+    limit: base.limit,
+  });
+  return { ...base, dimension_type: dimensionType, rows };
+}
+
+function aggregatePromptVersions(rows = []) {
+  const grouped = new Map();
+  for (const row of rows) {
+    const key = row.prompt_version || "unknown";
+    const item = grouped.get(key) || {
+      prompt_version: key,
+      concept_count: 0,
+      sample_count: 0,
+      rating_weighted: 0,
+      rating_weight: 0,
+      score_weighted: 0,
+      downloads: 0,
+      exports: 0,
+      regenerates: 0,
+    };
+    const samples = Number(row.sample_count) || 0;
+    const ratings = Number(row.rating_count) || 0;
+    item.concept_count += 1;
+    item.sample_count += samples;
+    item.rating_weighted += (Number(row.avg_rating) || 0) * Math.max(ratings, 1);
+    item.rating_weight += Math.max(ratings, 1);
+    item.score_weighted += (Number(row.success_score) || 0) * Math.max(samples, 1);
+    item.downloads += Number(row.download_count) || 0;
+    item.exports += Number(row.export_count) || 0;
+    item.regenerates += Number(row.regenerate_count) || 0;
+    grouped.set(key, item);
+  }
+  return Array.from(grouped.values()).map(item => ({
+    prompt_version: item.prompt_version,
+    concept_count: item.concept_count,
+    sample_count: item.sample_count,
+    avg_success_score: item.sample_count ? Number((item.score_weighted / Math.max(item.sample_count, 1)).toFixed(2)) : null,
+    avg_rating: item.rating_weight ? Number((item.rating_weighted / item.rating_weight).toFixed(2)) : null,
+    download_rate: item.sample_count ? Number((item.downloads / item.sample_count).toFixed(5)) : 0,
+    export_rate: item.sample_count ? Number((item.exports / item.sample_count).toFixed(5)) : 0,
+    regenerate_rate: item.sample_count ? Number((item.regenerates / item.sample_count).toFixed(5)) : 0,
+  })).sort((a, b) => (b.avg_success_score || 0) - (a.avg_success_score || 0) || (b.sample_count || 0) - (a.sample_count || 0));
+}
+
+async function loadPromptVersions(options = {}) {
+  const { minSamples } = learningParams(options);
+  const rows = await supabaseRestQuery("concept_scores", {
+    params: { sample_count: `gte.${minSamples}` },
+    limit: RESEARCH_EXPORT_MAX_ROWS,
+  });
+  return { min_samples: minSamples, rows: aggregatePromptVersions(rows) };
+}
+
+async function loadDimensionHeatmap(options = {}) {
+  const { minSamples, productType } = learningParams(options);
+  const x = LEARNING_DIMENSIONS.has(options.x) ? options.x : "audience";
+  const y = LEARNING_DIMENSIONS.has(options.y) ? options.y : "mockup_style_mode";
+  const params = { sample_count: `gte.${minSamples}` };
+  if (productType && productType !== "all") params.product_type = `eq.${productType}`;
+  const sourceRows = await supabaseRestQuery("concept_scores", { params, limit: RESEARCH_EXPORT_MAX_ROWS });
+  const grouped = new Map();
+  for (const row of sourceRows) {
+    const xValue = row[x];
+    const yValue = row[y];
+    if (!xValue || !yValue) continue;
+    const key = `${xValue}\u001f${yValue}`;
+    const item = grouped.get(key) || { product_type: productType, x_value: xValue, y_value: yValue, sample_count: 0, score_weighted: 0 };
+    const samples = Number(row.sample_count) || 0;
+    item.sample_count += samples;
+    item.score_weighted += (Number(row.success_score) || 0) * samples;
+    grouped.set(key, item);
+  }
+  const rows = Array.from(grouped.values()).map(item => ({
+    product_type: item.product_type,
+    x_value: item.x_value,
+    y_value: item.y_value,
+    sample_count: item.sample_count,
+    success_score: item.sample_count ? Number((item.score_weighted / item.sample_count).toFixed(2)) : 0,
+  })).sort((a, b) => b.success_score - a.success_score || b.sample_count - a.sample_count);
+  return { x, y, min_samples: minSamples, product_type: productType, rows };
+}
+
+async function loadLearningSummary(options = {}) {
+  const minSamples = safeMinSamples(options.min_samples || options.minSamples);
+  const productType = safeText(options.product_type || options.productType || "all", 80) || "all";
+  const dimensionParams = { sample_count: `gte.${minSamples}` };
+  if (productType && productType !== "all") dimensionParams.product_type = `eq.${productType}`;
+  const [topConcepts, bestDimensions, worstDimensions, promptVersions] = await Promise.all([
+    loadTopConcepts({ ...options, mode: "top", limit: 1, min_samples: minSamples }),
+    supabaseRestQuery("dimension_scores", { params: dimensionParams, order: "success_score.desc,sample_count.desc", limit: 1 }),
+    supabaseRestQuery("dimension_scores", { params: dimensionParams, order: "success_score.asc,sample_count.desc", limit: 1 }),
+    loadPromptVersions({ ...options, min_samples: minSamples }),
+  ]);
+  return {
+    generated_at: new Date().toISOString(),
+    min_samples: minSamples,
+    product_type: productType,
+    cards: {
+      best_concept: topConcepts.rows[0] || null,
+      best_dimension: bestDimensions[0] || null,
+      worst_dimension: worstDimensions[0] || null,
+      best_prompt_version: promptVersions.rows[0] || null,
+    },
+  };
 }
 
 function addProxyMetrics(row = {}) {
@@ -2123,11 +2366,94 @@ app.get("/api/admin/research/breakdown", async (req, res) => {
   }
 });
 
+app.get("/api/admin/research/top-concepts", async (req, res) => {
+  if (!requireAdmin(req, res)) return;
+  try {
+    const options = { ...req.query };
+    const data = await withAdminAnalyticsCache("learning-top-concepts", options, async () => {
+      const refreshed = await ensureLearningFresh({ force: options.refresh === "1" || options.refresh === "true" });
+      return { refreshed, ...(await loadTopConcepts(options)) };
+    });
+    res.json(data);
+  } catch (e) {
+    sendAdminError(res, "admin research top concepts", e);
+  }
+});
+
+app.get("/api/admin/research/dimension-leaderboard", async (req, res) => {
+  if (!requireAdmin(req, res)) return;
+  try {
+    const options = { ...req.query };
+    const data = await withAdminAnalyticsCache("learning-dimension-leaderboard", options, async () => {
+      const refreshed = await ensureLearningFresh({ force: options.refresh === "1" || options.refresh === "true" });
+      return { refreshed, ...(await loadDimensionLeaderboard(options)) };
+    });
+    res.json(data);
+  } catch (e) {
+    sendAdminError(res, "admin research dimension leaderboard", e);
+  }
+});
+
+app.get("/api/admin/research/learning-summary", async (req, res) => {
+  if (!requireAdmin(req, res)) return;
+  try {
+    const options = { ...req.query };
+    const data = await withAdminAnalyticsCache("learning-summary", options, async () => {
+      const refreshed = await ensureLearningFresh({ force: options.refresh === "1" || options.refresh === "true" });
+      return { refreshed, ...(await loadLearningSummary(options)) };
+    });
+    res.json(data);
+  } catch (e) {
+    sendAdminError(res, "admin research learning summary", e);
+  }
+});
+
+app.get("/api/admin/research/prompt-versions", async (req, res) => {
+  if (!requireAdmin(req, res)) return;
+  try {
+    const options = { ...req.query };
+    const data = await withAdminAnalyticsCache("learning-prompt-versions", options, async () => {
+      const refreshed = await ensureLearningFresh({ force: options.refresh === "1" || options.refresh === "true" });
+      return { refreshed, ...(await loadPromptVersions(options)) };
+    });
+    res.json(data);
+  } catch (e) {
+    sendAdminError(res, "admin research prompt versions", e);
+  }
+});
+
+app.get("/api/admin/research/dimension-heatmap", async (req, res) => {
+  if (!requireAdmin(req, res)) return;
+  try {
+    const options = { ...req.query };
+    const data = await withAdminAnalyticsCache("learning-dimension-heatmap", options, async () => {
+      const refreshed = await ensureLearningFresh({ force: options.refresh === "1" || options.refresh === "true" });
+      return { refreshed, ...(await loadDimensionHeatmap(options)) };
+    });
+    res.json(data);
+  } catch (e) {
+    sendAdminError(res, "admin research dimension heatmap", e);
+  }
+});
+
+async function loadResearchExportDataset(query = {}) {
+  const dataset = safeText(query.dataset, 80) || "breakdown";
+  if (dataset === "top-concepts") return { dataset, ...(await loadTopConcepts(query)) };
+  if (dataset === "dimension-leaderboard") return { dataset, ...(await loadDimensionLeaderboard(query)) };
+  if (dataset === "prompt-versions") return { dataset, ...(await loadPromptVersions(query)) };
+  if (dataset === "dimension-heatmap") return { dataset, ...(await loadDimensionHeatmap(query)) };
+  const filters = analyticsFiltersFromQuery(query);
+  return { dataset: "breakdown", ...(await loadAdminResearchBundle(filters)) };
+}
+
 app.get("/api/admin/research/export.json", async (req, res) => {
   if (!requireAdmin(req, res)) return;
   try {
-    const filters = analyticsFiltersFromQuery(req.query);
-    const data = await withAdminAnalyticsCache("export-json", filters, () => loadAdminResearchBundle(filters));
+    const query = { ...req.query };
+    const data = await withAdminAnalyticsCache("export-json", query, async () => {
+      if (query.dataset && query.dataset !== "breakdown") await ensureLearningFresh({ force: query.refresh === "1" || query.refresh === "true" });
+      return loadResearchExportDataset(query);
+    });
     res.json(data);
   } catch (e) {
     sendAdminError(res, "admin research export json", e);
@@ -2137,29 +2463,33 @@ app.get("/api/admin/research/export.json", async (req, res) => {
 app.get("/api/admin/research/export.csv", async (req, res) => {
   if (!requireAdmin(req, res)) return;
   try {
-    const filters = analyticsFiltersFromQuery(req.query);
-    const data = await withAdminAnalyticsCache("export-csv", filters, () => loadAdminResearchBundle(filters));
-    const rows = data.breakdown.map(row => ({
-      listing_role: row.listing_role,
-      category: row.category,
-      mode: row.mode,
-      print_visibility: row.print_visibility,
-      generations_total: row.generations_total,
-      success_rate: row.success_rate,
-      avg_rating: row.avg_rating,
-      save_rate_proxy: row.save_rate_proxy,
-      regenerate_rate: row.regenerate_rate,
-      fix_rate: row.fix_rate,
-      trust_proxy: row.trust_proxy,
-      risk_proxy: row.risk_proxy,
-      downloads: row.download_count,
-      exports: row.export_count,
-      regenerates: row.regenerate_count,
-      ai_fixes: row.ai_fix_count,
-      favorites: row.favorites,
-    }));
+    const query = { ...req.query };
+    const data = await withAdminAnalyticsCache("export-csv", query, async () => {
+      if (query.dataset && query.dataset !== "breakdown") await ensureLearningFresh({ force: query.refresh === "1" || query.refresh === "true" });
+      return loadResearchExportDataset(query);
+    });
+    const sourceRows = data.rows || data.breakdown || [];
+    const rows = data.dataset === "breakdown" ? sourceRows.map(row => ({
+        listing_role: row.listing_role,
+        category: row.category,
+        mode: row.mode,
+        print_visibility: row.print_visibility,
+        generations_total: row.generations_total,
+        success_rate: row.success_rate,
+        avg_rating: row.avg_rating,
+        save_rate_proxy: row.save_rate_proxy,
+        regenerate_rate: row.regenerate_rate,
+        fix_rate: row.fix_rate,
+        trust_proxy: row.trust_proxy,
+        risk_proxy: row.risk_proxy,
+        downloads: row.download_count,
+        exports: row.export_count,
+        regenerates: row.regenerate_count,
+        ai_fixes: row.ai_fix_count,
+        favorites: row.favorites,
+      })) : sourceRows.slice(0, RESEARCH_EXPORT_MAX_ROWS);
     res.setHeader("Content-Type", "text/csv; charset=utf-8");
-    res.setHeader("Content-Disposition", "attachment; filename=\"ko-research-analytics.csv\"");
+    res.setHeader("Content-Disposition", `attachment; filename="ko-research-${data.dataset || "analytics"}.csv"`);
     res.send(toCsv(rows));
   } catch (e) {
     sendAdminError(res, "admin research export csv", e);

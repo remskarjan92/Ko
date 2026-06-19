@@ -99,7 +99,7 @@ try {
   const ANALYTICS_MAX_FLUSH_EVENTS = 100;
   const ANALYTICS_MAX_RETRY_ATTEMPTS = 3;
   const ANALYTICS_EVENT_TYPES = new Set(["generation_started", "generation_succeeded", "generation_failed", "rating_set", "regenerate_clicked", "ai_fix_clicked", "download_png", "download_zip", "export_selected", "copy_prompt", "select_favorite"]);
-  const ANALYTICS_COMMON_PAYLOAD_FIELDS = ["generationId", "clientGenerationId", "batchId", "conceptId", "conceptFingerprint", "listingRole", "category", "mode", "printVisibility", "provider", "modelName"];
+  const ANALYTICS_COMMON_PAYLOAD_FIELDS = ["generationId", "clientGenerationId", "batchId", "conceptId", "conceptFingerprint", "promptVersion", "productType", "listingRole", "category", "mode", "printVisibility", "provider", "modelName", "targetBuyer", "environment", "pose", "cameraSetup", "lighting", "shirtType"];
   const ANALYTICS_EVENT_PAYLOAD_FIELDS = Object.fromEntries(Object.entries({
     generation_started: [...ANALYTICS_COMMON_PAYLOAD_FIELDS, "outcome", "latencyMs"],
     generation_succeeded: [...ANALYTICS_COMMON_PAYLOAD_FIELDS, "outcome", "latencyMs", "imageCount"],
@@ -269,6 +269,10 @@ try {
     label: "Custom style brief",
     description: "Use a custom styling direction for the prompt."
   }];
+  const LEARNING_DIMENSION_OPTIONS = ["listing_role", "mockup_style_mode", "environment", "camera_setup", "pose", "lighting", "shirt_type", "print_visibility", "audience", "category", "product_type"].map(value => ({
+    value,
+    label: value.replace(/_/g, " ")
+  }));
   const LISTING_ROLE_OPTIONS = [{
     value: "thumbnail",
     label: "Thumbnail",
@@ -757,10 +761,18 @@ try {
       clientGenerationId: promptId || "",
       conceptId: promptId || "",
       conceptFingerprint: meta.categoryId || "",
+      promptVersion: "v1",
+      productType: "shirt",
       listingRole: meta.listingRole || "",
       category: meta.categoryName || "",
       mode: meta.mockupStyleMode || "",
-      printVisibility: meta.printVisibility || ""
+      printVisibility: meta.printVisibility || "",
+      targetBuyer: meta.targetBuyer || meta.audience || "",
+      environment: meta.environment || "",
+      pose: meta.pose || "",
+      cameraSetup: meta.cameraSetup || "",
+      lighting: meta.lighting || "",
+      shirtType: meta.shirtType || meta.shirtModel || ""
     };
   }
   async function trackAnalyticsEvent(eventType, payload = {}) {
@@ -1500,12 +1512,25 @@ try {
       listingRole: "",
       category: "",
       provider: "",
-      modelName: ""
+      modelName: "",
+      exportDataset: "breakdown",
+      product_type: "all",
+      dimension_type: "listing_role",
+      min_samples: "1",
+      limit: "20",
+      x: "audience",
+      y: "mockup_style_mode"
     });
     const [researchData, setResearchData] = useState({
       summary: null,
       timeseries: [],
-      breakdown: []
+      breakdown: [],
+      learningSummary: null,
+      topConcepts: [],
+      bottomConcepts: [],
+      dimensionLeaderboard: [],
+      promptVersions: [],
+      heatmap: []
     });
     const [researchLoading, setResearchLoading] = useState(false);
     const [researchError, setResearchError] = useState("");
@@ -1552,29 +1577,57 @@ try {
       setResearchError("");
       const params = new URLSearchParams(Object.entries(researchFilters).filter(([, value]) => value));
       const query = params.toString() ? `?${params.toString()}` : "";
+      const learningParams = new URLSearchParams({
+        product_type: researchFilters.product_type || "all",
+        dimension_type: researchFilters.dimension_type || "listing_role",
+        min_samples: researchFilters.min_samples || "1",
+        limit: researchFilters.limit || "20",
+        x: researchFilters.x || "audience",
+        y: researchFilters.y || "mockup_style_mode"
+      });
+      const learningQuery = `?${learningParams.toString()}`;
       try {
-        const [summary, timeseries, breakdown] = await Promise.all([
-          authedFetch(`/api/admin/research/summary${query}`).then(async r => {
-            const d = await r.json();
-            if (!r.ok) throw new Error(d.error || `Server error ${r.status}`);
-            return d;
+      const [summary, timeseries, breakdown] = await Promise.all([
+        authedFetch(`/api/admin/research/summary${query}`).then(async r => {
+          const d = await r.json();
+          if (!r.ok) throw new Error(d.error || `Server error ${r.status}`);
+          return d;
           }),
           authedFetch(`/api/admin/research/timeseries${query}`).then(async r => {
             const d = await r.json();
             if (!r.ok) throw new Error(d.error || `Server error ${r.status}`);
             return d;
           }),
-          authedFetch(`/api/admin/research/breakdown${query}`).then(async r => {
-            const d = await r.json();
-            if (!r.ok) throw new Error(d.error || `Server error ${r.status}`);
-            return d;
-          })
-        ]);
-        setResearchData({
-          summary: summary.summary || null,
-          timeseries: timeseries.rows || [],
-          breakdown: breakdown.rows || []
-        });
+        authedFetch(`/api/admin/research/breakdown${query}`).then(async r => {
+          const d = await r.json();
+          if (!r.ok) throw new Error(d.error || `Server error ${r.status}`);
+          return d;
+        })
+      ]);
+      const fetchOptional = url => authedFetch(url).then(async r => {
+        const d = await r.json().catch(() => ({}));
+        if (!r.ok) return null;
+        return d;
+      }).catch(() => null);
+      const [learningSummary, topConcepts, bottomConcepts, dimensionLeaderboard, promptVersions, heatmap] = await Promise.all([
+        fetchOptional(`/api/admin/research/learning-summary${learningQuery}`),
+        fetchOptional(`/api/admin/research/top-concepts${learningQuery}&mode=top`),
+        fetchOptional(`/api/admin/research/top-concepts${learningQuery}&mode=bottom`),
+        fetchOptional(`/api/admin/research/dimension-leaderboard${learningQuery}`),
+        fetchOptional(`/api/admin/research/prompt-versions${learningQuery}`),
+        fetchOptional(`/api/admin/research/dimension-heatmap${learningQuery}`)
+      ]);
+      setResearchData({
+        summary: summary.summary || null,
+        timeseries: timeseries.rows || [],
+        breakdown: breakdown.rows || [],
+        learningSummary: learningSummary?.cards || null,
+        topConcepts: topConcepts?.rows || [],
+        bottomConcepts: bottomConcepts?.rows || [],
+        dimensionLeaderboard: dimensionLeaderboard?.rows || [],
+        promptVersions: promptVersions?.rows || [],
+        heatmap: heatmap?.rows || []
+      });
         setSelectedResearchRow(null);
       } catch (e) {
         setResearchError(e.message);
@@ -1588,7 +1641,9 @@ try {
     };
     const downloadResearchExport = async format => {
       try {
-        const res = await authedFetch(`/api/admin/research/export.${format}${researchQuery()}`);
+        const params = new URLSearchParams(Object.entries(researchFilters).filter(([, value]) => value));
+        params.set("dataset", researchFilters.exportDataset || "breakdown");
+        const res = await authedFetch(`/api/admin/research/export.${format}?${params.toString()}`);
         if (!res.ok) {
           const d = await res.json().catch(() => ({}));
           throw new Error(d.error || `Server error ${res.status}`);
@@ -2161,7 +2216,60 @@ try {
       placeholder: "Model",
       value: researchFilters.modelName,
       onChange: e => setResearchFilter("modelName", e.target.value)
-    })), researchError && React.createElement("div", {
+    }), React.createElement("select", {
+      value: researchFilters.product_type,
+      onChange: e => setResearchFilter("product_type", e.target.value)
+    }, React.createElement("option", {
+      value: "all"
+    }, "All products"), React.createElement("option", {
+      value: "shirt"
+    }, "shirt")), React.createElement("select", {
+      value: researchFilters.dimension_type,
+      onChange: e => setResearchFilter("dimension_type", e.target.value)
+    }, LEARNING_DIMENSION_OPTIONS.map(o => React.createElement("option", {
+      key: o.value,
+      value: o.value
+    }, o.label))), React.createElement("input", {
+      type: "number",
+      min: "1",
+      max: "1000",
+      placeholder: "Min samples",
+      value: researchFilters.min_samples,
+      onChange: e => setResearchFilter("min_samples", e.target.value)
+    }), React.createElement("input", {
+      type: "number",
+      min: "1",
+      max: "200",
+      placeholder: "Limit",
+      value: researchFilters.limit,
+      onChange: e => setResearchFilter("limit", e.target.value)
+    }), React.createElement("select", {
+      value: researchFilters.x,
+      onChange: e => setResearchFilter("x", e.target.value)
+    }, LEARNING_DIMENSION_OPTIONS.map(o => React.createElement("option", {
+      key: o.value,
+      value: o.value
+    }, `X: ${o.label}`))), React.createElement("select", {
+      value: researchFilters.y,
+      onChange: e => setResearchFilter("y", e.target.value)
+    }, LEARNING_DIMENSION_OPTIONS.map(o => React.createElement("option", {
+      key: o.value,
+      value: o.value
+    }, `Y: ${o.label}`))), React.createElement("select", {
+      value: researchFilters.exportDataset,
+      onChange: e => setResearchFilter("exportDataset", e.target.value)
+    }, React.createElement("option", {
+      value: "breakdown"
+    }, "Export: breakdown"), React.createElement("option", {
+      value: "top-concepts"
+    }, "Export: top concepts"), React.createElement("option", {
+      value: "dimension-leaderboard"
+    }, "Export: dimension leaderboard"), React.createElement("option", {
+      value: "prompt-versions"
+    }, "Export: prompt versions"), React.createElement("option", {
+      value: "dimension-heatmap"
+    }, "Export: heatmap"))
+    ), researchError && React.createElement("div", {
       style: {
         padding: "9px 10px",
         borderRadius: 8,
@@ -2214,6 +2322,25 @@ try {
     }), React.createElement(KpiCard, {
       label: "Risk proxy",
       value: fmtMetric(researchData.summary.risk_proxy, "%")
+    })), researchData.learningSummary && React.createElement("div", {
+      style: {
+        display: "grid",
+        gridTemplateColumns: "repeat(4,1fr)",
+        gap: 8,
+        marginBottom: 12
+      }
+    }, React.createElement(KpiCard, {
+      label: "Best concept",
+      value: researchData.learningSummary.best_concept?.success_score != null ? fmtMetric(researchData.learningSummary.best_concept.success_score) : "—"
+    }), React.createElement(KpiCard, {
+      label: "Best dimension",
+      value: researchData.learningSummary.best_dimension?.dimension_value || "—"
+    }), React.createElement(KpiCard, {
+      label: "Worst dimension",
+      value: researchData.learningSummary.worst_dimension?.dimension_value || "—"
+    }), React.createElement(KpiCard, {
+      label: "Best prompt version",
+      value: researchData.learningSummary.best_prompt_version?.prompt_version || "—"
     })), React.createElement("div", {
       style: {
         fontSize: 10,
@@ -2260,6 +2387,155 @@ try {
       label: "Trust proxy",
       value: fmtMetric(researchData.summary.trust_proxy)
     })), React.createElement("div", {
+      style: {
+        fontSize: 10,
+        color: "rgba(255,255,255,0.32)",
+        fontFamily: "'DM Mono',monospace",
+        marginBottom: 6,
+        textTransform: "uppercase"
+      }
+    }, "Learning concept leaderboard"), React.createElement(TinyTable, {
+      columns: [{
+        key: "concept_id",
+        label: "Concept"
+      }, {
+        key: "listing_role",
+        label: "Role"
+      }, {
+        key: "category",
+        label: "Category"
+      }, {
+        key: "sample_count",
+        label: "Samples"
+      }, {
+        key: "avg_rating",
+        label: "Rating",
+        render: row => fmtMetric(row.avg_rating)
+      }, {
+        key: "success_score",
+        label: "Score",
+        render: row => fmtMetric(row.success_score)
+      }],
+      rows: researchData.topConcepts
+    }), React.createElement("div", {
+      style: {
+        fontSize: 10,
+        color: "rgba(255,255,255,0.32)",
+        fontFamily: "'DM Mono',monospace",
+        margin: "12px 0 6px",
+        textTransform: "uppercase"
+      }
+    }, "Worst concept leaderboard"), React.createElement(TinyTable, {
+      columns: [{
+        key: "concept_id",
+        label: "Concept"
+      }, {
+        key: "listing_role",
+        label: "Role"
+      }, {
+        key: "category",
+        label: "Category"
+      }, {
+        key: "sample_count",
+        label: "Samples"
+      }, {
+        key: "avg_rating",
+        label: "Rating",
+        render: row => fmtMetric(row.avg_rating)
+      }, {
+        key: "success_score",
+        label: "Score",
+        render: row => fmtMetric(row.success_score)
+      }],
+      rows: researchData.bottomConcepts
+    }), React.createElement("div", {
+      style: {
+        fontSize: 10,
+        color: "rgba(255,255,255,0.32)",
+        fontFamily: "'DM Mono',monospace",
+        margin: "12px 0 6px",
+        textTransform: "uppercase"
+      }
+    }, "Dimension leaderboard"), React.createElement(TinyTable, {
+      columns: [{
+        key: "dimension_value",
+        label: "Value"
+      }, {
+        key: "product_type",
+        label: "Product"
+      }, {
+        key: "sample_count",
+        label: "Samples"
+      }, {
+        key: "concept_count",
+        label: "Concepts"
+      }, {
+        key: "avg_rating",
+        label: "Rating",
+        render: row => fmtMetric(row.avg_rating)
+      }, {
+        key: "success_score",
+        label: "Score",
+        render: row => fmtMetric(row.success_score)
+      }],
+      rows: researchData.dimensionLeaderboard
+    }), React.createElement("div", {
+      style: {
+        fontSize: 10,
+        color: "rgba(255,255,255,0.32)",
+        fontFamily: "'DM Mono',monospace",
+        margin: "12px 0 6px",
+        textTransform: "uppercase"
+      }
+    }, "Prompt version performance"), React.createElement(TinyTable, {
+      columns: [{
+        key: "prompt_version",
+        label: "Version"
+      }, {
+        key: "concept_count",
+        label: "Concepts"
+      }, {
+        key: "sample_count",
+        label: "Samples"
+      }, {
+        key: "avg_success_score",
+        label: "Score",
+        render: row => fmtMetric(row.avg_success_score)
+      }, {
+        key: "avg_rating",
+        label: "Rating",
+        render: row => fmtMetric(row.avg_rating)
+      }, {
+        key: "regenerate_rate",
+        label: "Regen",
+        render: row => fmtMetric(Number(row.regenerate_rate) * 100, "%")
+      }],
+      rows: researchData.promptVersions
+    }), React.createElement("div", {
+      style: {
+        fontSize: 10,
+        color: "rgba(255,255,255,0.32)",
+        fontFamily: "'DM Mono',monospace",
+        margin: "12px 0 6px",
+        textTransform: "uppercase"
+      }
+    }, "Dimension heatmap table"), React.createElement(TinyTable, {
+      columns: [{
+        key: "x_value",
+        label: "X"
+      }, {
+        key: "y_value",
+        label: "Y"
+      }, {
+        key: "sample_count",
+        label: "Samples"
+      }, {
+        key: "success_score",
+        label: "Score",
+        render: row => fmtMetric(row.success_score)
+      }],
+      rows: researchData.heatmap
+    }), React.createElement("div", {
       style: {
         fontSize: 10,
         color: "rgba(255,255,255,0.32)",
