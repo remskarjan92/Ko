@@ -7,7 +7,7 @@ const pkg     = require("./package.json");
 
 const app      = express();
 const PORT     = process.env.PORT || 3000;
-const KEYS_FILE = path.join(__dirname, "..", ".etsy-mockup-keys.json");
+const KEYS_FILE = path.join(__dirname, ".etsy-mockup-keys.json");
 const ADMIN_TOKEN = process.env.ADMIN_TOKEN || "";
 const APP_ACCESS_TOKEN = process.env.APP_ACCESS_TOKEN || "";
 const ADMIN_USERNAME = process.env.ADMIN_USERNAME || "";
@@ -220,7 +220,7 @@ function requireAdmin(req, res) {
   const token = getAuthToken(req);
   if (ADMIN_TOKEN && token && token === ADMIN_TOKEN) return true;
   if (!adminSessionConfigured() && !ADMIN_TOKEN) {
-    res.status(503).json({ error: "Admin access is not configured" });
+    res.status(401).json({ error: "Unauthorized" });
     return false;
   }
   res.status(401).json({ error: "Unauthorized" });
@@ -1016,6 +1016,25 @@ function toCsv(rows = []) {
     ...rows.map(row => columns.map(column => csvEscape(row[column])).join(",")),
   ].join("\n");
 }
+function validateAnalyticsBulkBody(body) {
+  if (!body || typeof body !== "object" || Array.isArray(body)) return false;
+  if (!Array.isArray(body.events) || body.events.length > ANALYTICS_MAX_EVENTS) return false;
+  for (const event of body.events) {
+    if (!event || typeof event !== "object" || Array.isArray(event)) return false;
+    const eventId = typeof event.event_id === "string" ? event.event_id : event.clientEventId;
+    const installHash = typeof event.client_install_hash === "string" ? event.client_install_hash : event.installId;
+    const eventType = typeof event.event_type === "string" ? event.event_type : event.eventType;
+    if (typeof eventId !== "string" || !eventId.trim()) return false;
+    if (typeof installHash !== "string" || !installHash.trim()) return false;
+    if (typeof eventType !== "string" || !eventType.trim()) return false;
+    if (!ANALYTICS_GENERATION_TYPES.has(eventType) && !ANALYTICS_INTERACTION_TYPES.has(eventType)) return false;
+    if (event.clientEventId == null) event.clientEventId = eventId;
+    if (event.eventType == null) event.eventType = eventType;
+    if (event.installId == null) event.installId = installHash;
+  }
+  return null;
+}
+
 
 async function loadAdminResearchBundle(filters) {
   const dailyRows = await supabaseRestSelect("v_daily_metrics", { filters, order: "day.asc", limit: 5000 });
@@ -1083,6 +1102,10 @@ function normalizeAnalyticsEvent(event, clientInstallHash) {
 }
 
 app.post("/api/analytics/events/bulk", async (req, res) => {
+  const validationError = validateAnalyticsBulkBody(req.body);
+  if (validationError === false) {
+    return res.status(400).json({ error: "Invalid payload" });
+  }
   if (!rateLimitAnalytics(req, res)) return;
   const rawSize = Buffer.byteLength(JSON.stringify(req.body || {}), "utf8");
   if (rawSize > ANALYTICS_MAX_PAYLOAD_BYTES) {
@@ -1093,13 +1116,6 @@ app.post("/api/analytics/events/bulk", async (req, res) => {
   if (consent !== true) return res.status(403).json({ error: "Analytics consent required" });
   if (!analyticsConfigReady()) {
     return res.status(503).json({ error: "Analytics ingest is not configured" });
-  }
-  if (!installId || typeof installId !== "string" || installId.length > 128) {
-    return res.status(400).json({ error: "Invalid installId" });
-  }
-  if (!Array.isArray(events)) return res.status(400).json({ error: "events must be an array" });
-  if (events.length > ANALYTICS_MAX_EVENTS) {
-    return res.status(413).json({ error: `Max ${ANALYTICS_MAX_EVENTS} analytics events per batch` });
   }
 
   const clientInstallHash = hashInstallId(installId);
