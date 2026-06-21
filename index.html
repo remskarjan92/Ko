@@ -7,20 +7,41 @@
   <style>
     :root{
       --bg:#0b0d12;
-      --bg-elevated:#11151d;
+      --bg-base:#0C0C0E;
+      --bg-surface:#141416;
+      --bg-elevated:#1C1C1F;
+      --bg-hover:rgba(255,255,255,0.04);
       --panel:rgba(255,255,255,0.045);
       --panel-strong:rgba(255,255,255,0.075);
       --panel-border:rgba(255,255,255,0.09);
       --panel-border-strong:rgba(255,255,255,0.14);
+      --border-subtle:rgba(255,255,255,0.06);
+      --border-default:rgba(255,255,255,0.09);
+      --border-strong:rgba(255,255,255,0.16);
       --text:#f5f7fb;
+      --text-primary:#FFFFFF;
+      --text-secondary:rgba(255,255,255,0.55);
+      --text-tertiary:rgba(255,255,255,0.28);
       --muted:rgba(245,247,251,0.66);
       --muted-strong:rgba(245,247,251,0.82);
       --faint:rgba(245,247,251,0.38);
       --accent:#ffdc64;
+      --accent-gold:#FFDC64;
       --accent-2:#ff9b40;
+      --accent-green:#7EE8A2;
+      --accent-blue:#5AB4FF;
+      --accent-purple:rgba(200,160,255,0.85);
       --success:#7ee8a2;
       --info:#8ec8ff;
       --danger:#ff8080;
+      --radius-sm:8px;
+      --radius-md:12px;
+      --radius-lg:18px;
+      --radius-pill:999px;
+      --shadow-card:0 2px 12px rgba(0,0,0,0.45);
+      --shadow-modal:0 8px 40px rgba(0,0,0,0.7);
+      --transition-fast:0.15s ease;
+      --transition-med:0.25s ease;
     }
     html{scroll-behavior:smooth}
     #root{min-height:100vh}
@@ -134,6 +155,35 @@
     ::-webkit-scrollbar-track{background:transparent}
     ::-webkit-scrollbar-thumb{background:rgba(255,255,255,0.14);border-radius:999px}
     ::-webkit-scrollbar-thumb:hover{background:rgba(255,255,255,0.22)}
+    .ko-tab-scroll{
+      scrollbar-width:none;
+      -ms-overflow-style:none;
+    }
+    .ko-tab-scroll::-webkit-scrollbar{
+      display:none;
+    }
+    .ko-pill-tab{
+      padding:7px 16px;
+      border-radius:var(--radius-pill);
+      font-size:12px;
+      font-weight:500;
+      white-space:nowrap;
+      transition:all 0.15s ease;
+      background:transparent;
+      color:var(--text-tertiary);
+      border:1.5px solid var(--border-subtle);
+      cursor:pointer;
+    }
+    .ko-pill-tab:hover:not(.ko-pill-tab-active){
+      background:var(--bg-hover);
+      color:var(--text-secondary);
+      border-color:var(--border-default);
+    }
+    .ko-pill-tab-active{
+      background:rgba(255,220,100,0.12);
+      color:var(--accent-gold);
+      border-color:rgba(255,220,100,0.35);
+    }
     .auth-page{
       min-height:100vh;
       display:grid;
@@ -1636,18 +1686,22 @@ try {
     active,
     onClick
   }) {
+    const [hovered, setHovered] = useState(false);
     return React.createElement("button", {
+      type: "button",
       onClick: onClick,
+      onMouseEnter: () => setHovered(true),
+      onMouseLeave: () => setHovered(false),
       style: {
-        padding: "7px 14px",
-        borderRadius: 999,
-        border: active ? "1px solid rgba(255,220,100,0.46)" : "1px solid rgba(255,255,255,0.10)",
-        background: active ? "linear-gradient(180deg, rgba(255,220,100,0.14), rgba(255,220,100,0.08))" : "rgba(255,255,255,0.035)",
-        color: active ? "#FFDC64" : "rgba(255,255,255,0.54)",
+        padding: "6px 13px",
+        borderRadius: "var(--radius-pill)",
+        border: active ? "1px solid rgba(255,220,100,0.4)" : hovered ? "1px solid var(--border-strong)" : "1px solid var(--border-subtle)",
+        background: active ? "rgba(255,220,100,0.12)" : "var(--bg-elevated)",
+        color: active ? "var(--accent-gold)" : hovered ? "var(--text-primary)" : "var(--text-secondary)",
         fontSize: 12,
         cursor: "pointer",
-        transition: "all 0.15s ease",
-        boxShadow: active ? "0 0 0 1px rgba(255,220,100,0.08) inset" : "none"
+        fontWeight: 500,
+        transition: "all 0.15s ease"
       }
     }, children);
   }
@@ -1710,24 +1764,25 @@ try {
       onClick: onFix,
       disabled: fixing,
       style: {
-        padding: "6px 10px",
-        borderRadius: 8,
-        border: "1px solid rgba(90,180,255,0.25)",
-        background: "rgba(90,180,255,0.08)",
-        color: "rgba(160,210,255,0.95)",
-        fontSize: 10,
+        ...touchButton("1px solid rgba(90,180,255,0.25)", "rgba(90,180,255,0.08)", "rgba(160,210,255,0.95)", {
+          minHeight: 30,
+          padding: "6px 10px",
+          borderRadius: 8,
+          fontSize: 10,
+          fontWeight: 500
+        }),
         cursor: fixing ? "not-allowed" : "pointer"
       }
     }, fixing ? "Thinking..." : "Fix with AI"), React.createElement("button", {
       onClick: () => onRegenerate(report.fix_prompt || ""),
       style: {
-        padding: "6px 10px",
-        borderRadius: 8,
-        border: "1px solid rgba(255,220,100,0.22)",
-        background: "rgba(255,220,100,0.08)",
-        color: "#FFDC64",
-        fontSize: 10,
-        cursor: "pointer"
+        ...touchButton("1px solid rgba(255,220,100,0.22)", "rgba(255,220,100,0.08)", "#FFDC64", {
+          minHeight: 30,
+          padding: "6px 10px",
+          borderRadius: 8,
+          fontSize: 10,
+          fontWeight: 500
+        })
       }
       }, "Regenerate")));
   }
@@ -2867,9 +2922,9 @@ try {
 	      link: "https://replicate.com/account/api-tokens"
 	    }];
 	    const touchButton = (border, background, color, extra = {}) => ({
-	      minHeight: 42,
+	      minHeight: "var(--radius-lg, 42px)",
 	      padding: "10px 14px",
-	      borderRadius: 10,
+	      borderRadius: "var(--radius-md)",
 	      border,
 	      background,
 	      color,
@@ -4057,15 +4112,32 @@ try {
     const done = imgState?.status === "done";
     const fixing = imgState?.fixing;
     const [detailsOpen, setDetailsOpen] = useState(false);
+    const [hovered, setHovered] = useState(false);
     const downloadName = mockupFileName(result, catInfo, index);
     return React.createElement("div", {
       style: {
+        position: "relative",
         background: "rgba(255,255,255,0.022)",
-        border: "1px solid rgba(255,255,255,0.07)",
+        border: hovered ? "1px solid var(--border-strong)" : "1px solid rgba(255,255,255,0.07)",
         borderRadius: 14,
         overflow: "hidden",
-        marginBottom: 8
+        marginBottom: 8,
+        boxShadow: hovered ? "var(--shadow-card)" : "none",
+        transition: "box-shadow 0.18s ease, border-color 0.18s ease"
       }
+    }, isOpen && React.createElement("div", {
+      style: {
+        position: "absolute",
+        left: 0,
+        top: 0,
+        bottom: 0,
+        width: 3,
+        background: "linear-gradient(180deg, var(--accent-gold), var(--accent-green))",
+        borderRadius: "3px 0 0 3px"
+      }
+    }), React.createElement("div", {
+      onMouseEnter: () => setHovered(true),
+      onMouseLeave: () => setHovered(false)
     }, React.createElement("button", {
       onClick: onToggle,
       style: {
@@ -4171,15 +4243,15 @@ try {
       onClick: () => onGenImage(),
       disabled: busy,
       style: {
-        display: "inline-flex",
-        alignItems: "center",
-        gap: 6,
-        padding: "6px 10px",
-        borderRadius: 8,
-        border: done ? "1px solid rgba(126,232,162,0.3)" : "1px solid rgba(255,220,100,0.25)",
-        background: done ? "rgba(126,232,162,0.07)" : "rgba(255,220,100,0.07)",
-        color: done ? "#7EE8A2" : "#FFDC64",
-        fontSize: 10,
+        ...touchButton(done ? "1px solid rgba(126,232,162,0.3)" : "1px solid rgba(255,220,100,0.25)", done ? "rgba(126,232,162,0.07)" : "rgba(255,220,100,0.07)", done ? "var(--accent-green)" : "var(--accent-gold)", {
+          minHeight: 30,
+          padding: "6px 10px",
+          borderRadius: 8,
+          fontSize: 10,
+          fontWeight: 500,
+          lineHeight: 1,
+          whiteSpace: "nowrap"
+        }),
         cursor: busy ? "not-allowed" : "pointer",
         fontWeight: 500
       }
@@ -4196,59 +4268,56 @@ try {
         onMarkSelected();
       },
       style: {
-        display: "inline-flex",
-        alignItems: "center",
-        gap: 4,
-        padding: "6px 11px",
-        borderRadius: 999,
-        border: "1px solid rgba(255,220,100,0.22)",
-        background: "rgba(255,220,100,0.06)",
-        color: "rgba(255,220,100,0.75)",
-        fontSize: 10,
-        fontFamily: "'DM Mono',monospace",
-        textDecoration: "none",
-        lineHeight: 1,
-        whiteSpace: "nowrap"
+        ...touchButton("1px solid rgba(255,220,100,0.22)", "rgba(255,220,100,0.06)", "rgba(255,220,100,0.75)", {
+          minHeight: 30,
+          padding: "6px 11px",
+          borderRadius: "var(--radius-pill)",
+          fontSize: 10,
+          fontFamily: "'DM Mono',monospace",
+          fontWeight: 500,
+          lineHeight: 1,
+          whiteSpace: "nowrap",
+          textDecoration: "none"
+        })
       }
     }, "\u2193 Download PNG") : React.createElement("button", {
       disabled: true,
       style: {
-        display: "inline-flex",
-        alignItems: "center",
-        gap: 4,
-        padding: "6px 11px",
-        borderRadius: 999,
-        border: "1px solid rgba(255,255,255,0.08)",
-        background: "rgba(255,255,255,0.03)",
-        color: "rgba(255,255,255,0.25)",
-        fontSize: 10,
-        fontFamily: "'DM Mono',monospace",
-        lineHeight: 1,
-        whiteSpace: "nowrap",
+        ...touchButton("1px solid rgba(255,255,255,0.08)", "rgba(255,255,255,0.03)", "rgba(255,255,255,0.25)", {
+          minHeight: 30,
+          padding: "6px 11px",
+          borderRadius: "var(--radius-pill)",
+          fontSize: 10,
+          fontFamily: "'DM Mono',monospace",
+          fontWeight: 500,
+          lineHeight: 1,
+          whiteSpace: "nowrap"
+        }),
         cursor: "not-allowed"
       }
     }, "\u2193 Download"), React.createElement("button", {
       onClick: onAiFix,
       disabled: fixing,
       style: {
-        padding: "6px 10px",
-        borderRadius: 8,
-        border: "1px solid rgba(90,180,255,0.25)",
-        background: "rgba(90,180,255,0.08)",
-        color: "rgba(160,210,255,0.95)",
-        fontSize: 10,
+        ...touchButton("1px solid rgba(90,180,255,0.25)", "rgba(90,180,255,0.08)", "rgba(160,210,255,0.95)", {
+          minHeight: 30,
+          padding: "6px 10px",
+          borderRadius: 8,
+          fontSize: 10,
+          fontWeight: 500
+        }),
         cursor: fixing ? "not-allowed" : "pointer"
       }
     }, fixing ? "Thinking..." : "🤖 AI Fix"), React.createElement("button", {
       onClick: () => setDetailsOpen(o => !o),
       style: {
-        padding: "6px 10px",
-        borderRadius: 8,
-        border: "1px solid rgba(255,255,255,0.08)",
-        background: "rgba(255,255,255,0.03)",
-        color: "rgba(255,255,255,0.45)",
-        fontSize: 10,
-        cursor: "pointer"
+        ...touchButton("1px solid rgba(255,255,255,0.08)", "rgba(255,255,255,0.03)", "rgba(255,255,255,0.45)", {
+          minHeight: 30,
+          padding: "6px 10px",
+          borderRadius: 8,
+          fontSize: 10,
+          fontWeight: 500
+        })
       }
     }, detailsOpen ? "− Details" : "+ Details"))), isOpen && React.createElement("div", {
       style: {
@@ -4388,32 +4457,31 @@ try {
     }, rating >= n ? "★" : "☆")), rating > 0 && React.createElement("button", {
       onClick: () => onRate(0),
       style: {
-        marginLeft: 4,
-        padding: "6px 10px",
-        borderRadius: 8,
-        border: "1px solid rgba(255,255,255,0.08)",
-        background: "rgba(255,255,255,0.03)",
-        color: "rgba(255,255,255,0.35)",
-        fontSize: 10,
-        cursor: "pointer"
+        ...touchButton("1px solid rgba(255,255,255,0.08)", "rgba(255,255,255,0.03)", "rgba(255,255,255,0.35)", {
+          minHeight: 30,
+          padding: "6px 10px",
+          borderRadius: 8,
+          fontSize: 10,
+          fontWeight: 500
+        }),
+        marginLeft: 4
       }
     }, "Clear")))), React.createElement("button", {
       onClick: () => setDetailsOpen(o => !o),
       style: {
-        display: "flex",
-        alignItems: "center",
-        gap: 7,
-        width: "100%",
-        background: "rgba(255,255,255,0.03)",
-        border: "1px solid rgba(255,255,255,0.07)",
-        borderRadius: 8,
-        padding: "7px 11px",
-        color: "rgba(255,255,255,0.4)",
-        fontSize: 10,
+        ...touchButton("1px solid rgba(255,255,255,0.07)", "rgba(255,255,255,0.03)", "rgba(255,255,255,0.4)", {
+          width: "100%",
+          minHeight: 30,
+          padding: "7px 11px",
+          borderRadius: 8,
+          fontSize: 10,
+          fontWeight: 500,
+          justifyContent: "flex-start",
+          gap: 7
+        }),
         fontFamily: "'DM Mono',monospace",
         letterSpacing: "0.08em",
         textTransform: "uppercase",
-        cursor: "pointer",
         marginBottom: detailsOpen ? 10 : 0,
         transition: "margin 0.2s"
       }
@@ -4566,7 +4634,7 @@ try {
       label: "Thumbnail Notes",
       value: result.thumbnailNotes,
       accent: "rgba(255,180,80,0.28)"
-    }))));
+    })))));
   }
   function App() {
     const [showSettings, setShowSettings] = useState(false);
@@ -6913,27 +6981,26 @@ ${r.data.thumbnailNotes}`;
     }, React.createElement("span", {
       style: {
         fontSize: 11,
-        color: "rgba(255,255,255,0.4)",
+        color: "var(--text-secondary)",
         fontFamily: "'DM Mono',monospace"
       }
-    }, progLabel), React.createElement("span", {
+    }, "Generating mockups"), React.createElement("span", {
       style: {
         fontSize: 11,
-        color: "#FFDC64",
+        color: "var(--accent-gold)",
         fontFamily: "'DM Mono',monospace"
       }
-    }, Math.round(progress), "%")), React.createElement("div", {
+    }, doneCount, " of ", total)), React.createElement("div", {
       style: {
         background: "rgba(255,255,255,0.06)",
         borderRadius: 999,
-        height: 3,
-        overflow: "hidden",
-        marginBottom: 10
+        height: 5,
+        overflow: "hidden"
       }
     }, React.createElement("div", {
       style: {
         height: "100%",
-        background: "linear-gradient(90deg,#FFDC64,#FF9B40)",
+        background: "linear-gradient(90deg, #7EE8A2, #38C77E)",
         borderRadius: 999,
         width: `${progress}%`,
         transition: "width 0.5s ease"
@@ -7075,34 +7142,34 @@ ${r.data.thumbnailNotes}`;
         width: `${doneCount / total * 100}%`,
         transition: "width 0.4s"
       }
-	    }))), React.createElement("div", {
+    }))), React.createElement("div", {
 	      style: {
 	        marginBottom: 13
 	      }
-	    }, visibleTabs.length > 5 ? React.createElement("select", {
-	      value: activeTab,
-	      onChange: e => setActiveTab(e.target.value)
-	    }, visibleTabs.map(t => React.createElement("option", {
-	      key: t.id,
-	      value: t.id
-	    }, t.label))) : React.createElement("div", {
+	    }, React.createElement("div", {
+	      className: "ko-tab-scroll",
 	      style: {
 	        display: "flex",
-	        gap: 5,
-	        flexWrap: "wrap"
+	        overflowX: "auto",
+	        gap: 4,
+	        flexWrap: "nowrap",
+	        paddingBottom: 2
 	      }
 	    }, visibleTabs.map(t => React.createElement("button", {
 	      key: t.id,
 	      onClick: () => setActiveTab(t.id),
+	      className: `ko-pill-tab${activeTab === t.id ? " ko-pill-tab-active" : ""}`,
 	      style: {
-	        padding: "5px 12px",
-	        borderRadius: 20,
-	        border: activeTab === t.id ? "1.5px solid #FFDC64" : "1.5px solid rgba(255,255,255,0.08)",
-	        background: activeTab === t.id ? "rgba(255,220,100,0.1)" : "transparent",
-	        color: activeTab === t.id ? "#FFDC64" : "rgba(255,255,255,0.32)",
-	        fontSize: 11,
-	        cursor: "pointer",
-	        transition: "all 0.15s"
+	        padding: "7px 16px",
+	        borderRadius: "var(--radius-pill)",
+	        fontSize: 12,
+	        fontWeight: 500,
+	        whiteSpace: "nowrap",
+	        transition: "all 0.15s ease",
+	        border: activeTab === t.id ? "1.5px solid rgba(255,220,100,0.35)" : "1.5px solid var(--border-subtle)",
+	        background: activeTab === t.id ? "rgba(255,220,100,0.12)" : "transparent",
+	        color: activeTab === t.id ? "var(--accent-gold)" : "var(--text-tertiary)",
+	        cursor: "pointer"
 	      }
 	    }, t.label)))), filtered.map(r => {
       const gi = results.indexOf(r);
@@ -7128,7 +7195,7 @@ ${r.data.thumbnailNotes}`;
           selected: true
         })
       });
-    }))));
+    })))));
   }
   ReactDOM.createRoot(document.getElementById("root")).render(React.createElement(App, null));
 } catch (err) {
