@@ -1225,7 +1225,7 @@ try {
   }
   function Spinner({
     size = 18,
-    color = "#FFDC64"
+    color = "var(--accent-gold)"
   }) {
     return React.createElement("div", {
       style: {
@@ -1253,7 +1253,7 @@ try {
         background: "rgba(255,255,255,0.035)",
         border: "none",
         cursor: "pointer",
-        color: c ? "#7EE8A2" : "rgba(255,255,255,0.34)",
+        color: c ? "var(--accent-green)" : "rgba(255,255,255,0.34)",
         fontSize: 11,
         fontFamily: "'DM Mono',monospace",
         padding: "5px 8px",
@@ -1276,8 +1276,8 @@ try {
         padding: "6px 10px",
         borderRadius: 999,
         border: "1px solid rgba(255,255,255,0.11)",
-        background: copied ? "rgba(126,232,162,0.12)" : "rgba(255,255,255,0.04)",
-        color: copied ? "#7EE8A2" : "rgba(255,255,255,0.68)",
+        background: copied ? "rgba(126,232,162,0.12)" : "var(--bg-hover)",
+        color: copied ? "var(--accent-green)" : "rgba(255,255,255,0.68)",
         fontSize: 11,
         cursor: "pointer",
         transition: "all 0.15s ease",
@@ -1453,17 +1453,17 @@ try {
     }, React.createElement("polyline", {
       points: genLine,
       fill: "none",
-      stroke: "#FFDC64",
+      stroke: "var(--accent-gold)",
       strokeWidth: 2
     }), React.createElement("polyline", {
       points: successLine,
       fill: "none",
-      stroke: "#7EE8A2",
+      stroke: "var(--accent-green)",
       strokeWidth: 2
     }), React.createElement("polyline", {
       points: ratingLine,
       fill: "none",
-      stroke: "#5AB4FF",
+      stroke: "var(--accent-blue)",
       strokeWidth: 2
     }), data.map((row, idx) => React.createElement("text", {
       key: row.day || idx,
@@ -1483,11 +1483,11 @@ try {
       }
     }, React.createElement("span", null, "■ Generations"), React.createElement("span", {
       style: {
-        color: "#7EE8A2"
+        color: "var(--accent-green)"
       }
     }, "■ Success rate"), React.createElement("span", {
       style: {
-        color: "#5AB4FF"
+        color: "var(--accent-blue)"
       }
     }, "■ Avg rating x20")));
   }
@@ -1638,7 +1638,7 @@ try {
     value
   }) {
     const v = Math.max(0, Math.min(10, Number(value) || 0));
-    const color = v >= 8 ? "#7EE8A2" : v >= 5 ? "#FFDC64" : "#FF8A8A";
+    const color = v >= 8 ? "var(--accent-green)" : v >= 5 ? "var(--accent-gold)" : "#FF8A8A";
     return React.createElement("div", {
       style: {
         display: "flex",
@@ -1778,7 +1778,7 @@ try {
     }, fixing ? "Thinking..." : "Fix with AI"), React.createElement("button", {
       onClick: () => onRegenerate(report.fix_prompt || ""),
       style: {
-        ...touchButton("1px solid rgba(255,220,100,0.22)", "rgba(255,220,100,0.08)", "#FFDC64", {
+        ...touchButton("1px solid rgba(255,220,100,0.22)", "rgba(255,220,100,0.08)", "var(--accent-gold)", {
           minHeight: 30,
           padding: "6px 10px",
           borderRadius: 8,
@@ -1887,7 +1887,7 @@ try {
         borderRadius: 10,
         border: "1px solid rgba(126,232,162,0.24)",
         background: "rgba(126,232,162,0.08)",
-        color: "#7EE8A2",
+        color: "var(--accent-green)",
         fontSize: 11,
         cursor: "pointer"
       }
@@ -1898,7 +1898,7 @@ try {
         borderRadius: 10,
         border: "1px solid rgba(255,220,100,0.22)",
         background: "rgba(255,220,100,0.08)",
-        color: "#FFDC64",
+        color: "var(--accent-gold)",
         fontSize: 11,
         cursor: "pointer"
       }
@@ -1977,7 +1977,7 @@ try {
         padding: "6px 10px",
         borderRadius: 999,
         border: "1px solid rgba(255,255,255,0.1)",
-        background: "rgba(255,255,255,0.04)",
+        background: "var(--bg-hover)",
         color: "rgba(255,255,255,0.68)",
         fontSize: 11,
         cursor: "pointer"
@@ -2079,7 +2079,7 @@ try {
         height: 28,
         width: chipIdx === 0 ? 86 : 72,
         borderRadius: 999,
-        background: "rgba(255,255,255,0.05)",
+        background: "var(--bg-elevated)",
         border: "1px solid rgba(255,255,255,0.07)"
       }
     }))))));
@@ -2177,7 +2177,7 @@ try {
         padding: "8px 11px",
         borderRadius: 10,
         border: "1px solid rgba(255,255,255,0.1)",
-        background: "rgba(255,255,255,0.05)",
+        background: "var(--bg-elevated)",
         color: "var(--muted-strong)",
         fontSize: 11,
         cursor: !customValue || !customValue.trim() ? "not-allowed" : "pointer"
@@ -2428,7 +2428,7 @@ try {
         style: {
           border: "1px solid rgba(255,255,255,0.10)",
           background: message.includes("sent") ? "rgba(126,232,162,0.08)" : "rgba(255,80,80,0.08)",
-          color: message.includes("sent") ? "#7EE8A2" : "#FF9B9B",
+          color: message.includes("sent") ? "var(--accent-green)" : "#FF9B9B",
           borderRadius: 12,
           padding: "10px 12px",
           fontSize: 12,
@@ -2666,7 +2666,7 @@ try {
         });
       });
     }, []);
-    const sc = s => s === "ok" ? "#7EE8A2" : s === "fail" ? "#FF8080" : "rgba(255,255,255,0.35)";
+    const sc = s => s === "ok" ? "var(--accent-green)" : s === "fail" ? "#FF8080" : "rgba(255,255,255,0.35)";
     const si = s => s === "ok" ? "✓" : s === "fail" ? "✗" : s === "loading" ? "…" : "";
     const setResearchFilter = (key, value) => setResearchFilters(filters => ({
       ...filters,
@@ -2998,7 +2998,7 @@ try {
     }, "Provider connection status and admin-only service controls."))), React.createElement("button", {
       onClick: onClose,
       style: {
-        background: "rgba(255,255,255,0.06)",
+        background: "var(--border-subtle)",
         border: "1px solid rgba(255,255,255,0.10)",
         borderRadius: 10,
         width: 34,
@@ -3068,7 +3068,7 @@ try {
 	    }), React.createElement("button", {
 	      onClick: loginAdmin,
 	      style: {
-	        ...touchButton("1px solid rgba(255,220,100,0.35)", "rgba(255,220,100,0.1)", "#FFDC64", {
+	        ...touchButton("1px solid rgba(255,220,100,0.35)", "rgba(255,220,100,0.1)", "var(--accent-gold)", {
 	          width: "100%",
 	          marginTop: 2
 	        })
@@ -3083,7 +3083,7 @@ try {
     }, React.createElement("span", {
       style: {
         fontSize: 11,
-        color: "#7EE8A2",
+        color: "var(--accent-green)",
         fontFamily: "'DM Mono',monospace"
       }
 	    }, `Logged in as ${adminSession.username || "admin"}`), React.createElement("button", {
@@ -3094,7 +3094,7 @@ try {
 	    }, "Logout")), loginMsg && React.createElement("div", {
       style: {
         fontSize: 10,
-        color: loginMsg.includes("Invalid") ? "#FF8080" : "#7EE8A2",
+        color: loginMsg.includes("Invalid") ? "#FF8080" : "var(--accent-green)",
         fontFamily: "'DM Mono',monospace",
         marginTop: 8
       }
@@ -3137,12 +3137,12 @@ try {
       style: {
         fontSize: 11,
         fontFamily: "'DM Mono',monospace",
-        color: info[k]?.set ? "#7EE8A2" : "#FF8080"
+        color: info[k]?.set ? "var(--accent-green)" : "#FF8080"
       }
     }, info[k]?.set ? "Connected" : "Missing"), React.createElement("div", {
       style: {
         fontSize: 12,
-        color: "rgba(255,255,255,0.55)",
+        color: "var(--text-secondary)",
         marginTop: 2
       }
     }, l), info[k]?.masked && React.createElement("div", {
@@ -3185,7 +3185,7 @@ try {
       onClick: loadAgents,
       disabled: agentsLoading,
       style: {
-        ...touchButton("1px solid rgba(255,220,100,0.32)", "rgba(255,220,100,0.09)", "#FFDC64", {
+        ...touchButton("1px solid rgba(255,220,100,0.32)", "rgba(255,220,100,0.09)", "var(--accent-gold)", {
           cursor: agentsLoading ? "wait" : "pointer"
         })
       }
@@ -3253,8 +3253,8 @@ try {
         padding: "3px 7px",
         fontSize: 9,
         fontFamily: "'DM Mono',monospace",
-        color: section.success === true ? "#7EE8A2" : section.success === false ? "#FF8080" : "rgba(255,255,255,0.45)",
-        background: section.success === true ? "rgba(126,232,162,0.09)" : section.success === false ? "rgba(255,80,80,0.09)" : "rgba(255,255,255,0.05)",
+        color: section.success === true ? "var(--accent-green)" : section.success === false ? "#FF8080" : "rgba(255,255,255,0.45)",
+        background: section.success === true ? "rgba(126,232,162,0.09)" : section.success === false ? "rgba(255,80,80,0.09)" : "var(--bg-elevated)",
         border: `1px solid ${section.success === true ? "rgba(126,232,162,0.20)" : section.success === false ? "rgba(255,80,80,0.20)" : "rgba(255,255,255,0.08)"}`
       }
     }, section.success === true ? "Success" : section.success === false ? "Failed" : "No runs")), React.createElement("div", {
@@ -3294,7 +3294,7 @@ try {
         borderTop: "1px solid rgba(255,255,255,0.06)",
         paddingTop: 8,
         fontSize: 11,
-        color: "#FFDC64",
+        color: "var(--accent-gold)",
         fontFamily: "'DM Mono',monospace"
       }
     }, "Recent score: ", Math.round(Number(section.recent_score))), section.error && React.createElement("div", {
@@ -3378,14 +3378,14 @@ try {
 	      onClick: loadResearch,
 	      disabled: researchLoading,
 	      style: {
-	        ...touchButton("1px solid rgba(255,220,100,0.32)", "rgba(255,220,100,0.09)", "#FFDC64", {
+	        ...touchButton("1px solid rgba(255,220,100,0.32)", "rgba(255,220,100,0.09)", "var(--accent-gold)", {
 	          cursor: researchLoading ? "wait" : "pointer"
 	        })
 	      }
 	    }, researchLoading ? "Nalagam..." : "Naloži"), React.createElement("button", {
 	      onClick: () => downloadResearchExport("csv"),
 	      style: {
-	        ...touchButton("1px solid rgba(126,232,162,0.32)", "rgba(126,232,162,0.09)", "#7EE8A2")
+	        ...touchButton("1px solid rgba(126,232,162,0.32)", "rgba(126,232,162,0.09)", "var(--accent-green)")
 	      }
 	    }, "CSV"), React.createElement("button", {
 	      onClick: () => downloadResearchExport("json"),
@@ -3898,7 +3898,7 @@ try {
       onClick: () => setSelectedResearchRow(null),
       style: {
         border: "1px solid rgba(255,255,255,0.08)",
-        background: "rgba(255,255,255,0.04)",
+        background: "var(--bg-hover)",
         color: "rgba(255,255,255,0.5)",
         borderRadius: 8,
         padding: "5px 9px",
@@ -3980,7 +3980,7 @@ try {
     }, emoji), title), React.createElement("div", {
       style: {
         fontSize: 10,
-        color: "rgba(255,255,255,0.28)",
+        color: "var(--text-tertiary)",
         marginBottom: 10
       }
     }, desc), React.createElement("div", {
@@ -4017,7 +4017,7 @@ try {
 	      onClick: () => test(type),
 	      disabled: st[key] === "loading",
 	      style: {
-	        ...touchButton("1px solid rgba(255,220,100,0.32)", "rgba(255,220,100,0.09)", "#FFDC64", {
+	        ...touchButton("1px solid rgba(255,220,100,0.32)", "rgba(255,220,100,0.09)", "var(--accent-gold)", {
 	          cursor: st[key] === "loading" ? "wait" : "pointer"
 	        })
 	      }
@@ -4068,7 +4068,7 @@ try {
 	        background: saving || !gem && !rep ? "rgba(255,220,100,0.08)" : "linear-gradient(135deg,#FFDC64,#FF9B40)",
         border: "none",
         borderRadius: 10,
-        color: saving || !gem && !rep ? "rgba(255,220,100,0.3)" : "#0C0C0E",
+        color: saving || !gem && !rep ? "rgba(255,220,100,0.3)" : "var(--bg-base)",
         fontSize: 13,
         fontWeight: 700,
         cursor: saving || !gem && !rep ? "not-allowed" : "pointer",
@@ -4085,7 +4085,7 @@ try {
 	      style: {
 	        minHeight: 46,
 	        padding: "12px 20px",
-	        background: "rgba(255,255,255,0.05)",
+	        background: "var(--bg-elevated)",
         border: "1px solid rgba(255,255,255,0.1)",
         borderRadius: 10,
         color: "rgba(255,255,255,0.4)",
@@ -4213,7 +4213,7 @@ try {
       }
     }, "Role: ", React.createElement("span", {
       style: {
-        color: "#FFDC64"
+        color: "var(--accent-gold)"
       }
     }, roleLabel(result.listingRole)), result.listingRolePhase ? React.createElement(React.Fragment, null, " · ", result.listingRolePhase) : null, result.promptWordCount ? React.createElement(React.Fragment, null, " · ", result.promptWordCount, " words") : null))), done && React.createElement("span", {
       style: {
@@ -4399,7 +4399,7 @@ try {
         borderRadius: 8,
         border: "1px solid rgba(126,232,162,0.25)",
         background: "rgba(126,232,162,0.08)",
-        color: "#7EE8A2",
+        color: "var(--accent-green)",
         fontSize: 10,
         cursor: busy || !customPrompt?.trim() ? "not-allowed" : "pointer"
       }
@@ -4430,7 +4430,7 @@ try {
     }, "Prompt Rating"), React.createElement("div", {
       style: {
         fontSize: 10,
-        color: "rgba(255,255,255,0.28)"
+        color: "var(--text-tertiary)"
       }
     }, rating ? `${rating}/5` : "Unrated")), React.createElement("div", {
       style: {
@@ -4448,7 +4448,7 @@ try {
         borderRadius: 9,
         border: `1px solid ${rating >= n ? "rgba(255,220,100,0.3)" : "rgba(255,255,255,0.08)"}`,
         background: rating >= n ? "rgba(255,220,100,0.09)" : "rgba(255,255,255,0.03)",
-        color: rating >= n ? "#FFDC64" : "rgba(255,255,255,0.28)",
+        color: rating >= n ? "var(--accent-gold)" : "var(--text-tertiary)",
         fontSize: 13,
         cursor: "pointer",
         display: "flex",
@@ -4495,7 +4495,7 @@ try {
         width: 15,
         height: 15,
         borderRadius: 4,
-        background: "rgba(255,255,255,0.06)",
+        background: "var(--border-subtle)",
         fontSize: 12,
         lineHeight: 1,
         transform: detailsOpen ? "rotate(45deg)" : "none",
@@ -5104,7 +5104,7 @@ try {
         style: {
           border: "1px solid rgba(255,255,255,0.09)",
           borderRadius: 18,
-          background: "rgba(255,255,255,0.04)",
+          background: "var(--bg-hover)",
           padding: 18
         }
       }, React.createElement("h2", {
@@ -5842,7 +5842,7 @@ ${r.data.thumbnailNotes}`;
     }, React.createElement("div", {
       style: {
         fontSize: 10,
-        color: "rgba(255,255,255,0.28)",
+        color: "var(--text-tertiary)",
         fontFamily: "'DM Mono',monospace",
         letterSpacing: "0.12em",
         textTransform: "uppercase",
@@ -5873,18 +5873,18 @@ ${r.data.thumbnailNotes}`;
         height: 58,
         objectFit: "contain",
         borderRadius: 9,
-        background: "rgba(255,255,255,0.05)",
+        background: "var(--bg-elevated)",
         flexShrink: 0
       }
     }), React.createElement("div", null, React.createElement("div", {
       style: {
-        color: "#FFDC64",
+        color: "var(--accent-gold)",
         fontSize: 13,
         fontWeight: 500
       }
     }, "Design pripravljen \u2713"), React.createElement("div", {
       style: {
-        color: "rgba(255,255,255,0.28)",
+        color: "var(--text-tertiary)",
         fontSize: 11,
         marginTop: 2
       }
@@ -5913,7 +5913,7 @@ ${r.data.thumbnailNotes}`;
         borderRadius: 999,
         border: "1px solid rgba(255,220,100,0.28)",
         background: "rgba(255,220,100,0.08)",
-        color: "#FFDC64",
+        color: "var(--accent-gold)",
         fontSize: 12,
         fontWeight: 700,
         cursor: "pointer"
@@ -5943,7 +5943,7 @@ ${r.data.thumbnailNotes}`;
     }, React.createElement("div", {
       style: {
         fontSize: 10,
-        color: "rgba(255,255,255,0.28)",
+        color: "var(--text-tertiary)",
         fontFamily: "'DM Mono',monospace",
         letterSpacing: "0.12em",
         textTransform: "uppercase",
@@ -5984,7 +5984,7 @@ ${r.data.thumbnailNotes}`;
         gap: 7,
         padding: "6px 8px",
         borderRadius: 8,
-        background: "rgba(255,255,255,0.04)",
+        background: "var(--bg-hover)",
         border: "1px solid rgba(255,255,255,0.07)"
       }
     }, React.createElement("img", {
@@ -6014,7 +6014,7 @@ ${r.data.thumbnailNotes}`;
     }, React.createElement("div", {
       style: {
         fontSize: 10,
-        color: "rgba(255,255,255,0.28)",
+        color: "var(--text-tertiary)",
         fontFamily: "'DM Mono',monospace",
         letterSpacing: "0.12em",
         textTransform: "uppercase",
@@ -6103,7 +6103,7 @@ ${r.data.thumbnailNotes}`;
       }, template.name), React.createElement("div", {
         style: {
           fontSize: 11,
-          color: "rgba(255,255,255,0.55)",
+          color: "var(--text-secondary)",
           lineHeight: 1.4
         }
       }, template.subtitle), sizeChartArtifacts[template.id] && React.createElement("div", {
@@ -6145,7 +6145,7 @@ ${r.data.thumbnailNotes}`;
     }, currentSizeChartArtifact.name), React.createElement("div", {
       style: {
         fontSize: 11,
-        color: "rgba(255,255,255,0.55)"
+        color: "var(--text-secondary)"
       }
     }, "Included in export, but not used as a mockup reference.")))), React.createElement("div", {
 	      style: {
@@ -6192,7 +6192,7 @@ ${r.data.thumbnailNotes}`;
     }, React.createElement("div", {
       style: {
         fontSize: 10,
-        color: "rgba(255,255,255,0.28)",
+        color: "var(--text-tertiary)",
         fontFamily: "'DM Mono',monospace",
         letterSpacing: "0.12em",
         textTransform: "uppercase",
@@ -6318,7 +6318,7 @@ ${r.data.thumbnailNotes}`;
         gap: 8,
         marginBottom: 10,
         fontSize: 12,
-        color: "rgba(255,255,255,0.55)",
+        color: "var(--text-secondary)",
         cursor: "pointer"
       }
     }, React.createElement("input", {
@@ -6333,7 +6333,7 @@ ${r.data.thumbnailNotes}`;
       }
     }), "Autodetect Shirt Design", analyzing && React.createElement("span", {
       style: {
-        color: "#FFDC64",
+        color: "var(--accent-gold)",
         fontFamily: "'DM Mono',monospace",
         fontSize: 10
       }
@@ -6703,7 +6703,7 @@ ${r.data.thumbnailNotes}`;
     }, "Copy prompt"))))), listingMode === "custom_style" && React.createElement(React.Fragment, null, React.createElement("div", {
       style: {
         fontSize: 9,
-        color: "rgba(255,255,255,0.28)",
+        color: "var(--text-tertiary)",
         marginBottom: 5,
         fontFamily: "'DM Mono',monospace",
         letterSpacing: "0.08em",
@@ -6727,7 +6727,7 @@ ${r.data.thumbnailNotes}`;
     }, "This brief is used when Mockup Style is set to Custom above.")), listingMode === "listing_copy" && React.createElement(React.Fragment, null, React.createElement("div", {
       style: {
         fontSize: 9,
-        color: "rgba(255,255,255,0.28)",
+        color: "var(--text-tertiary)",
         marginBottom: 5,
         fontFamily: "'DM Mono',monospace",
         letterSpacing: "0.08em",
@@ -6742,25 +6742,25 @@ ${r.data.thumbnailNotes}`;
     }, React.createElement("div", {
       style: {
         fontSize: 11,
-        color: "rgba(255,255,255,0.55)",
+        color: "var(--text-secondary)",
         lineHeight: 1.5
       }
     }, React.createElement("strong", null, "Product description"), ": ", listingCopySource.productDescription || "Add the product details in the field above."), React.createElement("div", {
       style: {
         fontSize: 11,
-        color: "rgba(255,255,255,0.55)",
+        color: "var(--text-secondary)",
         lineHeight: 1.5
       }
     }, React.createElement("strong", null, "Niche"), ": ", listingCopySource.niche || "—"), React.createElement("div", {
       style: {
         fontSize: 11,
-        color: "rgba(255,255,255,0.55)",
+        color: "var(--text-secondary)",
         lineHeight: 1.5
       }
     }, React.createElement("strong", null, "Audience"), ": ", listingCopySource.targetAudience || "—"), React.createElement("div", {
       style: {
         fontSize: 11,
-        color: "rgba(255,255,255,0.55)",
+        color: "var(--text-secondary)",
         lineHeight: 1.5
       }
     }, React.createElement("strong", null, "Style"), ": ", listingCopySource.style || "—")), React.createElement("button", {
@@ -6832,7 +6832,7 @@ ${r.data.thumbnailNotes}`;
         borderRadius: 10,
         border: "1px solid rgba(255,220,100,0.22)",
         background: "rgba(255,220,100,0.08)",
-        color: "#FFDC64",
+        color: "var(--accent-gold)",
         fontSize: 11,
         cursor: "pointer"
       }
@@ -6862,7 +6862,7 @@ ${r.data.thumbnailNotes}`;
           alignItems: "center",
           gap: 8,
           fontSize: 10,
-          color: "rgba(255,255,255,0.55)",
+          color: "var(--text-secondary)",
           fontFamily: "'DM Mono',monospace",
           borderBottom: "1px solid rgba(255,255,255,0.06)"
         }
@@ -6886,7 +6886,7 @@ ${r.data.thumbnailNotes}`;
           minHeight: 140,
           display: "grid",
           placeItems: "center",
-          color: "rgba(255,255,255,0.28)",
+          color: "var(--text-tertiary)",
           fontSize: 26
         }
       }, r.catInfo?.emoji || "🖼️"));
@@ -6910,7 +6910,7 @@ ${r.data.thumbnailNotes}`;
     }, React.createElement("div", null, React.createElement("div", {
       style: {
         fontSize: 10,
-        color: "rgba(255,255,255,0.28)",
+        color: "var(--text-tertiary)",
         fontFamily: "'DM Mono',monospace",
         letterSpacing: "0.12em",
         textTransform: "uppercase"
@@ -6927,7 +6927,7 @@ ${r.data.thumbnailNotes}`;
         alignItems: "center",
         gap: 8,
         fontSize: 11,
-        color: "rgba(255,255,255,0.55)",
+        color: "var(--text-secondary)",
         cursor: "pointer",
         whiteSpace: "nowrap"
       }
@@ -6955,7 +6955,7 @@ ${r.data.thumbnailNotes}`;
     }, React.createElement("div", {
       style: {
         fontSize: 10,
-        color: "rgba(255,255,255,0.28)",
+        color: "var(--text-tertiary)",
         fontFamily: "'DM Mono',monospace"
       }
     }, "Rated"), React.createElement("div", {
@@ -6975,14 +6975,14 @@ ${r.data.thumbnailNotes}`;
     }, React.createElement("div", {
       style: {
         fontSize: 10,
-        color: "rgba(255,255,255,0.28)",
+        color: "var(--text-tertiary)",
         fontFamily: "'DM Mono',monospace"
       }
     }, "Average"), React.createElement("div", {
       style: {
         fontSize: 16,
         fontWeight: 700,
-        color: "#FFDC64",
+        color: "var(--accent-gold)",
         marginTop: 3
       }
     }, promptStats.avg, "\u2605")), React.createElement("div", {
@@ -6995,14 +6995,14 @@ ${r.data.thumbnailNotes}`;
     }, React.createElement("div", {
       style: {
         fontSize: 10,
-        color: "rgba(255,255,255,0.28)",
+        color: "var(--text-tertiary)",
         fontFamily: "'DM Mono',monospace"
       }
     }, "4-5\u2605"), React.createElement("div", {
       style: {
         fontSize: 16,
         fontWeight: 700,
-        color: "#7EE8A2",
+        color: "var(--accent-green)",
         marginTop: 3
       }
     }, promptStats.strong))), React.createElement("div", {
@@ -7019,7 +7019,7 @@ ${r.data.thumbnailNotes}`;
       }
     }, React.createElement("span", {
       style: {
-        color: "rgba(255,255,255,0.55)",
+        color: "var(--text-secondary)",
         fontFamily: "'DM Mono',monospace",
         fontSize: 10,
         letterSpacing: "0.1em",
@@ -7033,7 +7033,7 @@ ${r.data.thumbnailNotes}`;
       }
     }, React.createElement("span", {
       style: {
-        color: "rgba(255,255,255,0.55)",
+        color: "var(--text-secondary)",
         fontFamily: "'DM Mono',monospace",
         fontSize: 10,
         letterSpacing: "0.1em",
@@ -7047,7 +7047,7 @@ ${r.data.thumbnailNotes}`;
       }
     }, React.createElement("span", {
       style: {
-        color: "rgba(255,255,255,0.55)",
+        color: "var(--text-secondary)",
         fontFamily: "'DM Mono',monospace",
         fontSize: 10,
         letterSpacing: "0.1em",
@@ -7061,7 +7061,7 @@ ${r.data.thumbnailNotes}`;
       }
     }, React.createElement("span", {
       style: {
-        color: "rgba(255,255,255,0.55)",
+        color: "var(--text-secondary)",
         fontFamily: "'DM Mono',monospace",
         fontSize: 10,
         letterSpacing: "0.1em",
@@ -7116,7 +7116,7 @@ ${r.data.thumbnailNotes}`;
         background: loading || !analysisReady ? "rgba(255,220,100,0.05)" : "linear-gradient(135deg,#FFDC64 0%,#FF9B40 100%)",
         border: "none",
         borderRadius: 12,
-        color: loading || !analysisReady ? "rgba(255,220,100,0.35)" : "#0C0C0E",
+        color: loading || !analysisReady ? "rgba(255,220,100,0.35)" : "var(--bg-base)",
         fontSize: 14,
         fontWeight: 600,
         cursor: loading || !analysisReady ? "not-allowed" : "pointer",
@@ -7158,7 +7158,7 @@ ${r.data.thumbnailNotes}`;
       }
     }, doneCount, " of ", total)), React.createElement("div", {
       style: {
-        background: "rgba(255,255,255,0.06)",
+        background: "var(--border-subtle)",
         borderRadius: 999,
         height: 5,
         overflow: "hidden"
@@ -7190,7 +7190,7 @@ ${r.data.thumbnailNotes}`;
       }, React.createElement("div", {
         style: {
           fontSize: 10,
-          color: done ? "#FFDC64" : "rgba(255,255,255,0.22)",
+          color: done ? "var(--accent-gold)" : "rgba(255,255,255,0.22)",
           fontFamily: "'DM Mono',monospace"
         }
       }, done ? "✓ " : "· ", "Serija ", bi + 1), React.createElement("div", {
@@ -7241,7 +7241,7 @@ ${r.data.thumbnailNotes}`;
     }, "Download All Mockups"), results.length === total && React.createElement("button", {
       onClick: copyAll,
       style: {
-        background: "rgba(255,255,255,0.05)",
+        background: "var(--bg-elevated)",
         border: "1px solid rgba(255,255,255,0.09)",
         borderRadius: 8,
         padding: "5px 11px",
@@ -7261,7 +7261,7 @@ ${r.data.thumbnailNotes}`;
         border: "1px solid rgba(255,220,100,0.25)",
         borderRadius: 8,
         padding: "5px 12px",
-        color: genAllBusy ? "rgba(255,220,100,0.3)" : "#FFDC64",
+        color: genAllBusy ? "rgba(255,220,100,0.3)" : "var(--accent-gold)",
         fontSize: 10,
         fontFamily: "'DM Mono',monospace",
         cursor: genAllBusy ? "not-allowed" : "pointer"
@@ -7291,12 +7291,12 @@ ${r.data.thumbnailNotes}`;
     }, "Generirane slike"), React.createElement("span", {
       style: {
         fontSize: 10,
-        color: "#7EE8A2",
+        color: "var(--accent-green)",
         fontFamily: "'DM Mono',monospace"
       }
     }, doneCount, " / ", total)), React.createElement("div", {
       style: {
-        background: "rgba(255,255,255,0.05)",
+        background: "var(--bg-elevated)",
         borderRadius: 999,
         height: 3
       }
