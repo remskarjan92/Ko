@@ -1,0 +1,309 @@
+Etsy Mockup Generator System Overview
+
+What this app does
+
+This app turns one uploaded shirt design into a batch of Etsy-style mockups.
+It also generates research-rich prompt data for each concept so the output can
+be used to create better mockups, better listing copy, and better variations.
+
+Core flow
+
+1. You upload a shirt design image.
+2. You choose the mockup settings:
+   - shirt type
+   - shirt name for research
+   - print visibility
+   - mockup style
+   - target audience
+   - scene direction
+   - mockup count
+   - autodetect shirt design
+3. The app can analyze the shirt image first using a vision model.
+4. Gemini generates structured prompt concepts for each selected category.
+5. Flux Kontext Dev on Replicate generates the actual mockup image.
+6. The app shows preview images, prompt details, ratings, and download buttons.
+7. You can regenerate one mockup, apply an AI fix, or bulk regenerate all mockups.
+
+Frontend architecture
+
+The app is built as a single HTML file with inline JavaScript React code.
+There is no separate JSX build step in the live version.
+
+Main frontend responsibilities:
+
+- collect user inputs
+- show the settings modal
+- show prompt cards and generated images
+- handle prompt ratings and learning stats
+- handle individual and bulk generation
+- handle downloads and ZIP export
+- store admin token locally in the browser
+
+Important frontend controls
+
+Settings and admin:
+
+- Admin Access Token is saved only in local browser storage.
+- It is not meant to be public.
+- The token is sent in the x-admin-token header for protected API calls.
+
+Prompt generation controls:
+
+- Shirt type
+- Shirt name for research
+- Print visibility:
+  - front only
+  - back only
+  - both sides
+- Mockup style:
+  - UGC / review photo
+  - preset mockup styles
+  - custom style brief
+- Target audience
+- Brand style
+- Niche
+- Scene direction
+- Autodetect shirt design
+- Mockup count
+
+Generation logic
+
+The app uses two separate AI steps:
+
+1. Prompt generation
+   - The uploaded shirt image goes to Gemini.
+   - If autodetect is enabled, the app first runs shirt analysis through a
+     vision model.
+   - Gemini returns a structured JSON array with one concept per category.
+   - Each concept includes:
+     - category
+     - concept name
+     - shirt colors
+     - research text
+     - print visibility
+     - mockup style mode
+     - environment
+     - target buyer
+     - pose
+     - camera setup
+     - lighting
+     - Flux prompt
+     - negative prompt
+     - QA checklist
+     - auto-fix prompt
+     - manual fix template
+     - thumbnail notes
+     - scores
+
+2. Image generation
+   - The app sends the chosen Flux prompt to Replicate Flux Kontext Dev.
+   - The uploaded design is passed as the input image.
+   - Any extra reference images are analyzed and used as soft style guidance.
+   - Print visibility and mockup style are threaded into the generation prompt.
+   - The generated output is validated and returned as a downloadable image.
+
+Backend architecture
+
+The backend is a Node.js Express server.
+
+Key backend jobs:
+
+- protect admin routes with ADMIN_TOKEN
+- store and read API keys
+- call Gemini for prompt generation
+- call Replicate for analysis and image generation
+- validate returned image URLs
+- convert image output to downloadable data URLs
+- handle retries for transient rate limits and API failures
+
+Backend routes
+
+- GET /api/keys
+  - returns key status for Gemini and Replicate
+
+- POST /api/keys/:type
+  - saves or updates a key
+
+- DELETE /api/keys/:type
+  - deletes a locally stored key if it is not coming from env
+
+- POST /api/analyze-shirt
+  - sends the uploaded shirt image to a vision model for analysis
+
+- POST /api/generate-prompts
+  - sends the image and settings to Gemini
+  - returns the structured prompt batch
+
+- POST /api/generate-image
+  - sends the Flux prompt and reference image to Replicate
+  - returns the generated image
+
+- POST /api/ai-fix-suggestion
+  - uses Gemini to suggest a surgical correction for one mockup
+
+Prompt strategy
+
+The prompt system is designed to maximize Etsy conversion and realism.
+
+The system prompt tells Gemini to:
+
+- preserve the uploaded artwork exactly
+- avoid redrawing or restyling the design
+- generate mockups that feel diverse and commercially viable
+- keep the design visible and unobstructed
+- create concepts that are clearly different from each other
+- avoid stock-photo repetition
+- write prompts that work well with Flux Kontext
+
+The generation also includes:
+
+- customer lifestyle realism
+- UGC / review-photo bias
+- candid framing
+- everyday buyer energy
+- natural imperfections
+- believable story moments
+
+This is intentional. The goal is to make the mockups look like real customer
+photos instead of polished catalog ads.
+
+Print visibility system
+
+Print visibility is a pre-generation option.
+
+Available modes:
+
+- front only
+  - front concepts may show the print
+  - back-view concepts must stay blank on the back
+
+- back only
+  - back concepts may show the print
+  - front-view concepts must stay blank on the front
+
+- both sides
+  - the design may appear on both sides if the concept naturally needs it
+
+This helps prevent incorrect mockups where a back pick accidentally shows a
+front print or vice versa.
+
+Mockup style system
+
+The mockup style is also a pre-generation option.
+
+Available modes:
+
+- UGC / review photo
+  - candid customer style
+  - casual smartphone energy
+  - looks like a real buyer post or review image
+
+- preset mockup styles
+  - uses the current preset category-based styles
+
+- custom style brief
+  - lets the user type a specific styling direction
+
+This keeps the app flexible:
+
+- UGC mode for casual realism
+- preset mode for the current structured workflow
+- custom mode for more control
+
+Learning system
+
+The app has a local prompt learning system.
+
+What it stores:
+
+- prompt ratings
+- whether learning is enabled
+- diversity history
+
+What it does:
+
+- shows stats for rated prompts
+- shows best-performing categories
+- shows best-performing audiences
+- shows best-performing shirt types
+- biases future prompt generation based on higher-rated past prompts
+
+Important:
+
+- ratings stay local to the browser
+- learning data is not public
+- it is meant to improve prompt quality over time for your own workflow
+
+Downloads
+
+The app supports:
+
+- individual PNG downloads per mockup
+- bulk ZIP download of all generated mockups
+
+The ZIP feature packages the generated PNGs together so they are easy to
+download and organize.
+
+Regeneration flow
+
+Each mockup card supports:
+
+- generate
+- regenerate
+- download
+- AI fix suggestion
+- custom change prompt
+
+Regeneration uses:
+
+- the original Flux prompt
+- any user-entered custom change text
+- any AI fix suggestion
+- the current print visibility choice
+- the current mockup style choice
+- the uploaded reference image
+- extra reference images if present
+
+This makes it easier to make small targeted adjustments without starting over.
+
+Why the app is structured this way
+
+The app is optimized for speed and practical iteration.
+
+Instead of one giant abstract pipeline, it keeps the important pieces visible:
+
+- the prompt that created the mockup
+- the rating you gave it
+- the image result
+- the download action
+- the fix/regenerate actions
+
+That makes it easier to refine output quality and improve your mockups over
+time.
+
+Current recommended usage
+
+1. Upload the design.
+2. Choose UGC / review photo if you want the most casual customer-style output.
+3. Set print visibility so back views do not accidentally show the print.
+4. Use a preset style if you want consistency, or a custom style brief if you
+   want more control.
+5. Generate the prompt batch.
+6. Review the outputs.
+7. Rate the good ones so the learning system has signal.
+8. Regenerate or apply AI fixes on any weak concepts.
+
+Short version
+
+The app is a single-page Etsy mockup generator that uses:
+
+- local browser admin auth
+- Gemini for prompt generation
+- Replicate for shirt analysis and image generation
+- Flux Kontext Dev for the mockups
+- a local learning/rating system
+- PNG and ZIP downloads
+- optional print visibility and mockup style controls
+
+It is designed to produce realistic, high-converting shirt mockups with strong
+prompt structure and easy iteration.

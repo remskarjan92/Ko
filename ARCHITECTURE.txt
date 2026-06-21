@@ -1,0 +1,218 @@
+Etsy Mockup Generator Architecture
+
+Overview
+
+This app is a single-page Etsy mockup generator with a Node/Express backend.
+The frontend is a compiled React app embedded in `index.html`.
+The backend in `server.js` handles auth, key storage, AI calls, and image
+generation.
+
+Main components
+
+1. Frontend UI
+   - `index.html`
+   - React UMD runtime
+   - inline application code
+   - prompt cards, settings modal, downloads, learning stats
+
+2. Backend server
+   - `server.js`
+   - Express app
+   - protected API routes
+   - API key loading and persistence
+   - Gemini prompt generation
+   - Replicate image generation
+   - shirt analysis and fix suggestions
+
+3. Local storage
+   - browser-only admin token
+   - prompt ratings
+   - learning toggle
+   - diversity history
+
+4. External services
+   - Gemini API for prompt generation
+   - Replicate for shirt analysis and mockup generation
+   - Supabase for auth, credits, analytics, learning, and persistent SaaS data
+   - JSZip in the browser for ZIP exports
+
+Request flow
+
+1. User opens the app.
+2. Browser loads `index.html`.
+3. React mounts the app UI.
+4. User uploads a shirt design.
+5. Optional shirt analysis runs through the backend.
+6. User chooses print visibility, mockup style, shirt type, and other options.
+7. Frontend sends the image and settings to `/api/generate-prompts`.
+8. Backend sends the image plus instructions to Gemini.
+9. Gemini returns structured prompt JSON.
+10. Frontend renders prompt cards.
+11. User generates mockup images for each card.
+12. Frontend sends each Flux prompt to `/api/generate-image`.
+13. Backend sends the request to Replicate Flux Kontext Dev.
+14. Backend validates the output image and returns a data URL.
+15. Frontend shows the preview and enables download actions.
+
+Data flow
+
+Input data:
+
+- uploaded shirt design image
+- optional reference images
+- brand style
+- niche
+- target audience
+- shirt type
+- shirt name
+- print visibility
+- mockup style mode
+- mockup style brief
+- scene direction
+- autodetect toggle
+
+Generated data:
+
+- structured prompt concepts
+- Flux prompts
+- QA checklists
+- thumbnail notes
+- image previews
+- local prompt ratings
+- learning stats
+
+Prompt generation architecture
+
+Gemini prompt generation is intentionally structured.
+
+The backend sends:
+
+- the uploaded image
+- the category batch
+- shirt research context
+- print visibility rules
+- mockup style mode
+- user-facing scene direction
+- learning context
+- diversity history
+
+Gemini is instructed to return strict JSON with one object per concept.
+The frontend parses that JSON into the prompt cards.
+
+Image generation architecture
+
+Replicate Flux Kontext Dev is used to generate the actual mockups.
+
+The backend builds a generation prompt from:
+
+- the Flux prompt created by Gemini
+- the uploaded design image
+- print visibility
+- mockup style mode
+- optional custom style brief
+- optional custom change request
+- optional design analysis
+- optional reference image analysis
+
+Additional reference images are captioned first with Florence so they can be
+used as soft style guidance.
+
+Why this split exists
+
+The app separates prompt generation from image generation so each step can be
+tuned independently:
+
+- Gemini is good at structured planning and listing-level prompt writing
+- Flux is good at turning a strong image prompt into a visual mockup
+
+This separation also makes it easier to:
+
+- inspect prompts before generation
+- retry one step without rerunning everything
+- apply targeted fixes to a single mockup
+
+State architecture
+
+The frontend keeps the main working state in React state variables:
+
+- form settings
+- uploaded image
+- reference images
+- prompt results
+- generated image states
+- custom change text
+- prompt ratings
+- learning mode
+- diversity history
+
+The app is intentionally stateful so the user can:
+
+- generate in batches
+- regenerate one card
+- apply a fix suggestion
+- download individual PNGs
+- download all mockups as a ZIP
+
+Auth architecture
+
+Admin access uses a shared token:
+
+- server env var: `ADMIN_TOKEN`
+- browser local storage: saved token value
+- header used on requests: `x-admin-token`
+
+This protects the API routes that read and write keys and trigger generation.
+
+Storage architecture
+
+Secrets:
+
+- server-side API keys may come from env vars or local `keys.json`
+- browser-side admin token stays in local storage only
+
+Learning data:
+
+- prompt ratings are stored locally in the browser
+- learning stats are also local
+
+Downloaded assets:
+
+- generated mockups are stored as PNG data URLs in the UI
+- bulk downloads are packaged with JSZip on the client
+
+Important implementation choices
+
+- Single-file frontend keeps deployment simple.
+- No Babel runtime is used in production.
+- The frontend is precompiled into plain JavaScript.
+- Image downloads are normalized to PNG.
+- ZIP exports use the generated PNGs directly.
+- Prompt generation and mockup generation are both API-driven.
+
+Operational notes
+
+- If the app loads blank, check the compiled `index.html` first.
+- If prompt generation fails, check Gemini key availability and admin auth.
+- If image generation fails, check Replicate quota, rate limits, and output
+  validation.
+- If back-view concepts show the print incorrectly, adjust the print visibility
+  mode.
+- If output feels too polished, use the UGC / review photo mockup style.
+
+Current design intent
+
+The architecture is optimized for:
+
+- fast iteration
+- strong prompt control
+- realistic customer-style mockups
+- batch generation
+- easy regeneration
+- local learning based on prompt ratings
+
+In short
+
+`index.html` is the UI, `server.js` is the AI, auth, and key-handling layer,
+Gemini writes the prompt concepts, Replicate renders the images, Supabase
+stores the SaaS and analytics data, and the browser keeps the lightweight
+learning and download workflow.
