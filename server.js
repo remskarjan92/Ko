@@ -4,6 +4,7 @@ const path    = require("path");
 const fs      = require("fs");
 const crypto  = require("crypto");
 const pkg     = require("./package.json");
+const { runAgent } = require("./lib/agentOrchestrator");
 
 const app      = express();
 const PORT     = process.env.PORT || 3000;
@@ -14,7 +15,10 @@ const ADMIN_USERNAME = process.env.ADMIN_USERNAME || "";
 const ADMIN_PASSWORD_HASH = process.env.ADMIN_PASSWORD_HASH || "";
 const ADMIN_SESSION_SECRET = process.env.ADMIN_SESSION_SECRET || "";
 const ADMIN_SESSION_COOKIE = "ko_admin_session";
+const USER_SESSION_SECRET = process.env.USER_SESSION_SECRET || ADMIN_SESSION_SECRET || "";
+const USER_SESSION_COOKIE = "ko_user_session";
 const ADMIN_SESSION_TTL_MS = 1000 * 60 * 60 * 12;
+const USER_SESSION_TTL_MS = 1000 * 60 * 60 * 24 * 7;
 const ADMIN_LOGIN_RATE_WINDOW_MS = 60 * 1000;
 const ADMIN_LOGIN_RATE_MAX = 8;
 const FLORENCE_VERSION = "da53547e17d45b9cfb48174b2f18af8b83ca020fa76db62136bf9c6616762595";
@@ -27,14 +31,49 @@ const ANALYTICS_MAX_PAYLOAD_BYTES = 160 * 1024;
 const ANALYTICS_RATE_WINDOW_MS = 60 * 1000;
 const ANALYTICS_RATE_MAX = 30;
 const ADMIN_ANALYTICS_CACHE_MS = 45 * 1000;
+const ANALYZE_PRODUCT_CACHE_TTL_MS = 5 * 60 * 1000;
 const LEARNING_MIN_SAMPLES = Number(process.env.LEARNING_MIN_SAMPLES || 5);
 const LEARNING_REFRESH_TTL_MS = Number(process.env.LEARNING_REFRESH_TTL_MS || 15 * 60 * 1000);
 const RESEARCH_EXPORT_MAX_ROWS = Number(process.env.RESEARCH_EXPORT_MAX_ROWS || 5000);
+const DEFAULT_STARTING_CREDITS = Number(process.env.DEFAULT_STARTING_CREDITS || 100);
+const USER_LOGIN_RATE_WINDOW_MS = 60 * 1000;
+const USER_LOGIN_RATE_MAX = 10;
 const ANALYTICS_GENERATION_TYPES = new Set(["generation_started", "generation_succeeded", "generation_failed"]);
 const ANALYTICS_INTERACTION_TYPES = new Set(["rating_set", "regenerate_clicked", "ai_fix_clicked", "download_png", "download_zip", "export_selected", "copy_prompt", "select_favorite"]);
+const REVIEW_ACTIONS = new Set(["approve", "reject", "needs_fix", "favorite", "archive", "flag_for_review", "duplicate_test"]);
+const REVIEW_STATUSES = new Set(["pending", "approved", "rejected", "needs_fix", "archived", "flagged"]);
+const FAILURE_CATEGORIES = new Set([
+  "blurry_design",
+  "unreadable_text",
+  "warped_print",
+  "design_distortion",
+  "wrong_placement",
+  "low_resolution",
+  "bad_anatomy",
+  "bad_hands",
+  "extra_fingers",
+  "extra_limbs",
+  "face_problems",
+  "perspective_issues",
+  "wrong_clothing_type",
+  "wrong_dog_breed",
+  "wrong_pet_features",
+  "poor_lighting",
+  "artificial_appearance",
+  "low_realism",
+  "bad_composition",
+  "background_issues",
+  "cut_off_product",
+  "incorrect_colors",
+  "duplicate_objects",
+  "other",
+]);
+const FAILURE_SEVERITIES = new Set(["low", "medium", "high", "critical"]);
 const analyticsRateBuckets = new Map();
 const adminAnalyticsCache = new Map();
 const adminLoginRateBuckets = new Map();
+const userLoginRateBuckets = new Map();
+const analyzeProductCache = new Map();
 
 app.use(express.json({ limit: "25mb" }));
 app.use(express.static(__dirname));
@@ -128,6 +167,12 @@ function signAdminSession(payload) {
   return `${body}.${sig}`;
 }
 
+function signUserSession(payload) {
+  const body = base64UrlEncode(JSON.stringify(payload));
+  const sig = crypto.createHmac("sha256", USER_SESSION_SECRET).update(body).digest("base64url");
+  return `${body}.${sig}`;
+}
+
 function verifyAdminSessionToken(token) {
   if (!adminSessionConfigured() || !token || !token.includes(".")) return null;
   const [body, sig] = token.split(".");
@@ -146,6 +191,26 @@ function verifyAdminSessionToken(token) {
 
 function getAdminSession(req) {
   return verifyAdminSessionToken(parseCookies(req)[ADMIN_SESSION_COOKIE]);
+}
+
+function verifyUserSessionToken(token) {
+  if (!USER_SESSION_SECRET || !token || !token.includes(".")) return null;
+  const [body, sig] = token.split(".");
+  const expected = crypto.createHmac("sha256", USER_SESSION_SECRET).update(body).digest("base64url");
+  if (!timingSafeEqualString(sig, expected)) return null;
+  try {
+    const payload = JSON.parse(base64UrlDecode(body));
+    if (payload?.role !== "user") return null;
+    if (!payload?.userId) return null;
+    if (!payload?.exp || Date.now() > Number(payload.exp)) return null;
+    return payload;
+  } catch {
+    return null;
+  }
+}
+
+function getUserSession(req) {
+  return verifyUserSessionToken(parseCookies(req)[USER_SESSION_COOKIE]);
 }
 
 function adminCookieParts(maxAgeMs = ADMIN_SESSION_TTL_MS) {
@@ -173,6 +238,33 @@ function clearAdminSessionCookie(res) {
   res.setHeader("Set-Cookie", `${ADMIN_SESSION_COOKIE}=; ${adminCookieParts(0).join("; ")}; Expires=Thu, 01 Jan 1970 00:00:00 GMT`);
 }
 
+function userCookieParts(maxAgeMs = USER_SESSION_TTL_MS) {
+  const parts = [
+    "Path=/",
+    "HttpOnly",
+    "SameSite=Lax",
+    `Max-Age=${Math.max(0, Math.floor(maxAgeMs / 1000))}`,
+  ];
+  if (process.env.NODE_ENV === "production") parts.push("Secure");
+  return parts;
+}
+
+function setUserSessionCookie(res, user) {
+  const token = signUserSession({
+    role: "user",
+    userId: user.id,
+    email: user.email,
+    username: user.username,
+    iat: Date.now(),
+    exp: Date.now() + USER_SESSION_TTL_MS,
+  });
+  res.setHeader("Set-Cookie", `${USER_SESSION_COOKIE}=${encodeURIComponent(token)}; ${userCookieParts().join("; ")}`);
+}
+
+function clearUserSessionCookie(res) {
+  res.setHeader("Set-Cookie", `${USER_SESSION_COOKIE}=; ${userCookieParts(0).join("; ")}; Expires=Thu, 01 Jan 1970 00:00:00 GMT`);
+}
+
 function verifyAdminPassword(password) {
   const [scheme, iterationsRaw, saltHex, hashHex] = String(ADMIN_PASSWORD_HASH || "").split("$");
   if (scheme !== "pbkdf2") return false;
@@ -186,6 +278,45 @@ function verifyAdminPassword(password) {
   } catch {
     return false;
   }
+}
+
+function createPasswordHash(password) {
+  const iterations = 210000;
+  const salt = crypto.randomBytes(16);
+  const derived = crypto.pbkdf2Sync(String(password || ""), salt, iterations, 32, "sha256");
+  return `pbkdf2$${iterations}$${salt.toString("hex")}$${derived.toString("hex")}`;
+}
+
+function verifyPasswordHash(password, hash) {
+  const [scheme, iterationsRaw, saltHex, hashHex] = String(hash || "").split("$");
+  if (scheme !== "pbkdf2") return false;
+  const iterations = Number(iterationsRaw);
+  if (!Number.isInteger(iterations) || iterations < 100000 || !saltHex || !hashHex) return false;
+  try {
+    const salt = Buffer.from(saltHex, "hex");
+    const expected = Buffer.from(hashHex, "hex");
+    const actual = crypto.pbkdf2Sync(String(password || ""), salt, iterations, expected.length, "sha256");
+    return actual.length === expected.length && crypto.timingSafeEqual(actual, expected);
+  } catch {
+    return false;
+  }
+}
+
+function rateLimitUserLogin(req, res) {
+  const key = hashRateLimitKey(req);
+  const now = Date.now();
+  const bucket = userLoginRateBuckets.get(key) || { count: 0, resetAt: now + USER_LOGIN_RATE_WINDOW_MS };
+  if (bucket.resetAt <= now) {
+    bucket.count = 0;
+    bucket.resetAt = now + USER_LOGIN_RATE_WINDOW_MS;
+  }
+  bucket.count += 1;
+  userLoginRateBuckets.set(key, bucket);
+  if (bucket.count > USER_LOGIN_RATE_MAX) {
+    res.status(429).json({ error: "Too many requests" });
+    return false;
+  }
+  return true;
 }
 
 function rateLimitAdminLogin(req, res) {
@@ -227,16 +358,860 @@ function requireAdmin(req, res) {
   return false;
 }
 
+function adminActor(req) {
+  const session = getAdminSession(req);
+  return session?.username || ADMIN_USERNAME || "admin";
+}
+
 function requireAppAccess(req, res) {
-  if (!APP_ACCESS_TOKEN) return true;
-  if (getAppAccessToken(req) === APP_ACCESS_TOKEN) return true;
+  if (getUserSession(req) || getAdminSession(req)) return true;
+  if (APP_ACCESS_TOKEN && getAppAccessToken(req) === APP_ACCESS_TOKEN) return true;
   res.status(401).json({ error: "Unauthorized" });
   return false;
+}
+
+function requireUser(req, res) {
+  const session = getUserSession(req);
+  if (session) return session;
+  res.status(401).json({ error: "Unauthorized" });
+  return null;
+}
+
+function requireAuth(req, res) {
+  const session = getUserSession(req) || getAdminSession(req);
+  if (session) return session;
+  res.status(401).json({ error: "Unauthorized" });
+  return null;
 }
 
 function sendAdminError(res, label, error, status = 500) {
   console.error(`[${label}] failed:`, error.message);
   res.status(status).json({ error: "Admin request failed" });
+}
+
+function sanitizeUserRow(row = {}) {
+  if (!row) return null;
+  return {
+    id: row.id,
+    email: row.email,
+    username: row.username,
+    plan_type: row.plan_type,
+    account_status: row.account_status,
+    credits_balance: Number(row.credits_balance) || 0,
+    avatar_url: row.avatar_url || null,
+    created_at: row.created_at || null,
+    updated_at: row.updated_at || null,
+    last_login_at: row.last_login_at || null,
+  };
+}
+
+function stablePromptHash(value = "") {
+  return crypto.createHash("sha256").update(String(value || "")).digest("hex").slice(0, 24);
+}
+
+async function loadUserById(userId) {
+  const rows = await supabaseRestQuerySchema("public", "ko_users", {
+    params: { id: `eq.${userId}` },
+    limit: 1,
+  });
+  return rows[0] || null;
+}
+
+async function loadUserByLogin(login) {
+  const rows = await supabaseRestQuerySchema("public", "ko_users", {
+    params: {
+      or: `(email.eq.${login},username.eq.${login})`,
+    },
+    limit: 1,
+  });
+  return rows[0] || null;
+}
+
+async function loadFeatureCosts() {
+  const rows = await supabaseRestQuerySchema("public", "ko_feature_costs", {
+    limit: 100,
+    order: "feature_key.asc",
+  });
+  return rows.reduce((acc, row) => {
+    acc[row.feature_key] = {
+      feature_key: row.feature_key,
+      display_name: row.display_name,
+      credits: Number(row.credits) || 0,
+      enabled: row.enabled !== false,
+    };
+    return acc;
+  }, {});
+}
+
+async function getUserBalance(userId) {
+  const user = await loadUserById(userId);
+  return Number(user?.credits_balance) || 0;
+}
+
+async function addCreditTransaction(userId, action, delta, metadata = {}) {
+  const user = await loadUserById(userId);
+  if (!user) throw new Error("User not found");
+  const nextBalance = Math.max(0, (Number(user.credits_balance) || 0) + delta);
+  await supabaseRestPatchSchema("public", "ko_users", "id", userId, {
+    credits_balance: nextBalance,
+    updated_at: new Date().toISOString(),
+  });
+  await supabaseRestInsertSchema("public", "ko_credit_transactions", [{
+    user_id: userId,
+    action,
+    credit_type: "standard",
+    credits_added: Math.max(0, delta),
+    credits_removed: Math.max(0, -delta),
+    balance_after: nextBalance,
+    metadata,
+  }]);
+  return nextBalance;
+}
+
+async function enforceUserCredits(userId, featureKey, metadata = {}) {
+  const costs = await loadFeatureCosts();
+  const cost = costs[featureKey]?.enabled === false ? 0 : Number(costs[featureKey]?.credits || 0);
+  if (!cost) return { allowed: true, cost: 0, balance: await getUserBalance(userId) };
+  const balance = await getUserBalance(userId);
+  if (balance < cost) return { allowed: false, cost, balance };
+  const nextBalance = await addCreditTransaction(userId, `consume:${featureKey}`, -cost, metadata);
+  return { allowed: true, cost, balance: nextBalance };
+}
+
+function parseIsoDay(value) {
+  const date = new Date(value);
+  if (Number.isNaN(date.getTime())) return null;
+  return date.toISOString().slice(0, 10);
+}
+
+function summarizeDailyRows(rows = [], dateKey = "created_at") {
+  const grouped = new Map();
+  for (const row of rows) {
+    const day = parseIsoDay(row[dateKey]) || parseIsoDay(new Date()) || "";
+    const item = grouped.get(day) || {
+      day,
+      count: 0,
+      credits_used: 0,
+      credits_added: 0,
+      score_weighted: 0,
+      score_count: 0,
+    };
+    item.count += 1;
+    item.credits_used += Number(row.credits_used || row.credits_removed || 0);
+    item.credits_added += Number(row.credits_added || 0);
+    const score = Number(row.score);
+    if (Number.isFinite(score)) {
+      item.score_weighted += score;
+      item.score_count += 1;
+    }
+    grouped.set(day, item);
+  }
+  return Array.from(grouped.values()).sort((a, b) => a.day.localeCompare(b.day)).map(item => ({
+    day: item.day,
+    count: item.count,
+    credits_used: item.credits_used,
+    credits_added: item.credits_added,
+    avg_score: item.score_count ? Number((item.score_weighted / item.score_count).toFixed(2)) : null,
+  }));
+}
+
+function summarizeGenerationRecords(rows = []) {
+  const totals = {
+    total_images: rows.length,
+    this_month: 0,
+    credits_used: 0,
+    avg_score: null,
+    success_rate: null,
+    status_counts: {},
+  };
+  const now = new Date();
+  const monthKey = `${now.getUTCFullYear()}-${String(now.getUTCMonth() + 1).padStart(2, "0")}`;
+  let scoreSum = 0;
+  let scoreCount = 0;
+  let successCount = 0;
+  rows.forEach(row => {
+    const created = row.created_at ? new Date(row.created_at) : null;
+    if (created && !Number.isNaN(created.getTime())) {
+      const rowMonth = `${created.getUTCFullYear()}-${String(created.getUTCMonth() + 1).padStart(2, "0")}`;
+      if (rowMonth === monthKey) totals.this_month += 1;
+    }
+    totals.credits_used += Number(row.credits_used) || 0;
+    const score = Number(row.score);
+    if (Number.isFinite(score)) {
+      scoreSum += score;
+      scoreCount += 1;
+    }
+    const status = safeText(row.status, 40) || "unknown";
+    totals.status_counts[status] = (totals.status_counts[status] || 0) + 1;
+    if (status === "succeeded") successCount += 1;
+  });
+  totals.avg_score = scoreCount ? Number((scoreSum / scoreCount).toFixed(2)) : null;
+  totals.success_rate = rows.length ? Number(((successCount / rows.length) * 100).toFixed(2)) : null;
+  return totals;
+}
+
+function summarizeUsers(rows = []) {
+  let activeUsers = 0;
+  for (const row of rows) {
+    if (row.account_status === "active") activeUsers += 1;
+  }
+  return { total_users: rows.length, active_users: activeUsers };
+}
+
+function summarizeTransactions(rows = []) {
+  let totalCreditsConsumed = 0;
+  for (const row of rows) totalCreditsConsumed += Number(row.credits_removed || 0);
+  return { total_credits_consumed: totalCreditsConsumed };
+}
+
+function summarizeFailureRows(rows = []) {
+  const counts = {};
+  for (const row of rows) {
+    const category = row.category || "other";
+    counts[category] = (counts[category] || 0) + 1;
+  }
+  return counts;
+}
+
+function summarizeRatingRows(rows = []) {
+  const keys = ["overall_score", "etsy_readiness", "realism"];
+  const totals = Object.fromEntries(keys.map(key => [key, { sum: 0, count: 0 }]));
+  for (const row of rows) {
+    for (const key of keys) {
+      const value = Number(row[key]);
+      if (Number.isFinite(value)) {
+        totals[key].sum += value;
+        totals[key].count += 1;
+      }
+    }
+  }
+  return Object.fromEntries(keys.map(key => [
+    key,
+    totals[key].count ? Number((totals[key].sum / totals[key].count).toFixed(2)) : null,
+  ]));
+}
+
+function summarizeGenerationDashboardRows(rows = []) {
+  const todayIso = parseIsoDay(new Date());
+  const weekMs = 7 * 24 * 60 * 60 * 1000;
+  const now = Date.now();
+  const stats = {
+    total_generations: rows.length,
+    generations_today: 0,
+    generations_this_week: 0,
+    approved_generations: 0,
+    rejected_generations: 0,
+    needs_fix_generations: 0,
+    pending_reviews: 0,
+    reviewed_generations: 0,
+    total_images_stored: 0,
+    estimated_api_cost: 0,
+    total_credits_used: 0,
+    success_count: 0,
+  };
+  for (const row of rows) {
+    const created = row.created_at ? new Date(row.created_at) : null;
+    if (parseIsoDay(row.created_at) === todayIso) stats.generations_today += 1;
+    if (created && !Number.isNaN(created.getTime()) && now - created.getTime() <= weekMs) stats.generations_this_week += 1;
+    if (row.review_status === "approved") stats.approved_generations += 1;
+    else if (row.review_status === "rejected") stats.rejected_generations += 1;
+    else if (row.review_status === "needs_fix") stats.needs_fix_generations += 1;
+    else if (!row.review_status || row.review_status === "pending") stats.pending_reviews += 1;
+    if (row.review_status === "archived" || row.review_status === "flagged") stats.reviewed_generations += 1;
+    if (row.status === "succeeded") stats.success_count += 1;
+    if (row.image_url) stats.total_images_stored += 1;
+    stats.total_credits_used += Number(row.credits_used || 0);
+  }
+  stats.estimated_api_cost = Number((stats.total_credits_used * 0.02).toFixed(2));
+  stats.reviewed_generations += stats.approved_generations + stats.rejected_generations + stats.needs_fix_generations;
+  return stats;
+}
+
+function generationRatingScore(input = {}) {
+  const weights = {
+    print_visibility: 0.20,
+    design_accuracy: 0.20,
+    realism: 0.15,
+    product_authenticity: 0.15,
+    composition: 0.10,
+    marketing_appeal: 0.10,
+    etsy_readiness: 0.05,
+    ctr_potential: 0.05,
+  };
+  let total = 0;
+  for (const [key, weight] of Object.entries(weights)) {
+    const value = safeInteger(input[key], 1, 10);
+    if (value === null) throw new Error(`Missing rating field: ${key}`);
+    total += value * weight;
+  }
+  return Number(total.toFixed(2));
+}
+
+function normalizeGenerationRating(input = {}, adminUsername = "") {
+  return {
+    print_visibility: safeInteger(input.print_visibility, 1, 10),
+    design_accuracy: safeInteger(input.design_accuracy, 1, 10),
+    realism: safeInteger(input.realism, 1, 10),
+    product_authenticity: safeInteger(input.product_authenticity, 1, 10),
+    composition: safeInteger(input.composition, 1, 10),
+    marketing_appeal: safeInteger(input.marketing_appeal, 1, 10),
+    etsy_readiness: safeInteger(input.etsy_readiness, 1, 10),
+    ctr_potential: safeInteger(input.ctr_potential, 1, 10),
+    comment: safeText(input.comment, 1000),
+    admin_username: safeText(adminUsername, 120),
+    metadata: typeof input.metadata === "object" && input.metadata ? input.metadata : {},
+  };
+}
+
+function reviewStatusForAction(action) {
+  return {
+    approve: "approved",
+    reject: "rejected",
+    needs_fix: "needs_fix",
+    archive: "archived",
+    flag_for_review: "flagged",
+    favorite: "pending",
+    duplicate_test: "pending",
+  }[action] || "pending";
+}
+
+async function writeSystemLog(eventType, message, { severity = "info", generationId = null, userId = null, metadata = {} } = {}) {
+  try {
+    await supabaseRestInsertSchema("public", "ko_system_logs", [{
+      event_type: safeText(eventType, 120),
+      severity: FAILURE_SEVERITIES.has(severity) ? severity : "info",
+      message: safeText(message, 1000),
+      generation_id: generationId && isUuid(generationId) ? generationId : null,
+      user_id: userId && isUuid(userId) ? userId : null,
+      metadata,
+    }]);
+  } catch (e) {
+    console.warn("[system-log] skipped:", e.message);
+  }
+}
+
+async function persistAgentLog(entry = {}) {
+  if (!SUPABASE_URL || !SUPABASE_SERVICE_ROLE_KEY) return;
+  try {
+    await supabaseRestInsertSchema("public", "agent_logs", [{
+      agent_name: safeText(entry.agent_name, 120),
+      input_summary: safeText(entry.input_summary, 2000),
+      output: entry.output || entry.result?.data || {},
+      result: entry.result || {},
+      status: safeText(entry.status, 60),
+      execution_time: Number(entry.execution_time) || 0,
+      error: entry.error ? safeText(entry.error, 1000) : null,
+      created_at: entry.created_at || new Date().toISOString(),
+    }]);
+  } catch (e) {
+    await writeSystemLog("agent_log", `${entry.agent_name || "agent"} ${entry.status || "unknown"}`, {
+      severity: entry.status === "success" ? "low" : "medium",
+      metadata: {
+        agent_name: entry.agent_name,
+        status: entry.status,
+        execution_time: entry.execution_time,
+        error: entry.error,
+      },
+    });
+  }
+}
+
+async function recordGenerationRecord(row = {}) {
+  if (!SUPABASE_URL || !SUPABASE_SERVICE_ROLE_KEY) return null;
+  try {
+    await supabaseRestInsertSchema("public", "ko_generation_records", [{
+      user_id: row.user_id || null,
+      client_generation_id: row.client_generation_id || null,
+      batch_id: row.batch_id || null,
+      generation_type: row.generation_type || "mockup",
+      prompt: row.prompt || null,
+      prompt_hash: row.prompt_hash || null,
+      model_name: row.model_name || null,
+      category: row.category || null,
+      status: row.status || "succeeded",
+      score: row.score ?? null,
+      credits_used: Number(row.credits_used) || 0,
+      image_url: row.image_url || null,
+      original_design_url: row.original_design_url || null,
+      negative_prompt: row.negative_prompt || null,
+      scene_type: row.scene_type || null,
+      target_audience: row.target_audience || null,
+      duration_ms: Number(row.duration_ms) || null,
+      estimated_cost: Number(row.estimated_cost) || 0,
+      review_status: row.review_status || "pending",
+      meta: row.meta || {},
+    }]);
+  } catch (e) {
+    console.warn("[generation-record] skipped:", e.message);
+  }
+}
+
+async function loadUserSettings(userId) {
+  const rows = await supabaseRestQuerySchema("public", "ko_user_settings", {
+    params: { user_id: `eq.${userId}` },
+    limit: 1,
+  });
+  return rows[0] || null;
+}
+
+async function loadUserGenerations(userId, query = {}) {
+  const rows = await supabaseRestQuerySchema("public", "ko_generation_records", {
+    params: { user_id: `eq.${userId}` },
+    order: "created_at.desc",
+    limit: 500,
+  });
+  const search = safeText(query.search, 120).toLowerCase();
+  const filters = {
+    model: safeText(query.model, 120).toLowerCase(),
+    category: safeText(query.category, 120).toLowerCase(),
+    score: safeText(query.score, 40),
+    status: safeText(query.status, 80).toLowerCase(),
+    dateFrom: safeText(query.dateFrom, 20),
+    dateTo: safeText(query.dateTo, 20),
+  };
+  const filtered = rows.filter(row => {
+    if (filters.model && !String(row.model_name || "").toLowerCase().includes(filters.model)) return false;
+    if (filters.category && !String(row.category || "").toLowerCase().includes(filters.category)) return false;
+    if (filters.status && !String(row.status || "").toLowerCase().includes(filters.status)) return false;
+    if (filters.score) {
+      const n = Number(filters.score);
+      if (Number.isFinite(n) && Number(row.score) < n) return false;
+    }
+    const created = row.created_at ? new Date(row.created_at) : null;
+    if (filters.dateFrom && created && created < new Date(filters.dateFrom)) return false;
+    if (filters.dateTo && created && created > new Date(`${filters.dateTo}T23:59:59.999Z`)) return false;
+    const haystack = `${row.prompt || ""} ${row.model_name || ""} ${row.category || ""} ${row.generation_type || ""}`.toLowerCase();
+    if (search && !haystack.includes(search)) return false;
+    return true;
+  });
+  return {
+    filters,
+    rows: filtered.slice(0, safeLimit(query.limit, 50, 250)),
+    summary: summarizeGenerationRecords(rows),
+    charts: {
+      generationsPerDay: summarizeDailyRows(rows),
+      creditsUsedPerDay: summarizeDailyRows(rows).map(item => ({ day: item.day, credits_used: item.credits_used })),
+    },
+  };
+}
+
+async function loadUserCredits(userId) {
+  const user = await loadUserById(userId);
+  const transactions = await supabaseRestQuerySchema("public", "ko_credit_transactions", {
+    params: { user_id: `eq.${userId}` },
+    order: "created_at.desc",
+    limit: 250,
+  });
+  return {
+    balance: Number(user?.credits_balance) || 0,
+    transactions: transactions.map(row => ({
+      id: row.id,
+      action: row.action,
+      credits_added: Number(row.credits_added) || 0,
+      credits_removed: Number(row.credits_removed) || 0,
+      balance_after: Number(row.balance_after) || 0,
+      credit_type: row.credit_type || "standard",
+      metadata: row.metadata || {},
+      created_at: row.created_at || null,
+    })),
+  };
+}
+
+async function loadUserDashboard(userId) {
+  const [user, settings, generations, credits, downloads] = await Promise.all([
+    loadUserById(userId),
+    loadUserSettings(userId),
+    loadUserGenerations(userId, {}),
+    loadUserCredits(userId),
+    supabaseRestQuerySchema(ANALYTICS_SCHEMA, "interaction_events", {
+      params: { user_id: `eq.${userId}`, event_type: `in.(download_png,download_zip)` },
+      order: "created_at.desc",
+      limit: 50,
+    }).catch(() => []),
+  ]);
+  const genRows = generations.rows;
+  const monthlyGenerations = generations.summary.this_month;
+  const latestGenerations = genRows.slice(0, 8);
+  const recentDownloads = downloads.slice(0, 8).map(row => ({
+    id: row.event_id,
+    event_type: row.event_type,
+    prompt_hash: row.prompt_hash || null,
+    created_at: row.created_at || null,
+  }));
+  return {
+    user: sanitizeUserRow(user),
+    settings: settings?.default_settings || {},
+    summary: {
+      credits_balance: credits.balance,
+      total_images_generated: generations.summary.total_images,
+      total_generations_this_month: monthlyGenerations,
+      total_credits_used: generations.summary.credits_used,
+      average_generation_score: generations.summary.avg_score,
+      average_generation_success_rate: generations.summary.success_rate,
+    },
+    latest_generations: latestGenerations,
+    recent_downloads: recentDownloads,
+    charts: generations.charts,
+  };
+}
+
+async function loadAdminUsers(query = {}) {
+  const rows = await supabaseRestQuerySchema("public", "ko_users", {
+    order: "created_at.desc",
+    limit: 500,
+  });
+  const search = safeText(query.search, 120).toLowerCase();
+  const status = safeText(query.status, 80).toLowerCase();
+  const filtered = rows.filter(row => {
+    if (search && !`${row.email || ""} ${row.username || ""}`.toLowerCase().includes(search)) return false;
+    if (status && !String(row.account_status || "").toLowerCase().includes(status)) return false;
+    return true;
+  });
+  return {
+    rows: filtered.slice(0, safeLimit(query.limit, 50, 250)).map(sanitizeUserRow),
+  };
+}
+
+async function loadAdminTransactions(query = {}) {
+  const rows = await supabaseRestQuerySchema("public", "ko_credit_transactions", {
+    order: "created_at.desc",
+    limit: 500,
+  });
+  const user = safeText(query.user, 120).toLowerCase();
+  const action = safeText(query.action, 120).toLowerCase();
+  const filtered = rows.filter(row => {
+    if (user && !String(row.user_id || "").toLowerCase().includes(user)) return false;
+    if (action && !String(row.action || "").toLowerCase().includes(action)) return false;
+    return true;
+  });
+  return {
+    rows: filtered.slice(0, safeLimit(query.limit, 100, 250)).map(row => ({
+      id: row.id,
+      user_id: row.user_id,
+      action: row.action,
+      credits_added: Number(row.credits_added) || 0,
+      credits_removed: Number(row.credits_removed) || 0,
+      balance_after: Number(row.balance_after) || 0,
+      credit_type: row.credit_type || "standard",
+      metadata: row.metadata || {},
+      created_at: row.created_at || null,
+    })),
+  };
+}
+
+async function loadAdminGenerations(query = {}) {
+  const rows = await supabaseRestQuerySchema("public", "ko_generation_records", {
+    order: "created_at.desc",
+    limit: 500,
+  });
+  const user = safeText(query.user, 120).toLowerCase();
+  const model = safeText(query.model, 120).toLowerCase();
+  const category = safeText(query.category, 120).toLowerCase();
+  const status = safeText(query.status, 80).toLowerCase();
+  const search = safeText(query.search, 120).toLowerCase();
+  const filtered = rows.filter(row => {
+    if (user && !String(row.user_id || "").toLowerCase().includes(user)) return false;
+    if (model && !String(row.model_name || "").toLowerCase().includes(model)) return false;
+    if (category && !String(row.category || "").toLowerCase().includes(category)) return false;
+    if (status && !String(row.status || "").toLowerCase().includes(status)) return false;
+    if (search && !`${row.prompt || ""} ${row.category || ""} ${row.model_name || ""}`.toLowerCase().includes(search)) return false;
+    return true;
+  });
+  return {
+    rows: filtered.slice(0, safeLimit(query.limit, 100, 250)),
+    summary: summarizeGenerationRecords(rows),
+  };
+}
+
+async function loadAdminReviewCenter(query = {}) {
+  const base = await loadAdminGenerations({ ...query, limit: safeLimit(query.limit, 50, 100) });
+  const generationIds = base.rows.map(row => row.id).filter(Boolean);
+  let ratings = [];
+  let failures = [];
+  if (generationIds.length) {
+    const inList = `in.(${generationIds.join(",")})`;
+    [ratings, failures] = await Promise.all([
+      supabaseRestQuerySchema("public", "ko_generation_ratings", {
+        params: { generation_id: inList },
+        order: "created_at.desc",
+        limit: 1000,
+      }).catch(() => []),
+      supabaseRestQuerySchema("public", "ko_generation_failures", {
+        params: { generation_id: inList },
+        order: "created_at.desc",
+        limit: 1000,
+      }).catch(() => []),
+    ]);
+  }
+  const ratingsByGeneration = new Map();
+  for (const rating of ratings) {
+    const list = ratingsByGeneration.get(rating.generation_id) || [];
+    list.push(rating);
+    ratingsByGeneration.set(rating.generation_id, list);
+  }
+  const failuresByGeneration = new Map();
+  for (const failure of failures) {
+    const list = failuresByGeneration.get(failure.generation_id) || [];
+    list.push(failure);
+    failuresByGeneration.set(failure.generation_id, list);
+  }
+  const rows = base.rows.map(row => {
+    const rowRatings = ratingsByGeneration.get(row.id) || [];
+    const rowFailures = failuresByGeneration.get(row.id) || [];
+    const latestRating = rowRatings[0] || null;
+    return {
+      ...row,
+      review_status: row.review_status || "pending",
+      latest_rating: latestRating,
+      rating_count: rowRatings.length,
+      failure_count: rowFailures.length,
+      failures: rowFailures.slice(0, 6),
+    };
+  });
+  const ratingStats = summarizeRatingRows(ratings);
+  const failureCounts = summarizeFailureRows(failures);
+  return {
+    ...base,
+    rows,
+    review_summary: {
+      pending: rows.filter(row => (row.review_status || "pending") === "pending").length,
+      approved: rows.filter(row => row.review_status === "approved").length,
+      rejected: rows.filter(row => row.review_status === "rejected").length,
+      needs_fix: rows.filter(row => row.review_status === "needs_fix").length,
+      average_rating: ratingStats.overall_score,
+      most_common_failure: Object.entries(failureCounts).sort((a, b) => b[1] - a[1])[0]?.[0] || null,
+    },
+    failure_categories: Array.from(FAILURE_CATEGORIES),
+  };
+}
+
+const ADMIN_AGENT_SECTIONS = [
+  { key: "quality_inspector", label: "Quality Inspector" },
+  { key: "prompt_architect", label: "Prompt Architect" },
+  { key: "auto_fix", label: "Auto Fix" },
+  { key: "etsy_research", label: "Etsy Research" },
+  { key: "learning", label: "Learning" },
+];
+
+function normalizeAgentLogResult(row = {}) {
+  const result = row.result && typeof row.result === "object" ? row.result : null;
+  const output = row.output && typeof row.output === "object" ? row.output : {};
+  const data = result?.data && typeof result.data === "object" ? result.data : output;
+  const agent = result?.agent || row.agent_name || "unknown_agent";
+  const status = result?.status || row.status || "unknown";
+  const success = typeof result?.success === "boolean" ? result.success : status === "success";
+  return {
+    id: row.id,
+    agent,
+    agent_name: agent,
+    success,
+    status,
+    executionTime: Number(result?.executionTime ?? row.execution_time ?? 0) || 0,
+    inputSummary: result?.inputSummary || row.input_summary || {},
+    model: result?.model || null,
+    costEstimate: result?.costEstimate ?? null,
+    data,
+    error: result?.error || row.error || null,
+    createdAt: result?.createdAt || row.created_at || null,
+  };
+}
+
+function agentScoreFromData(data = {}) {
+  const direct = Number(data.score ?? data.overall_score ?? data.quality_score);
+  if (Number.isFinite(direct)) return direct;
+  const nested = Number(data.qualityReport?.score ?? data.report?.score);
+  return Number.isFinite(nested) ? nested : null;
+}
+
+async function loadAdminAgents() {
+  const rows = await supabaseRestQuerySchema("public", "agent_logs", {
+    order: "created_at.desc",
+    limit: 500,
+    select: "*",
+  }).catch(() => []);
+  const logs = rows.map(normalizeAgentLogResult);
+  const today = new Date().toISOString().slice(0, 10);
+  const sectionState = new Map(ADMIN_AGENT_SECTIONS.map(section => [section.key, {
+    agent: section.key,
+    label: section.label,
+    last_run: null,
+    success: null,
+    status: "not_run",
+    execution_time: null,
+    recent_score: null,
+    error: null,
+    runs_today: 0,
+    success_count: 0,
+    total_count: 0,
+    total_runtime: 0,
+    recent_results: [],
+  }]));
+  let totalRunsToday = 0;
+  let totalSuccessCount = 0;
+  let totalRuntime = 0;
+
+  for (const log of logs) {
+    const state = sectionState.get(log.agent) || sectionState.get(log.agent_name);
+    if (!state) continue;
+    state.total_count += 1;
+    const runtime = Number(log.executionTime || 0);
+    state.total_runtime += runtime;
+    totalRuntime += runtime;
+    if (log.success) {
+      state.success_count += 1;
+      totalSuccessCount += 1;
+    }
+    if (String(log.createdAt || "").slice(0, 10) === today) {
+      state.runs_today += 1;
+      totalRunsToday += 1;
+    }
+    if (!state.last_run) {
+      state.last_run = log.createdAt || null;
+      state.success = log.success ?? null;
+      state.status = log.status || "not_run";
+      state.execution_time = log.executionTime ?? null;
+      state.recent_score = agentScoreFromData(log.data);
+      state.error = log.error || null;
+    }
+    if (state.recent_results.length < 5) state.recent_results.push(log);
+  }
+
+  const sections = ADMIN_AGENT_SECTIONS.map(section => {
+    const state = sectionState.get(section.key);
+    return {
+      ...state,
+      success_rate: state.total_count ? Number(((state.success_count / state.total_count) * 100).toFixed(2)) : null,
+    };
+  });
+  return {
+    sections,
+    rows: logs.slice(0, 100),
+    summary: {
+      total_runs: logs.length,
+      runs_today: totalRunsToday,
+      success_rate: logs.length ? Number(((totalSuccessCount / logs.length) * 100).toFixed(2)) : null,
+      average_runtime: logs.length ? Number((totalRuntime / logs.length).toFixed(0)) : null,
+    },
+  };
+}
+
+async function loadAdminDashboard() {
+  const [users, generations, transactions, dailyRows, promptVersions, modelRows, promptRows, qualityRows, researchRows, ratingRows, failureRows, systemLogs] = await Promise.all([
+    supabaseRestQuerySchema("public", "ko_users", { order: "created_at.desc", limit: 500 }),
+    supabaseRestQuerySchema("public", "ko_generation_records", { order: "created_at.desc", limit: 500 }),
+    supabaseRestQuerySchema("public", "ko_credit_transactions", { order: "created_at.desc", limit: 500 }),
+    supabaseRestSelect("v_daily_metrics", { filters: {}, order: "day.asc", limit: 5000 }).catch(() => []),
+    loadPromptVersions({ min_samples: LEARNING_MIN_SAMPLES }).catch(() => ({ rows: [] })),
+    supabaseRestQuerySchema("public", "ko_ai_models", { order: "priority.asc", limit: 100 }).catch(() => []),
+    supabaseRestQuerySchema("public", "ko_prompt_templates", { order: "updated_at.desc", limit: 100 }).catch(() => []),
+    supabaseRestQuerySchema("public", "ko_quality_records", { order: "created_at.desc", limit: 100 }).catch(() => []),
+    supabaseRestQuerySchema("public", "ko_research_items", { order: "created_at.desc", limit: 100 }).catch(() => []),
+    supabaseRestQuerySchema("public", "ko_generation_ratings", { order: "created_at.desc", limit: 500 }).catch(() => []),
+    supabaseRestQuerySchema("public", "ko_generation_failures", { order: "created_at.desc", limit: 500 }).catch(() => []),
+    supabaseRestQuerySchema("public", "ko_system_logs", { order: "created_at.desc", limit: 100 }).catch(() => []),
+  ]);
+  const generationSummary = summarizeGenerationRecords(generations);
+  const metrics = dailyRows.length ? aggregateMetrics(dailyRows) : generationSummary;
+  const generationStats = summarizeGenerationDashboardRows(generations);
+  const userStats = summarizeUsers(users);
+  const transactionStats = summarizeTransactions(transactions);
+  const failureCounts = summarizeFailureRows(failureRows);
+  const ratingStats = summarizeRatingRows(ratingRows);
+  const overallScore = ratingStats.overall_score;
+  const mostCommonFailure = Object.entries(failureCounts).sort((a, b) => b[1] - a[1])[0]?.[0] || null;
+  const failureRate = generations.length ? Number((((failureRows.length + generationStats.rejected_generations + generationStats.needs_fix_generations) / generations.length) * 100).toFixed(2)) : null;
+  const successRate = generations.length ? Number(((generationStats.approved_generations || generationStats.success_count) / generations.length * 100).toFixed(2)) : generationSummary.success_rate;
+  const health = {
+    quality: Math.min(100, Math.round((Number(overallScore || metrics.avg_rating || 0)) * 10)),
+    reliability: Math.min(100, Math.round((Number(successRate || metrics.success_rate) || 0))),
+    speed: Math.max(0, Math.min(100, 100 - Math.round((Number(metrics.avg_latency_ms) || 0) / 20))),
+    cost_efficiency: Math.max(0, Math.min(100, 100 - Math.round((Number(metrics.avg_latency_ms) || 0) / 25))),
+  };
+  const healthScore = Math.round((health.quality * 0.35) + (health.reliability * 0.3) + (health.speed * 0.15) + (health.cost_efficiency * 0.2));
+  return {
+    summary: {
+      total_users: userStats.total_users,
+      active_users: userStats.active_users,
+      total_generations: generationSummary.total_images,
+      generations_today: generationStats.generations_today,
+      generations_this_week: generationStats.generations_this_week,
+      success_rate: successRate,
+      failure_rate: failureRate,
+      average_score: overallScore || generationSummary.avg_score,
+      average_rating: overallScore,
+      average_etsy_readiness_score: ratingStats.etsy_readiness,
+      average_realism_score: ratingStats.realism,
+      approved_generations: generationStats.approved_generations,
+      rejected_generations: generationStats.rejected_generations,
+      needs_fix_generations: generationStats.needs_fix_generations,
+      reviewed_generations: generationStats.reviewed_generations,
+      pending_reviews: generationStats.pending_reviews,
+      most_common_failure: mostCommonFailure,
+      prompt_version_leader: promptVersions.rows?.[0]?.prompt_version || promptRows[0]?.version || null,
+      best_performing_scene: null,
+      total_credits_consumed: transactionStats.total_credits_consumed,
+      estimated_api_cost: generationStats.estimated_api_cost,
+      total_images_stored: generationStats.total_images_stored,
+      storage_usage: null,
+      queue_length: 0,
+      health_score: healthScore,
+      health_breakdown: health,
+    },
+    charts: {
+      generations_per_day: summarizeDailyRows(generations),
+      credits_used_per_day: summarizeDailyRows(transactions),
+      user_growth: summarizeDailyRows(users, "created_at"),
+      score_trends: summarizeDailyRows(generations),
+      ratings_over_time: summarizeDailyRows(ratingRows),
+      failures_over_time: summarizeDailyRows(failureRows),
+      approval_trend: summarizeDailyRows(generations.filter(row => row.review_status === "approved")),
+    },
+    recent_activity: [
+      ...generations.slice(0, 10).map(row => ({ type: "generation", ...row })),
+      ...transactions.slice(0, 10).map(row => ({ type: "credit", ...row })),
+      ...ratingRows.slice(0, 10).map(row => ({ type: "rating", ...row })),
+      ...failureRows.slice(0, 10).map(row => ({ type: "failure", ...row })),
+      ...systemLogs.slice(0, 10).map(row => ({ type: "system", ...row })),
+    ].sort((a, b) => String(b.created_at || "").localeCompare(String(a.created_at || ""))).slice(0, 20),
+    recent_failed_generations: generations.filter(row => row.status !== "succeeded").slice(0, 10),
+    recent_credit_transactions: transactions.slice(0, 10),
+    users: users.slice(0, 20).map(sanitizeUserRow),
+    generations: generations.slice(0, 20),
+    transactions: transactions.slice(0, 20),
+    analytics: dailyRows,
+    prompt_versions: promptVersions.rows || [],
+    ai_models: modelRows,
+    prompts: promptRows,
+    quality_records: qualityRows,
+    research_items: researchRows,
+    generation_ratings: ratingRows.slice(0, 50),
+    generation_failures: failureRows.slice(0, 50),
+    system_logs: systemLogs,
+  };
+}
+
+async function loadAdminGenerationsSummary() {
+  const generations = await supabaseRestQuerySchema("public", "ko_generation_records", {
+    order: "created_at.desc",
+    limit: 500,
+  });
+  return {
+    rows: generations.slice(0, 100).map(row => ({
+      id: row.id,
+      user_id: row.user_id,
+      generation_type: row.generation_type,
+      prompt: row.prompt,
+      prompt_hash: row.prompt_hash,
+      model_name: row.model_name,
+      category: row.category,
+      status: row.status,
+      score: row.score,
+      credits_used: row.credits_used,
+      image_url: row.image_url,
+      created_at: row.created_at,
+      meta: row.meta || {},
+    })),
+  };
 }
 
 function keySource(type) {
@@ -443,6 +1418,81 @@ async function supabaseRestInsert(table, rows, { onConflict, merge = false } = {
   if (!res.ok) {
     const text = await res.text().catch(() => "");
     throw new Error(`Supabase ${table} insert failed (${res.status}): ${text.slice(0, 240)}`);
+  }
+}
+
+function supabaseRestBaseUrl(schema, resource) {
+  const url = new URL(`${SUPABASE_URL}/rest/v1/${resource}`);
+  url.searchParams.set("select", "*");
+  return url;
+}
+
+async function supabaseRestQuerySchema(schema, resource, { params = {}, order = "", limit = 1000, select = "*" } = {}) {
+  if (!SUPABASE_URL || !SUPABASE_SERVICE_ROLE_KEY) throw new Error("Supabase is not configured");
+  const url = new URL(`${SUPABASE_URL}/rest/v1/${resource}`);
+  url.searchParams.set("select", select);
+  for (const [key, value] of Object.entries(params)) {
+    if (value !== undefined && value !== null && value !== "") url.searchParams.set(key, String(value));
+  }
+  if (order) url.searchParams.set("order", order);
+  if (limit) url.searchParams.set("limit", String(limit));
+  const res = await fetch(url, {
+    headers: {
+      apikey: SUPABASE_SERVICE_ROLE_KEY,
+      Authorization: `Bearer ${SUPABASE_SERVICE_ROLE_KEY}`,
+      Accept: "application/json",
+      "Accept-Profile": schema,
+    },
+  });
+  if (!res.ok) {
+    const text = await res.text().catch(() => "");
+    throw new Error(`Supabase ${schema}.${resource} query failed (${res.status}): ${text.slice(0, 240)}`);
+  }
+  return await res.json();
+}
+
+async function supabaseRestInsertSchema(schema, resource, rows, { onConflict, merge = false } = {}) {
+  if (!rows.length) return;
+  const url = new URL(`${SUPABASE_URL}/rest/v1/${resource}`);
+  if (onConflict) url.searchParams.set("on_conflict", onConflict);
+  const prefer = ["return=minimal"];
+  if (onConflict) prefer.push(`resolution=${merge ? "merge-duplicates" : "ignore-duplicates"}`);
+  const res = await fetch(url, {
+    method: "POST",
+    headers: {
+      apikey: SUPABASE_SERVICE_ROLE_KEY,
+      Authorization: `Bearer ${SUPABASE_SERVICE_ROLE_KEY}`,
+      "Content-Type": "application/json",
+      "Content-Profile": schema,
+      Prefer: prefer.join(","),
+    },
+    body: JSON.stringify(rows),
+  });
+  if (!res.ok) {
+    const text = await res.text().catch(() => "");
+    throw new Error(`Supabase ${schema}.${resource} insert failed (${res.status}): ${text.slice(0, 240)}`);
+  }
+}
+
+async function supabaseRestPatchSchema(schema, resource, matchColumn, matchValue, row) {
+  const url = new URL(`${SUPABASE_URL}/rest/v1/${resource}`);
+  url.searchParams.set(matchColumn, `eq.${matchValue}`);
+  const res = await fetch(url, {
+    method: "PATCH",
+    headers: {
+      apikey: SUPABASE_SERVICE_ROLE_KEY,
+      Authorization: `Bearer ${SUPABASE_SERVICE_ROLE_KEY}`,
+      Accept: "application/json",
+      "Accept-Profile": schema,
+      "Content-Type": "application/json",
+      "Content-Profile": schema,
+      Prefer: "return=minimal",
+    },
+    body: JSON.stringify(row),
+  });
+  if (!res.ok) {
+    const text = await res.text().catch(() => "");
+    throw new Error(`Supabase ${schema}.${resource} update failed (${res.status}): ${text.slice(0, 240)}`);
   }
 }
 
@@ -1016,11 +2066,18 @@ function toCsv(rows = []) {
     ...rows.map(row => columns.map(column => csvEscape(row[column])).join(",")),
   ].join("\n");
 }
+
+function isPlainObject(value) {
+  return !!value && typeof value === "object" && !Array.isArray(value);
+}
+
 function validateAnalyticsBulkBody(body) {
-  if (!body || typeof body !== "object" || Array.isArray(body)) return false;
-  if (!Array.isArray(body.events) || body.events.length > ANALYTICS_MAX_EVENTS) return false;
-  for (const event of body.events) {
-    if (!event || typeof event !== "object" || Array.isArray(event)) return false;
+  if (!isPlainObject(body)) return false;
+  if (!Array.isArray(body.events)) return false;
+  if (body.events.length > ANALYTICS_MAX_EVENTS) return false;
+  for (let index = 0; index < body.events.length; index += 1) {
+    const event = body.events[index];
+    if (!isPlainObject(event)) return false;
     const eventId = typeof event.event_id === "string" ? event.event_id : event.clientEventId;
     const installHash = typeof event.client_install_hash === "string" ? event.client_install_hash : event.installId;
     const eventType = typeof event.event_type === "string" ? event.event_type : event.eventType;
@@ -1035,7 +2092,6 @@ function validateAnalyticsBulkBody(body) {
   return null;
 }
 
-
 async function loadAdminResearchBundle(filters) {
   const dailyRows = await supabaseRestSelect("v_daily_metrics", { filters, order: "day.asc", limit: 5000 });
   const timeseries = aggregateByDay(dailyRows);
@@ -1048,7 +2104,7 @@ async function loadAdminResearchBundle(filters) {
   };
 }
 
-function normalizeAnalyticsEvent(event, clientInstallHash) {
+function normalizeAnalyticsEvent(event, clientInstallHash, userSession = null) {
   const eventType = safeText(event?.eventType, 80);
   if (!eventType || (!ANALYTICS_GENERATION_TYPES.has(eventType) && !ANALYTICS_INTERACTION_TYPES.has(eventType))) {
     return { error: "unsupported_event_type" };
@@ -1067,9 +2123,11 @@ function normalizeAnalyticsEvent(event, clientInstallHash) {
         event_id: crypto.randomUUID(),
         client_event_id: event.clientEventId,
         client_install_hash: clientInstallHash,
+        user_id: userSession?.userId || null,
         batch_id: isUuid(payload.batchId) ? payload.batchId : null,
         concept_id: safePrimitiveText(payload.conceptId || payload.clientGenerationId, 80),
         design_fingerprint: safePrimitiveText(payload.conceptFingerprint, 128),
+        prompt_hash: safePrimitiveText(payload.promptHash, 128),
         mode: safePrimitiveText(payload.mode, 80),
         print_visibility: safePrimitiveText(payload.printVisibility, 80),
         listing_role: safePrimitiveText(payload.listingRole, 80),
@@ -1091,10 +2149,12 @@ function normalizeAnalyticsEvent(event, clientInstallHash) {
         event_id: crypto.randomUUID(),
         client_event_id: event.clientEventId,
         client_install_hash: clientInstallHash,
+        user_id: userSession?.userId || null,
         generation_event_id: isUuid(payload.generationId) ? payload.generationId : null,
         event_type: eventType,
         rating: eventType === "rating_set" ? safeInteger(payload.rating, 1, 5) : null,
       dwell_ms: null,
+      prompt_hash: safePrimitiveText(payload.promptHash, 128),
       metadata,
       created_at: createdAt,
     },
@@ -1119,13 +2179,14 @@ app.post("/api/analytics/events/bulk", async (req, res) => {
   }
 
   const clientInstallHash = hashInstallId(installId);
+  const userSession = getUserSession(req);
   const generationRows = [];
   const interactionRows = [];
   const rejected = [];
   const seenClientEventIds = new Set();
 
   events.forEach((event, index) => {
-    const normalized = normalizeAnalyticsEvent(event, clientInstallHash);
+    const normalized = normalizeAnalyticsEvent(event, clientInstallHash, userSession);
     if (normalized.error) {
       rejected.push({ index, error: normalized.error });
       return;
@@ -1147,6 +2208,7 @@ app.post("/api/analytics/events/bulk", async (req, res) => {
       consent_analytics: true,
       locale: safeText(locale || req.get("accept-language"), 80),
       app_version: safeText(pkg.version, 40),
+      user_id: userSession?.userId || null,
       opt_out_at: null,
     };
 
@@ -1205,6 +2267,576 @@ app.post("/api/admin/login", (req, res) => {
 app.post("/api/admin/logout", (req, res) => {
   clearAdminSessionCookie(res);
   res.json({ ok: true });
+});
+
+// ─── User auth ───────────────────────────────────────────────────────────────
+app.get("/api/auth/session", (req, res) => {
+  const session = getUserSession(req);
+  res.json({
+    authenticated: !!session,
+    userId: session?.userId || null,
+    username: session?.username || null,
+    email: session?.email || null,
+    configured: !!USER_SESSION_SECRET,
+  });
+});
+
+app.post("/api/auth/register", async (req, res) => {
+  if (!USER_SESSION_SECRET) return res.status(503).json({ error: "User auth is not configured" });
+  if (!rateLimitUserLogin(req, res)) return;
+  try {
+    const email = safeText(req.body?.email, 180).toLowerCase();
+    const username = safeText(req.body?.username, 80);
+    const password = String(req.body?.password || "");
+    if (!email || !username || password.length < 8) {
+      return res.status(400).json({ error: "Invalid registration details" });
+    }
+    const existing = await supabaseRestQuerySchema("public", "ko_users", {
+      params: { or: `(email.eq.${email},username.eq.${username})` },
+      limit: 1,
+    });
+    if (existing.length) return res.status(409).json({ error: "Account already exists" });
+    const password_hash = createPasswordHash(password);
+    const inserted = await supabaseRestQuerySchema("public", "ko_users", {
+      select: "*",
+      limit: 1,
+    }).catch(() => []);
+    const [user] = await (async () => {
+      const res2 = await fetch(`${SUPABASE_URL}/rest/v1/ko_users`, {
+        method: "POST",
+        headers: {
+          apikey: SUPABASE_SERVICE_ROLE_KEY,
+          Authorization: `Bearer ${SUPABASE_SERVICE_ROLE_KEY}`,
+          "Content-Type": "application/json",
+          "Prefer": "return=representation",
+          "Content-Profile": "public",
+        },
+        body: JSON.stringify([{
+          email,
+          username,
+          password_hash,
+          plan_type: "free",
+          account_status: "active",
+          credits_balance: DEFAULT_STARTING_CREDITS,
+        }]),
+      });
+      if (!res2.ok) {
+        const text = await res2.text().catch(() => "");
+        throw new Error(text || `HTTP ${res2.status}`);
+      }
+      return await res2.json();
+    })();
+    await supabaseRestInsertSchema("public", "ko_credit_transactions", [{
+      user_id: user.id,
+      action: "welcome_credit",
+      credit_type: "standard",
+      credits_added: DEFAULT_STARTING_CREDITS,
+      credits_removed: 0,
+      balance_after: DEFAULT_STARTING_CREDITS,
+      metadata: { source: "register" },
+    }]);
+    setUserSessionCookie(res, user);
+    res.json({ ok: true, user: sanitizeUserRow(user) });
+  } catch (e) {
+    res.status(500).json({ error: "Registration failed" });
+  }
+});
+
+app.post("/api/auth/login", async (req, res) => {
+  if (!USER_SESSION_SECRET) return res.status(503).json({ error: "User auth is not configured" });
+  if (!rateLimitUserLogin(req, res)) return;
+  try {
+    const login = safeText(req.body?.login || req.body?.email || req.body?.username, 180);
+    const password = String(req.body?.password || "");
+    if (!login || !password) return res.status(400).json({ code: "missing_credentials", error: "Email or username and password are required" });
+    const user = await loadUserByLogin(login);
+    if (!user) return res.status(404).json({ code: "user_not_found", error: "User not found" });
+    if (user.account_status !== "active") return res.status(403).json({ code: "account_disabled", error: "Account is not active" });
+    if (!verifyPasswordHash(password, user.password_hash)) return res.status(401).json({ code: "wrong_password", error: "Wrong password" });
+    await supabaseRestPatchSchema("public", "ko_users", "id", user.id, {
+      last_login_at: new Date().toISOString(),
+      updated_at: new Date().toISOString(),
+    });
+    setUserSessionCookie(res, user);
+    res.json({ ok: true, user: sanitizeUserRow(user) });
+  } catch (e) {
+    res.status(500).json({ code: "server_error", error: "Login failed" });
+  }
+});
+
+app.post("/api/auth/logout", (req, res) => {
+  clearUserSessionCookie(res);
+  res.json({ ok: true });
+});
+
+app.post("/api/auth/forgot-password", (req, res) => {
+  res.json({ ok: true, message: "If the account exists, a reset link would be sent." });
+});
+
+app.patch("/api/me/account", async (req, res) => {
+  const session = requireUser(req, res);
+  if (!session) return;
+  try {
+    const patch = {};
+    if (req.body?.username) patch.username = safeText(req.body.username, 80);
+    if (req.body?.password) patch.password_hash = createPasswordHash(String(req.body.password));
+    patch.updated_at = new Date().toISOString();
+    await supabaseRestPatchSchema("public", "ko_users", "id", session.userId, patch);
+    res.json({ ok: true });
+  } catch (e) {
+    res.status(500).json({ error: "Account update failed" });
+  }
+});
+
+app.get("/api/me/account", async (req, res) => {
+  const session = requireUser(req, res);
+  if (!session) return;
+  try {
+    const user = await loadUserById(session.userId);
+    if (!user) return res.status(404).json({ error: "User not found" });
+    res.json({ user: sanitizeUserRow(user) });
+  } catch (e) {
+    res.status(500).json({ error: "Account lookup failed" });
+  }
+});
+
+app.get("/api/me/dashboard", async (req, res) => {
+  const session = requireUser(req, res);
+  if (!session) return;
+  try {
+    const data = await loadUserDashboard(session.userId);
+    res.json(data);
+  } catch (e) {
+    sendAdminError(res, "user dashboard", e);
+  }
+});
+
+app.get("/api/me/credits", async (req, res) => {
+  const session = requireUser(req, res);
+  if (!session) return;
+  try {
+    res.json(await loadUserCredits(session.userId));
+  } catch (e) {
+    sendAdminError(res, "user credits", e);
+  }
+});
+
+app.get("/api/me/generations", async (req, res) => {
+  const session = requireUser(req, res);
+  if (!session) return;
+  try {
+    res.json(await loadUserGenerations(session.userId, req.query || {}));
+  } catch (e) {
+    sendAdminError(res, "user generations", e);
+  }
+});
+
+app.get("/api/me/settings", async (req, res) => {
+  const session = requireUser(req, res);
+  if (!session) return;
+  try {
+    const settings = await loadUserSettings(session.userId);
+    res.json({
+      user_id: session.userId,
+      default_settings: settings?.default_settings || {},
+      saved_prompt_preferences: settings?.saved_prompt_preferences || [],
+      notification_preferences: settings?.notification_preferences || {},
+      updated_at: settings?.updated_at || null,
+    });
+  } catch (e) {
+    sendAdminError(res, "user settings", e);
+  }
+});
+
+app.patch("/api/me/settings", async (req, res) => {
+  const session = requireUser(req, res);
+  if (!session) return;
+  try {
+    const current = (await loadUserSettings(session.userId)) || { user_id: session.userId };
+    const patch = {
+      user_id: session.userId,
+      default_settings: typeof req.body?.default_settings === "object" && req.body.default_settings ? req.body.default_settings : current.default_settings || {},
+      saved_prompt_preferences: Array.isArray(req.body?.saved_prompt_preferences) ? req.body.saved_prompt_preferences.slice(0, 50) : current.saved_prompt_preferences || [],
+      notification_preferences: typeof req.body?.notification_preferences === "object" && req.body.notification_preferences ? req.body.notification_preferences : current.notification_preferences || {},
+      updated_at: new Date().toISOString(),
+    };
+    await supabaseRestInsertSchema("public", "ko_user_settings", [patch], { onConflict: "user_id", merge: true });
+    res.json({ ok: true, settings: patch });
+  } catch (e) {
+    sendAdminError(res, "user settings update", e);
+  }
+});
+
+app.get("/api/admin/dashboard", async (req, res) => {
+  if (!requireAdmin(req, res)) return;
+  try {
+    res.json(await loadAdminDashboard());
+  } catch (e) {
+    sendAdminError(res, "admin dashboard", e);
+  }
+});
+
+app.get("/api/admin/agents", async (req, res) => {
+  if (!requireAdmin(req, res)) return;
+  try {
+    res.json(await loadAdminAgents());
+  } catch (e) {
+    sendAdminError(res, "admin agents", e);
+  }
+});
+
+app.get("/api/admin/users", async (req, res) => {
+  if (!requireAdmin(req, res)) return;
+  try {
+    res.json(await loadAdminUsers(req.query || {}));
+  } catch (e) {
+    sendAdminError(res, "admin users", e);
+  }
+});
+
+app.get("/api/admin/users/:id", async (req, res) => {
+  if (!requireAdmin(req, res)) return;
+  try {
+    const user = await loadUserById(req.params.id);
+    if (!user) return res.status(404).json({ error: "User not found" });
+    const [credits, generations, settings] = await Promise.all([
+      loadUserCredits(user.id),
+      loadUserGenerations(user.id, {}),
+      loadUserSettings(user.id),
+    ]);
+    res.json({
+      user: sanitizeUserRow(user),
+      credits,
+      generations: generations.rows.slice(0, 50),
+      settings: settings || {},
+    });
+  } catch (e) {
+    sendAdminError(res, "admin user detail", e);
+  }
+});
+
+app.patch("/api/admin/users/:id", async (req, res) => {
+  if (!requireAdmin(req, res)) return;
+  try {
+    const patch = {};
+    if (req.body?.username) patch.username = safeText(req.body.username, 80);
+    if (req.body?.account_status) patch.account_status = safeText(req.body.account_status, 40);
+    if (req.body?.plan_type) patch.plan_type = safeText(req.body.plan_type, 40);
+    if (req.body?.avatar_url !== undefined) patch.avatar_url = safeText(req.body.avatar_url, 500);
+    patch.updated_at = new Date().toISOString();
+    await supabaseRestPatchSchema("public", "ko_users", "id", req.params.id, patch);
+    res.json({ ok: true });
+  } catch (e) {
+    sendAdminError(res, "admin user update", e);
+  }
+});
+
+app.post("/api/admin/users/:id/credits", async (req, res) => {
+  if (!requireAdmin(req, res)) return;
+  try {
+    const delta = safeInteger(req.body?.delta, -100000, 100000);
+    const action = safeText(req.body?.action, 80) || (delta >= 0 ? "admin_adjustment_add" : "admin_adjustment_remove");
+    const metadata = typeof req.body?.metadata === "object" && req.body.metadata ? req.body.metadata : {};
+    const balance = await addCreditTransaction(req.params.id, action, delta, {
+      ...metadata,
+      source: "admin",
+      note: safeText(req.body?.note, 200),
+    });
+    res.json({ ok: true, balance });
+  } catch (e) {
+    sendAdminError(res, "admin credit adjust", e);
+  }
+});
+
+app.get("/api/admin/transactions", async (req, res) => {
+  if (!requireAdmin(req, res)) return;
+  try {
+    res.json(await loadAdminTransactions(req.query || {}));
+  } catch (e) {
+    sendAdminError(res, "admin transactions", e);
+  }
+});
+
+app.get("/api/admin/generations", async (req, res) => {
+  if (!requireAdmin(req, res)) return;
+  try {
+    res.json(await loadAdminGenerations(req.query || {}));
+  } catch (e) {
+    sendAdminError(res, "admin generations", e);
+  }
+});
+
+app.get("/api/admin/review-center", async (req, res) => {
+  if (!requireAdmin(req, res)) return;
+  try {
+    res.json(await loadAdminReviewCenter(req.query || {}));
+  } catch (e) {
+    sendAdminError(res, "admin review center", e);
+  }
+});
+
+app.post("/api/admin/generations/:id/review", async (req, res) => {
+  if (!requireAdmin(req, res)) return;
+  try {
+    const action = safeText(req.body?.action, 80);
+    if (!REVIEW_ACTIONS.has(action)) return res.status(400).json({ error: "Invalid review action" });
+    const now = new Date().toISOString();
+    const patch = {
+      review_status: reviewStatusForAction(action),
+      reviewed_by: adminActor(req),
+      reviewed_at: now,
+    };
+    if (action === "archive") patch.archived_at = now;
+    if (action === "favorite") patch.favorite_at = now;
+    if (action === "flag_for_review") patch.flagged_at = now;
+    await supabaseRestPatchSchema("public", "ko_generation_records", "id", req.params.id, patch);
+    await writeSystemLog("generation_reviewed", `Generation ${action}`, {
+      generationId: req.params.id,
+      metadata: {
+        action,
+        review_status: patch.review_status,
+        comment: safeText(req.body?.comment, 1000),
+      },
+    });
+    res.json({ ok: true, review_status: patch.review_status });
+  } catch (e) {
+    sendAdminError(res, "admin generation review", e);
+  }
+});
+
+app.post("/api/admin/generations/:id/rating", async (req, res) => {
+  if (!requireAdmin(req, res)) return;
+  try {
+    const rating = normalizeGenerationRating(req.body || {}, adminActor(req));
+    const overall = generationRatingScore(rating);
+    await supabaseRestInsertSchema("public", "ko_generation_ratings", [{
+      generation_id: req.params.id,
+      ...rating,
+      overall_score: overall,
+    }]);
+    await supabaseRestPatchSchema("public", "ko_generation_records", "id", req.params.id, {
+      score: overall,
+      review_status: "pending",
+      reviewed_by: adminActor(req),
+      reviewed_at: new Date().toISOString(),
+    });
+    await writeSystemLog("generation_rated", "Generation rating saved", {
+      generationId: req.params.id,
+      metadata: { overall_score: overall },
+    });
+    res.json({ ok: true, overall_score: overall });
+  } catch (e) {
+    sendAdminError(res, "admin generation rating", e, e.message.startsWith("Missing rating field") ? 400 : 500);
+  }
+});
+
+app.get("/api/admin/generations/:id/failures", async (req, res) => {
+  if (!requireAdmin(req, res)) return;
+  try {
+    const rows = await supabaseRestQuerySchema("public", "ko_generation_failures", {
+      params: { generation_id: `eq.${req.params.id}` },
+      order: "created_at.desc",
+      limit: 100,
+    });
+    res.json({ rows, categories: Array.from(FAILURE_CATEGORIES), severities: Array.from(FAILURE_SEVERITIES) });
+  } catch (e) {
+    sendAdminError(res, "admin generation failures", e);
+  }
+});
+
+app.post("/api/admin/generations/:id/failures", async (req, res) => {
+  if (!requireAdmin(req, res)) return;
+  try {
+    const category = safeText(req.body?.category, 120);
+    const severity = safeText(req.body?.severity, 40) || "medium";
+    if (!FAILURE_CATEGORIES.has(category)) return res.status(400).json({ error: "Invalid failure category" });
+    if (!FAILURE_SEVERITIES.has(severity)) return res.status(400).json({ error: "Invalid failure severity" });
+    const [generation] = await supabaseRestQuerySchema("public", "ko_generation_records", {
+      params: { id: `eq.${req.params.id}` },
+      limit: 1,
+    });
+    await supabaseRestInsertSchema("public", "ko_generation_failures", [{
+      generation_id: req.params.id,
+      category,
+      severity,
+      comment: safeText(req.body?.comment, 1000),
+      prompt_version: safeText(req.body?.prompt_version || generation?.meta?.promptVersion || "", 120),
+      model_name: safeText(req.body?.model_name || generation?.model_name || "", 120),
+      admin_username: adminActor(req),
+      metadata: typeof req.body?.metadata === "object" && req.body.metadata ? req.body.metadata : {},
+    }]);
+    await supabaseRestPatchSchema("public", "ko_generation_records", "id", req.params.id, {
+      review_status: severity === "critical" || severity === "high" ? "needs_fix" : (generation?.review_status || "pending"),
+      reviewed_by: adminActor(req),
+      reviewed_at: new Date().toISOString(),
+    });
+    await writeSystemLog("generation_failure_reported", `Failure reported: ${category}`, {
+      severity,
+      generationId: req.params.id,
+      metadata: { category },
+    });
+    res.json({ ok: true });
+  } catch (e) {
+    sendAdminError(res, "admin generation failure create", e);
+  }
+});
+
+app.get("/api/admin/analytics", async (req, res) => {
+  if (!requireAdmin(req, res)) return;
+  try {
+    const filters = analyticsFiltersFromQuery(req.query);
+    const data = await withAdminAnalyticsCache("platform-analytics", filters, async () => {
+      const rows = await supabaseRestSelect("v_daily_metrics", { filters, order: "day.asc", limit: 5000 });
+      const summary = aggregateMetrics(rows);
+      return {
+        filters,
+        summary,
+        rows: aggregateByDay(rows),
+        categories: aggregateConceptRows(rows).slice(0, 100),
+      };
+    });
+    res.json(data);
+  } catch (e) {
+    sendAdminError(res, "admin analytics", e);
+  }
+});
+
+app.get("/api/admin/prompts", async (req, res) => {
+  if (!requireAdmin(req, res)) return;
+  try {
+    const rows = await supabaseRestQuerySchema("public", "ko_prompt_templates", {
+      order: "updated_at.desc",
+      limit: 100,
+    });
+    res.json({ rows });
+  } catch (e) {
+    sendAdminError(res, "admin prompts", e);
+  }
+});
+
+app.post("/api/admin/prompt-comparisons", async (req, res) => {
+  if (!requireAdmin(req, res)) return;
+  try {
+    const promptA = safeText(req.body?.prompt_a_id, 80);
+    const promptB = safeText(req.body?.prompt_b_id, 80);
+    if (promptA && !isUuid(promptA)) return res.status(400).json({ error: "Invalid prompt_a_id" });
+    if (promptB && !isUuid(promptB)) return res.status(400).json({ error: "Invalid prompt_b_id" });
+    const rows = await supabaseRestQuerySchema("public", "ko_generation_records", {
+      order: "created_at.desc",
+      limit: 1000,
+    }).catch(() => []);
+    const ratingRows = await supabaseRestQuerySchema("public", "ko_generation_ratings", {
+      order: "created_at.desc",
+      limit: 1000,
+    }).catch(() => []);
+    const ratingByGeneration = new Map();
+    for (const rating of ratingRows) {
+      if (!ratingByGeneration.has(rating.generation_id)) ratingByGeneration.set(rating.generation_id, rating);
+    }
+    const statsFor = promptId => {
+      const matches = rows.filter(row => row.prompt_version_id === promptId || row.meta?.promptVersionId === promptId || row.meta?.prompt_version_id === promptId);
+      const rated = matches.map(row => ratingByGeneration.get(row.id)).filter(Boolean);
+      const approved = matches.filter(row => row.review_status === "approved").length;
+      const failed = matches.filter(row => row.status === "failed" || row.review_status === "rejected" || row.review_status === "needs_fix").length;
+      return {
+        count: matches.length,
+        average_rating: rated.length ? Number((rated.reduce((sum, row) => sum + Number(row.overall_score || 0), 0) / rated.length).toFixed(2)) : null,
+        success_rate: matches.length ? Number((((matches.length - failed) / matches.length) * 100).toFixed(2)) : null,
+        failure_rate: matches.length ? Number(((failed / matches.length) * 100).toFixed(2)) : null,
+        approval_percentage: matches.length ? Number(((approved / matches.length) * 100).toFixed(2)) : null,
+      };
+    };
+    const a = promptA ? statsFor(promptA) : { count: 0 };
+    const b = promptB ? statsFor(promptB) : { count: 0 };
+    const aScore = Number(a.average_rating || 0) + Number(a.success_rate || 0) / 10 - Number(a.failure_rate || 0) / 10;
+    const bScore = Number(b.average_rating || 0) + Number(b.success_rate || 0) / 10 - Number(b.failure_rate || 0) / 10;
+    const winner = aScore === bScore ? "tie" : aScore > bScore ? "A" : "B";
+    await supabaseRestInsertSchema("public", "ko_prompt_comparisons", [{
+      prompt_a_id: promptA || null,
+      prompt_b_id: promptB || null,
+      prompt_a_version: safeText(req.body?.prompt_a_version, 80),
+      prompt_b_version: safeText(req.body?.prompt_b_version, 80),
+      average_rating_a: a.average_rating ?? null,
+      average_rating_b: b.average_rating ?? null,
+      success_rate_a: a.success_rate ?? null,
+      success_rate_b: b.success_rate ?? null,
+      failure_rate_a: a.failure_rate ?? null,
+      failure_rate_b: b.failure_rate ?? null,
+      generation_count_a: a.count || 0,
+      generation_count_b: b.count || 0,
+      approval_percentage_a: a.approval_percentage ?? null,
+      approval_percentage_b: b.approval_percentage ?? null,
+      winner,
+      metadata: {
+        created_by: adminActor(req),
+      },
+    }]);
+    res.json({ ok: true, winner, A: a, B: b });
+  } catch (e) {
+    sendAdminError(res, "admin prompt comparison", e);
+  }
+});
+
+app.get("/api/admin/models", async (req, res) => {
+  if (!requireAdmin(req, res)) return;
+  try {
+    const rows = await supabaseRestQuerySchema("public", "ko_ai_models", {
+      order: "priority.asc",
+      limit: 100,
+    });
+    res.json({ rows });
+  } catch (e) {
+    sendAdminError(res, "admin models", e);
+  }
+});
+
+app.get("/api/admin/quality", async (req, res) => {
+  if (!requireAdmin(req, res)) return;
+  try {
+    const rows = await supabaseRestQuerySchema("public", "ko_quality_records", {
+      order: "created_at.desc",
+      limit: 100,
+    });
+    res.json({ rows });
+  } catch (e) {
+    sendAdminError(res, "admin quality", e);
+  }
+});
+
+app.get("/api/admin/learning", async (req, res) => {
+  if (!requireAdmin(req, res)) return;
+  try {
+    const data = await withAdminAnalyticsCache("admin-learning", req.query || {}, async () => loadLearningBundle(req.query || {}));
+    res.json(data);
+  } catch (e) {
+    sendAdminError(res, "admin learning", e);
+  }
+});
+
+app.get("/api/admin/research-database", async (req, res) => {
+  if (!requireAdmin(req, res)) return;
+  try {
+    const rows = await supabaseRestQuerySchema("public", "ko_research_items", {
+      order: "created_at.desc",
+      limit: 200,
+    });
+    res.json({ rows });
+  } catch (e) {
+    sendAdminError(res, "admin research database", e);
+  }
+});
+
+app.get("/api/admin/settings", async (req, res) => {
+  if (!requireAdmin(req, res)) return;
+  try {
+    const rows = await supabaseRestQuerySchema("public", "ko_platform_settings", {
+      order: "setting_key.asc",
+      limit: 100,
+    });
+    res.json({ rows });
+  } catch (e) {
+    sendAdminError(res, "admin settings", e);
+  }
 });
 
 // ─── Key management ───────────────────────────────────────────────────────────
@@ -1279,7 +2911,7 @@ app.post("/api/test/gemini", async (req, res) => {
 
 app.post("/api/test/replicate", async (req, res) => {
   if (!requireAdmin(req, res)) return;
-  const { replicate } = loadKeys();
+  const { replicate, gemini } = loadKeys();
   if (!replicate) return res.json({ ok: false, message: "Ključ ni nastavljen." });
   try {
     const r = await fetch("https://api.replicate.com/v1/account", {
@@ -1543,6 +3175,12 @@ function buildFluxPrompt({
   shirtResearch = "",
   listingRolePhase = "",
   listingRoleVariant = "",
+  selectedNiche = [],
+  selectedAudience = [],
+  selectedStyle = [],
+  selectedOccasion = [],
+  selectedPricePoint = "",
+  selectedKeywords = [],
 }) {
   const roleMeta = getRoleMeta(listingRole);
   const visibilityLine = buildVisibilityLogic(printVisibility, roleMeta.value, visiblePrint);
@@ -1556,11 +3194,20 @@ function buildFluxPrompt({
   const variantText = listingRoleVariant ? ` Variant goal: ${listingRoleVariant}` : "";
   const roleLine = `LISTING ROLE: ${roleMeta.label} (${roleMeta.purpose}).${phaseText}${variantText}`;
   const riskLine = `RISK WATCH: ${Object.entries(riskAnalysis).map(([k, v]) => `${k.replace(/_/g, " ")} ${v}`).join(", ")}.`;
+  const productContext = buildSelectedContextBlock({
+    selectedNiche,
+    selectedAudience,
+    selectedStyle,
+    selectedOccasion,
+    selectedPricePoint,
+    selectedKeywords,
+  });
   const extraNotes = [
     fluxPrompt ? `Concept prompt: ${fluxPrompt}` : "",
     designAnalysis ? `Analysis note: ${designAnalysis}` : "",
     categoryResearch ? `Category research: ${categoryResearch}` : "",
     shirtResearch ? `Shirt research: ${shirtResearch}` : "",
+    productContext ? productContext : "",
     referenceNotes.length ? `Additional reference notes: ${referenceNotes.join(" | ")}` : "",
     customPrompt ? `Regeneration change: ${customPrompt}.` : "",
   ].filter(Boolean).join(" ");
@@ -1622,6 +3269,27 @@ function enrichConceptData(concept, {
     : buildBusinessScores({ concept, riskAnalysis, visiblePrint, listingRole });
   const negativeModules = buildNegativePromptModules({ concept, listingRole, visiblePrint, riskAnalysis });
   const promptWordCount = Number(concept.prompt_word_count) || countWords(concept.flux_prompt || "");
+  const etsyListing = concept.etsy_listing && typeof concept.etsy_listing === "object"
+    ? {
+        title: safeText(concept.etsy_listing.title, 180),
+        tags: Array.isArray(concept.etsy_listing.tags)
+          ? concept.etsy_listing.tags.map(tag => safeText(tag, 40)).filter(Boolean).slice(0, 13)
+          : [],
+        description: safeText(concept.etsy_listing.description, 5000),
+        materials: safeText(concept.etsy_listing.materials, 500),
+        care_instructions: safeText(concept.etsy_listing.care_instructions, 800),
+        size_chart_note: safeText(concept.etsy_listing.size_chart_note, 500),
+        image_alt_text: safeText(concept.etsy_listing.image_alt_text, 500),
+      }
+    : {
+        title: "",
+        tags: [],
+        description: "",
+        materials: "",
+        care_instructions: "",
+        size_chart_note: "",
+        image_alt_text: "",
+      };
   return {
     ...concept,
     category,
@@ -1635,6 +3303,7 @@ function enrichConceptData(concept, {
     mockup_style_brief: concept.mockup_style_brief || mockupStyleBrief || "",
     risk_analysis: riskAnalysis,
     business_scores: businessScores,
+    etsy_listing: etsyListing,
     prompt_word_count: promptWordCount,
     negative_prompt: concept.negative_prompt || negativeModules.join(" | "),
     debug: {
@@ -1669,7 +3338,32 @@ function buildUserMessage({
   mockupCount,
   learningContext,
   diversitySummary,
+  generateFullListing = false,
+  additionalInfo = "",
+  sizeChartIncluded = false,
+  selectedNiche = [],
+  selectedAudience = [],
+  selectedStyle = [],
+  selectedOccasion = [],
+  selectedPricePoint = "",
+  selectedKeywords = [],
 }) {
+  const selectedContext = buildSelectedContextBlock({
+    selectedNiche,
+    selectedAudience,
+    selectedStyle,
+    selectedOccasion,
+    selectedPricePoint,
+    selectedKeywords,
+  });
+  const listingMode = generateFullListing
+    ? `Full Etsy Listing Mode: ON
+- For every concept, include etsy_listing with a listing-ready title, exactly 13 Etsy tags, a buyer-facing description, materials, care instructions, size chart note, and image alt text.
+- Tags must be Etsy-safe, comma-free individual phrases, each 20 characters or less when possible.
+- Description should be polished, conversion-focused, and ready to paste into Etsy. Mention sizing and size chart only as a helpful note, not as a guarantee.
+- Additional Listing Info: ${additionalInfo || "None provided"}
+- Size Chart Generated Separately: ${sizeChartIncluded ? "Yes. Mention that buyers should review the size chart in the listing." : "No."}`
+    : "Full Etsy Listing Mode: OFF. Keep listing copy minimal and focus on mockup generation.";
   return `Generate mockup concepts for these ${batchLength} execution-style categories:
 ${list}
 
@@ -1692,6 +3386,8 @@ Design Details:
 - Total mockups requested: ${mockupCount || batchLength}
 - Learning Memory: ${learningContext || "None yet"}
 - Prompt Word Target: 120-220 words for the final Flux prompt after reusable modules are injected
+- ${listingMode}
+${selectedContext ? `- ${selectedContext}` : ""}
 
 PREVIOUSLY USED ATTRIBUTES (avoid repeating these combinations by changing environment, pose, camera, age, ethnicity, and clothing color):
 ${diversitySummary}
@@ -1877,6 +3573,15 @@ For EACH category given, return output as a single JSON object inside the array 
       "elements_to_preserve": "what must not change during correction",
       "correction_strength": "subtle / moderate / strong — with reasoning"
     },
+    "etsy_listing": {
+      "title": "SEO-ready Etsy listing title, 120-140 characters when possible",
+      "tags": ["exactly 13 Etsy tags, each concise and buyer-searchable"],
+      "description": "ready-to-paste Etsy product description with buyer benefits, sizing note, gift/use case, production note, and natural call to action",
+      "materials": "short materials/fabric line based on the shirt model and user info",
+      "care_instructions": "short garment care instructions",
+      "size_chart_note": "short note telling buyers to review the size chart image when provided",
+      "image_alt_text": "accessible alt text for the primary mockup/listing image"
+    },
     "thumbnail_notes": "2-3 sentences: mobile optimization, design visibility at small size, contrast, Etsy search-grid crop, emotional clickability",
     "risk_analysis": {
       "text_distortion_risk": "low|medium|high",
@@ -1944,11 +3649,154 @@ function extractJsonArray(text) {
   }
 }
 
+function extractJsonObject(text) {
+  if (!text) return null;
+  let cleaned = String(text).trim();
+  cleaned = cleaned.replace(/^```(?:json)?\s*/i, "").replace(/```\s*$/, "").trim();
+  const start = cleaned.indexOf("{");
+  const end = cleaned.lastIndexOf("}");
+  if (start === -1 || end === -1 || end < start) {
+    console.error("[extractJsonObject] no JSON object braces found. Raw length:", cleaned.length, "Preview:", cleaned.slice(0, 500));
+    return null;
+  }
+  const slice = cleaned.slice(start, end + 1);
+  try {
+    const parsed = JSON.parse(slice);
+    return parsed && typeof parsed === "object" && !Array.isArray(parsed) ? parsed : null;
+  } catch (err) {
+    console.error("[extractJsonObject] JSON.parse failed:", err.message, "Slice length:", slice.length, "Slice tail:", slice.slice(-300));
+    return null;
+  }
+}
+
+function normalizeListingCopyPayload(payload) {
+  if (!payload || typeof payload !== "object" || Array.isArray(payload)) return null;
+  const title = safeText(payload.title, 140).trim();
+  const description = safeText(payload.description, 1200).trim();
+  const seoNotes = safeText(payload.seo_notes || payload.seoNotes, 500).trim();
+  const tags = Array.isArray(payload.tags)
+    ? payload.tags.map(tag => safeText(tag, 20).trim()).filter(Boolean).slice(0, 13)
+    : [];
+  const materials = Array.isArray(payload.materials)
+    ? payload.materials.map(item => safeText(item, 60).trim()).filter(Boolean).slice(0, 5)
+    : [];
+
+  const titleOk = title.length > 0 && title.length <= 140;
+  const descriptionOk = description.length >= 800 && description.length <= 1200;
+  const tagsOk = tags.length === 13 && tags.every(tag => tag.length > 0 && tag.length <= 20);
+  const materialsOk = materials.length >= 3 && materials.length <= 5;
+  const seoOk = seoNotes.length > 0;
+
+  if (!titleOk || !descriptionOk || !tagsOk || !materialsOk || !seoOk) return null;
+
+  return {
+    title,
+    description,
+    tags,
+    materials,
+    seo_notes: seoNotes,
+  };
+}
+
+function sha256Short(value = "", length = 16) {
+  return crypto.createHash("sha256").update(String(value || "")).digest("hex").slice(0, length);
+}
+
+function normalizeStringArray(value, min = 0, max = 12, itemMax = 80) {
+  if (!Array.isArray(value)) return [];
+  return value
+    .map(item => safeText(item, itemMax).trim())
+    .filter(Boolean)
+    .slice(0, max);
+}
+
+function normalizeAnalysisSuggestions(payload) {
+  if (!payload || typeof payload !== "object" || Array.isArray(payload)) return null;
+  const niche = normalizeStringArray(payload.niche, 3, 5, 90);
+  const targetAudience = normalizeStringArray(payload.targetAudience, 4, 6, 90);
+  const style = normalizeStringArray(payload.style, 4, 6, 80);
+  const occasion = normalizeStringArray(payload.occasion, 3, 5, 80);
+  const pricePoint = normalizeStringArray(payload.pricePoint, 1, 3, 40);
+  const keywords = normalizeStringArray(payload.keywords, 8, 10, 50);
+  if (niche.length < 3 || targetAudience.length < 4 || style.length < 4 || occasion.length < 3 || pricePoint.length < 1 || keywords.length < 8) {
+    return null;
+  }
+  return { niche, targetAudience, style, occasion, pricePoint, keywords };
+}
+
+function buildSelectedContextBlock({
+  selectedNiche = [],
+  selectedAudience = [],
+  selectedStyle = [],
+  selectedOccasion = [],
+  selectedPricePoint = "",
+  selectedKeywords = [],
+} = {}) {
+  const niche = Array.isArray(selectedNiche) ? selectedNiche.filter(Boolean).slice(0, 3) : [];
+  const audience = Array.isArray(selectedAudience) ? selectedAudience.filter(Boolean).slice(0, 4) : [];
+  const style = Array.isArray(selectedStyle) ? selectedStyle.filter(Boolean).slice(0, 4) : [];
+  const occasion = Array.isArray(selectedOccasion) ? selectedOccasion.filter(Boolean).slice(0, 3) : [];
+  const keywords = Array.isArray(selectedKeywords) ? selectedKeywords.filter(Boolean).slice(0, 10) : [];
+  const pricePoint = safeText(selectedPricePoint, 40).trim();
+  const hasContext = niche.length || audience.length || style.length || occasion.length || pricePoint || keywords.length;
+  if (!hasContext) return "";
+  return `Product context: niche=[${niche.join(", ")}], audience=[${audience.join(", ")}], style=[${style.join(", ")}], occasion=[${occasion.join(", ")}], price point=[${pricePoint || "Not provided"}], focus keywords=[${keywords.join(", ")}]`;
+}
+
 // GET /api/debug/prompts — view recent prompt-generation calls (sent + received), most recent first.
 // Protected by the same ADMIN_TOKEN as other routes. Resets on server restart/redeploy (in-memory only).
 app.get("/api/debug/prompts", (req, res) => {
   if (!requireAdmin(req, res)) return;
   res.json({ count: promptLog.length, max: PROMPT_LOG_MAX, entries: promptLog });
+});
+
+app.post("/api/agents/quality-inspect", async (req, res) => {
+  if (!requireAppAccess(req, res)) return;
+  const { imageUrl, originalDesignUrl, mockupPrompt } = req.body || {};
+  const { gemini } = loadKeys();
+  if (!gemini)
+    return res.status(503).json({ code: "service_missing", error: "Quality inspection service is not configured" });
+  try {
+    const result = await runAgent("quality_inspector", {
+      imageUrl,
+      originalDesignUrl,
+      mockupPrompt,
+    }, {
+      gemini,
+      fetchJsonWithRetry,
+      getGeminiText,
+      persistLog: persistAgentLog,
+    });
+    res.json({
+      report: result.data,
+      agentMeta: {
+        agent: result.agent,
+        success: result.success,
+        executionTime: result.executionTime,
+      },
+    });
+  } catch (e) {
+    console.error("[quality-inspect] failed:", e.message);
+    res.status(e.code === "bad_request" ? 400 : 500).json({ code: e.code || "server_error", error: "Quality inspection failed" });
+  }
+});
+
+app.post("/api/admin/agents/run", async (req, res) => {
+  if (!requireAdmin(req, res)) return;
+  const { agent, input = {} } = req.body || {};
+  const { gemini } = loadKeys();
+  try {
+    const output = await runAgent(agent, input, {
+      gemini,
+      fetchJsonWithRetry,
+      getGeminiText,
+      persistLog: persistAgentLog,
+    });
+    res.json({ ok: true, agent, output: output.data, agentResult: output });
+  } catch (e) {
+    console.error("[admin agents run] failed:", e.message);
+    res.status(e.code === "unknown_agent" ? 400 : 500).json({ code: e.code || "server_error", error: "Agent run failed" });
+  }
 });
 
 app.post("/api/generate-prompts", async (req, res) => {
@@ -1957,12 +3805,14 @@ app.post("/api/generate-prompts", async (req, res) => {
     batch, imageBase64, imageType,
     brandStyle, niche, audience, shirtModel, shirtName, shirtMode, designAnalysis, autoDetect, sceneDirection, mockupCount,
     printVisibility, mockupStyleMode, mockupStyleBrief,
-    learningContext, usedAttributes
+    learningContext, usedAttributes,
+    generateFullListing, additionalInfo, sizeChartIncluded,
+    selectedNiche, selectedAudience, selectedStyle, selectedOccasion, selectedPricePoint, selectedKeywords,
   } = req.body;
 
   const { gemini } = loadKeys();
   if (!gemini)
-    return res.status(400).json({ error: "Gemini API ključ ni nastavljen. Pojdi v Nastavitve." });
+    return res.status(503).json({ code: "service_missing", error: "Mockup generation service is not configured" });
 
   const list = batch.map((c, i) => `${i + 1}. ${c.name} — ${c.desc}`).join("\n");
 
@@ -2008,56 +3858,58 @@ app.post("/api/generate-prompts", async (req, res) => {
     mockupCount,
     learningContext,
     diversitySummary,
+    generateFullListing: !!generateFullListing,
+    additionalInfo: safeText(additionalInfo, 2000),
+    sizeChartIncluded: !!sizeChartIncluded,
+    selectedNiche: Array.isArray(selectedNiche) ? selectedNiche : [],
+    selectedAudience: Array.isArray(selectedAudience) ? selectedAudience : [],
+    selectedStyle: Array.isArray(selectedStyle) ? selectedStyle : [],
+    selectedOccasion: Array.isArray(selectedOccasion) ? selectedOccasion : [],
+    selectedPricePoint: safeText(selectedPricePoint, 40),
+    selectedKeywords: Array.isArray(selectedKeywords) ? selectedKeywords : [],
   });
 
   try {
-    const r = await fetchJsonWithRetry("https://generativelanguage.googleapis.com/v1beta/models/gemini-2.5-flash:generateContent", {
-      method: "POST",
-      headers: {
-        "Content-Type": "application/json",
-        "x-goog-api-key": gemini,
-      },
-      body: JSON.stringify({
-        systemInstruction: { parts: [{ text: SYSTEM_PROMPT }] },
-        generationConfig: { maxOutputTokens: 16000, responseMimeType: "application/json" },
-        contents: [{
-          role: "user",
-          parts: [
-            {
-              inline_data: {
-                mime_type: imageType || "image/png",
-                data: imageBase64,
-              },
-            },
-            { text: roleAwareUserMessage },
-          ],
-        }],
-      }),
-    }, { retries: 3, delayMs: 1500, label: "gemini generate-prompts" });
-
-    const d = await r.json();
-    if (d.error) throw new Error(d.error.message);
-    const raw = getGeminiText(d);
-    const concepts = extractJsonArray(raw);
-    const enrichedConcepts = concepts.map((concept, index) => enrichConceptData(concept, {
-      batchIndex: index,
+    const result = await runAgent("prompt_architect", {
+      batch,
       printVisibility,
       mockupStyleMode,
       mockupStyleBrief,
-      categoryInfo: batch[index] || {},
-    }));
+      niche,
+      audience,
+      shirtModel,
+      mockupCount,
+      selectedNiche,
+      selectedAudience,
+      selectedStyle,
+      selectedOccasion,
+      selectedPricePoint,
+      selectedKeywords,
+    }, {
+      gemini,
+      systemPrompt: SYSTEM_PROMPT,
+      userMessage: roleAwareUserMessage,
+      imageBase64,
+      imageType,
+      fetchJsonWithRetry,
+      getGeminiText,
+      enrichConceptData,
+      persistLog: persistAgentLog,
+    });
+    const raw = result.data.raw;
+    const enrichedConcepts = result.data.enrichedConcepts;
     if (!enrichedConcepts.length && raw) {
-      console.error("[generate-prompts] Gemini returned text but 0 concepts parsed. finishReason:", d?.candidates?.[0]?.finishReason);
+      console.error("[generate-prompts] Gemini returned text but 0 concepts parsed. finishReason:", result.finishReason);
     }
     logPromptGeneration({
       systemPrompt: SYSTEM_PROMPT,
       userMessage: roleAwareUserMessage,
       rawResponse: raw,
       conceptsCount: enrichedConcepts.length,
-      finishReason: d?.candidates?.[0]?.finishReason || null,
+      finishReason: result.data.finishReason,
       ok: enrichedConcepts.length > 0,
     });
-    res.json({ raw, concepts: enrichedConcepts, warning: !enrichedConcepts.length && raw ? "Gemini response could not be parsed into concepts — check server logs for raw output." : undefined });
+    res.json({ raw, concepts: enrichedConcepts, warning: result.data.warning });
   } catch (e) {
     console.error("[generate-prompts] failed:", e.message);
     logPromptGeneration({
@@ -2067,7 +3919,181 @@ app.post("/api/generate-prompts", async (req, res) => {
       error: e.message,
       ok: false,
     });
-    res.status(500).json({ error: `[generate-prompts] ${e.message}` });
+    res.status(500).json({ code: "server_error", error: "Mockup generation failed" });
+  }
+});
+
+app.post("/api/analyze-product", async (req, res) => {
+  if (!requireAuth(req, res)) return;
+  const productDescription = safeText(req.body?.productDescription || "", 5000).trim();
+  if (!productDescription) {
+    return res.status(400).json({ error: "Invalid payload" });
+  }
+  const cacheKey = sha256Short(productDescription.trim().toLowerCase(), 16);
+  const cached = analyzeProductCache.get(cacheKey);
+  if (cached && cached.expiresAt > Date.now()) {
+    return res.json({ ...cached.data, cacheKey, cached: true });
+  }
+  const { gemini } = loadKeys();
+  if (!gemini) {
+    return res.status(503).json({ code: "service_missing", error: "Product analysis service is not configured" });
+  }
+  const systemPrompt = `You are a print-on-demand Etsy market expert.
+Analyze this product and return suggestions in JSON:
+{
+  niche: string[] (3-5 niche suggestions, specific not generic),
+  targetAudience: string[] (4-6 audience segments, e.g. 'dog moms 25-40',
+    'college students', 'cottagecore enthusiasts'),
+  style: string[] (4-6 visual styles that fit this product,
+    e.g. 'minimalist', 'bold maximalist', 'dark academia', 'pastel aesthetic'),
+  occasion: string[] (3-5 occasions, e.g. 'birthday gift', 'self-purchase',
+    'mothers day', 'back to school'),
+  pricePoint: string[] (2-3 options: 'budget $15-20', 'mid $25-35', 'premium $40+'),
+  keywords: string[] (8-10 top Etsy search keywords for this product)
+}
+Product: [productDescription]
+Return only valid JSON, no markdown.`;
+  const buildBody = () => ({
+    systemInstruction: { parts: [{ text: systemPrompt.replace("[productDescription]", productDescription) }] },
+    generationConfig: { maxOutputTokens: 400, responseMimeType: "application/json" },
+    contents: [{
+      role: "user",
+      parts: [{ text: `Product: ${productDescription}` }],
+    }],
+  });
+  try {
+    for (let attempt = 0; attempt < 2; attempt++) {
+      const response = await fetchJsonWithRetry("https://generativelanguage.googleapis.com/v1beta/models/gemini-2.5-flash:generateContent", {
+        method: "POST",
+        headers: {
+          "Content-Type": "application/json",
+          "x-goog-api-key": gemini,
+        },
+        body: JSON.stringify(buildBody()),
+      }, { retries: 1, delayMs: 800, label: "gemini analyze-product" });
+      const data = await response.json();
+      if (data.error) throw new Error(data.error.message);
+      const raw = getGeminiText(data);
+      const parsed = normalizeAnalysisSuggestions(extractJsonObject(raw));
+      if (parsed) {
+        const payload = { ...parsed, cacheKey, cached: false };
+        analyzeProductCache.set(cacheKey, { data: parsed, expiresAt: Date.now() + ANALYZE_PRODUCT_CACHE_TTL_MS });
+        return res.json(payload);
+      }
+      console.warn(`[analyze-product] invalid JSON on attempt ${attempt + 1}`, {
+        rawLength: raw.length,
+        preview: raw.slice(0, 300),
+      });
+    }
+    return res.status(502).json({ error: "Product analysis failed" });
+  } catch (error) {
+    console.error("[analyze-product] failed:", error.message);
+    return res.status(502).json({ error: "Product analysis failed" });
+  }
+});
+
+app.post("/api/generate-listing-copy", async (req, res) => {
+  const session = requireAuth(req, res);
+  if (!session) return;
+
+  const productDescription = safeText(req.body?.productDescription || "", 4000).trim();
+  const niche = safeText(req.body?.niche || "", 200).trim();
+  const targetAudience = safeText(req.body?.targetAudience || "", 200).trim();
+  const style = safeText(req.body?.style || "", 200).trim();
+  const selectedNiche = Array.isArray(req.body?.selectedNiche) ? req.body.selectedNiche : [];
+  const selectedAudience = Array.isArray(req.body?.selectedAudience) ? req.body.selectedAudience : [];
+  const selectedStyle = Array.isArray(req.body?.selectedStyle) ? req.body.selectedStyle : [];
+  const selectedOccasion = Array.isArray(req.body?.selectedOccasion) ? req.body.selectedOccasion : [];
+  const selectedPricePoint = safeText(req.body?.selectedPricePoint || "", 40).trim();
+  const selectedKeywords = Array.isArray(req.body?.selectedKeywords) ? req.body.selectedKeywords : [];
+
+  if (!productDescription || !niche || !targetAudience || !style) {
+    return res.status(400).json({ error: "Invalid payload" });
+  }
+
+  const { gemini } = loadKeys();
+  if (!gemini) {
+    return res.status(503).json({ code: "service_missing", error: "Listing copy service is not configured" });
+  }
+
+  const systemPrompt = `You are an expert Etsy SEO copywriter specializing in print-on-demand.
+Generate a complete Etsy listing in JSON with these exact fields:
+{
+  title: string (max 140 chars, front-load top keywords),
+  description: string (800-1200 chars, conversational tone,
+    structure: hook → product details → sizing/care → brand story → CTA),
+  tags: string[] (exactly 13 tags, each max 20 chars,
+    mix of: 2-3 broad, 4-5 mid-tail, 4-5 long-tail, 1-2 occasion/gift),
+  materials: string[] (3-5 material tags for Etsy materials field),
+  seo_notes: string (brief explanation of keyword strategy used)
+}
+Base everything on this product research:
+niche: [niche], audience: [targetAudience], style: [style],
+product: [productDescription].
+${buildSelectedContextBlock({
+  selectedNiche,
+  selectedAudience,
+  selectedStyle,
+  selectedOccasion,
+  selectedPricePoint,
+  selectedKeywords,
+})}
+Return only valid JSON, no markdown.`;
+
+  const userMessage = `niche: ${niche}
+targetAudience: ${targetAudience}
+style: ${style}
+productDescription: ${productDescription}`;
+
+  const attemptGenerate = async () => {
+    const response = await fetchJsonWithRetry("https://generativelanguage.googleapis.com/v1beta/models/gemini-2.5-flash:generateContent", {
+      method: "POST",
+      headers: {
+        "Content-Type": "application/json",
+        "x-goog-api-key": gemini,
+      },
+      body: JSON.stringify({
+        systemInstruction: {
+          parts: [{
+            text: systemPrompt,
+          }],
+        },
+        generationConfig: {
+          maxOutputTokens: 2400,
+          responseMimeType: "application/json",
+        },
+        contents: [{
+          role: "user",
+          parts: [{
+            text: userMessage,
+          }],
+        }],
+      }),
+    }, { retries: 2, delayMs: 1200, label: "gemini listing-copy" });
+    const data = await response.json();
+    if (data.error) throw new Error(data.error.message);
+    return data;
+  };
+
+  try {
+    let raw = "";
+    let parsed = null;
+    for (let attempt = 0; attempt < 2; attempt++) {
+      const data = await attemptGenerate();
+      raw = getGeminiText(data);
+      parsed = normalizeListingCopyPayload(extractJsonObject(raw));
+      if (parsed) {
+        return res.json(parsed);
+      }
+      console.warn(`[listing-copy] invalid JSON on attempt ${attempt + 1}`, {
+        rawLength: raw.length,
+        preview: raw.slice(0, 300),
+      });
+    }
+    return res.status(502).json({ error: "Listing copy generation failed" });
+  } catch (error) {
+    console.error("[listing-copy] failed:", error.message);
+    return res.status(502).json({ error: "Listing copy generation failed" });
   }
 });
 
@@ -2204,7 +4230,7 @@ app.post("/api/analyze-shirt", async (req, res) => {
   const { imageBase64, imageType } = req.body;
   const { replicate } = loadKeys();
   if (!replicate)
-    return res.status(400).json({ error: "Replicate API ključ ni nastavljen. Pojdi v Nastavitve." });
+    return res.status(503).json({ code: "service_missing", error: "Image analysis service is not configured" });
   if (!imageBase64)
     return res.status(400).json({ error: "Image ni poslana." });
 
@@ -2216,7 +4242,7 @@ app.post("/api/analyze-shirt", async (req, res) => {
     res.json({ analysis: getPredictionText(output) });
   } catch (e) {
     console.error("[analyze-shirt] failed:", e.message);
-    res.status(500).json({ error: `[analyze-shirt] ${e.message}` });
+    res.status(500).json({ code: "server_error", error: "Image analysis failed" });
   }
 });
 
@@ -2225,11 +4251,10 @@ app.post("/api/ai-fix-suggestion", async (req, res) => {
   const { fluxPrompt, qaChecklist, customPrompt, imageBase64, imageType, printVisibility, mockupStyleMode, mockupStyleBrief, listingRole = "", listingRolePhase = "", listingRoleVariant = "", visiblePrint, riskAnalysis = {}, businessScores = {}, categoryResearch = "", shirtResearch = "" } = req.body;
   const { gemini } = loadKeys();
   if (!gemini)
-    return res.status(400).json({ error: "Gemini API ključ ni nastavljen. Pojdi v Nastavitve." });
+    return res.status(503).json({ code: "service_missing", error: "AI fix service is not configured" });
 
   try {
-    const parts = [
-      { text: `You are an ecommerce mockup QA editor performing a SURGICAL correction, not a redo.
+    const instruction = `You are an ecommerce mockup QA editor performing a SURGICAL correction, not a redo.
 
 Non-negotiable rules:
 - The uploaded design (typography, colors, linework, proportions, spacing, graphic elements) must remain pixel-exact. Never redraw, restyle, or reinterpret it.
@@ -2265,34 +4290,22 @@ Return ONLY a corrective instruction (2-3 sentences) in this shape:
 1) Name the exact defect to fix.
 2) State the precise correction.
 3) State explicitly what must remain unchanged (design fidelity, lighting, pose, garment, scene).
-No preamble, no extra commentary — just the correction prompt.` },
-    ];
-    if (imageBase64) {
-      parts.unshift({
-        inline_data: {
-          mime_type: imageType || "image/webp",
-          data: imageBase64,
-        },
-      });
-    }
-
-    const r = await fetch("https://generativelanguage.googleapis.com/v1beta/models/gemini-2.5-flash:generateContent", {
-      method: "POST",
-      headers: {
-        "Content-Type": "application/json",
-        "x-goog-api-key": gemini,
-      },
-      body: JSON.stringify({
-        generationConfig: { maxOutputTokens: 700 },
-        contents: [{ role: "user", parts }],
-      }),
+No preamble, no extra commentary — just the correction prompt.`;
+    const result = await runAgent("auto_fix", {
+      instruction,
+      imageBase64,
+      imageType,
+      listingRole,
+      mockupStyleMode,
+    }, {
+      gemini,
+      getGeminiText,
+      persistLog: persistAgentLog,
     });
-
-    const d = await r.json();
-    if (d.error) throw new Error(d.error.message);
-    res.json({ suggestion: getGeminiText(d) });
+    res.json({ suggestion: result.data.suggestion });
   } catch (e) {
-    res.status(500).json({ error: e.message });
+    console.error("[ai-fix-suggestion] failed:", e.message);
+    res.status(500).json({ code: "server_error", error: "AI fix failed" });
   }
 });
 
@@ -2321,14 +4334,21 @@ app.post("/api/generate-image", async (req, res) => {
     pose = "",
     cameraSetup = "",
     lighting = "",
+    selectedNiche = [],
+    selectedAudience = [],
+    selectedStyle = [],
+    selectedOccasion = [],
+    selectedPricePoint = "",
+    selectedKeywords = [],
   } = req.body;
   const { replicate } = loadKeys();
   if (!replicate)
-    return res.status(400).json({ error: "Replicate API ključ ni nastavljen. Pojdi v Nastavitve." });
+    return res.status(503).json({ code: "service_missing", error: "Image generation service is not configured" });
   if (!imageBase64)
     return res.status(400).json({ error: "Reference image ni poslana." });
 
   const requestId = `regen-${Date.now().toString(36)}-${Math.random().toString(36).slice(2, 7)}`;
+  const startedAt = Date.now();
   const resolvedListingRole = listingRole || inferListingRole(fluxPrompt || "", 0);
   const resolvedVisiblePrint = typeof visiblePrint === "boolean" ? visiblePrint : visiblePrintForRole(printVisibility, resolvedListingRole);
   console.log(`[generate-image ${requestId}] start`, {
@@ -2347,7 +4367,7 @@ app.post("/api/generate-image", async (req, res) => {
   try {
     const inputImage = `data:${imageType || "image/png"};base64,${imageBase64}`;
     const referenceNotes = [];
-    for (const ref of referenceImages.slice(0, 3)) {
+    for (const ref of referenceImages.slice(0, 4)) {
       if (!ref.imageBase64) continue;
       try {
         const output = await runReplicateVersion(FLORENCE_VERSION, {
@@ -2369,21 +4389,27 @@ app.post("/api/generate-image", async (req, res) => {
       },
       listingRole: resolvedListingRole,
     visiblePrint: resolvedVisiblePrint,
-    printVisibility,
-    mockupStyleMode,
-    mockupStyleBrief,
-    fluxPrompt,
-    designAnalysis,
-    referenceNotes,
-    customPrompt,
-    riskAnalysis,
-    categoryResearch,
-    shirtResearch,
-    listingRolePhase,
-    listingRoleVariant,
-    sceneText: [
-      environment ? `SCENE: ${environment}` : "",
-      targetBuyer ? `TARGET BUYER: ${targetBuyer}` : "",
+      printVisibility,
+      mockupStyleMode,
+      mockupStyleBrief,
+      fluxPrompt,
+      designAnalysis,
+      referenceNotes,
+      customPrompt,
+      riskAnalysis,
+      categoryResearch,
+      shirtResearch,
+      listingRolePhase,
+      listingRoleVariant,
+      selectedNiche,
+      selectedAudience,
+      selectedStyle,
+      selectedOccasion,
+      selectedPricePoint,
+      selectedKeywords,
+      sceneText: [
+        environment ? `SCENE: ${environment}` : "",
+        targetBuyer ? `TARGET BUYER: ${targetBuyer}` : "",
       pose ? `POSE: ${pose}` : "",
       cameraSetup ? `CAMERA: ${cameraSetup}` : "",
       lighting ? `LIGHTING: ${lighting}` : "",
@@ -2418,16 +4444,109 @@ app.post("/api/generate-image", async (req, res) => {
     const d = await r.json();
     const outputUrl = getPredictionOutputUrl(d.output) || (await pollPrediction(d.id, replicate));
     const url = await toDataUrl(outputUrl);
+    let qualityReport = null;
+    if (gemini) {
+      try {
+        const qualityResult = await runAgent("quality_inspector", {
+          imageUrl: url,
+          originalDesignUrl: inputImage,
+          mockupPrompt: finalPrompt,
+        }, {
+          gemini,
+          fetchJsonWithRetry,
+          getGeminiText,
+          persistLog: persistAgentLog,
+        });
+        qualityReport = qualityResult.data;
+      } catch (inspectError) {
+        console.warn(`[generate-image ${requestId}] quality inspection skipped:`, inspectError.message);
+      }
+    }
     console.log(`[generate-image ${requestId}] success`, {
       hasOutput: !!url,
       mimeType: "image/png",
       promptWordCount: countWords(finalPrompt),
+      qualityScore: qualityReport?.score ?? null,
       businessScores,
     });
-    res.json({ url, mimeType: "image/png" });
+    await recordGenerationRecord({
+      user_id: getUserSession(req)?.userId || null,
+      client_generation_id: requestId,
+      generation_type: "mockup_image",
+      prompt: finalPrompt,
+      prompt_hash: stablePromptHash(finalPrompt),
+      model_name: "black-forest-labs/flux-kontext-dev",
+      category: listingRole || categoryResearch || "",
+      status: "succeeded",
+      score: qualityReport?.score ?? businessScores?.etsy_conversion_score ?? businessScores?.realism_score ?? null,
+      credits_used: 1,
+      negative_prompt: "",
+      scene_type: environment || mockupStyleMode || "",
+      target_audience: targetBuyer || "",
+      duration_ms: Date.now() - startedAt,
+      estimated_cost: 0,
+      review_status: "pending",
+      meta: {
+        requestId,
+        printVisibility,
+        mockupStyleMode,
+        mockupStyleBrief,
+        listingRole,
+        listingRolePhase,
+        listingRoleVariant,
+        visiblePrint: resolvedVisiblePrint,
+        riskAnalysis,
+        businessScores,
+        categoryResearch,
+        shirtResearch,
+        environment,
+        targetBuyer,
+        pose,
+        cameraSetup,
+        lighting,
+        selectedNiche,
+        selectedAudience,
+        selectedStyle,
+        selectedOccasion,
+        selectedPricePoint,
+        selectedKeywords,
+        referenceCount: referenceImages.length,
+        qualityReport,
+      },
+    });
+    res.json({ url, mimeType: "image/png", qualityReport });
   } catch (e) {
     console.error(`[generate-image ${requestId}] error`, e.message);
-    res.status(500).json({ error: `[generate-image ${requestId}] ${e.message}` });
+    await recordGenerationRecord({
+      user_id: getUserSession(req)?.userId || null,
+      client_generation_id: requestId,
+      generation_type: "mockup_image",
+      prompt: fluxPrompt || "",
+      prompt_hash: stablePromptHash(fluxPrompt || ""),
+      model_name: "black-forest-labs/flux-kontext-dev",
+      category: listingRole || categoryResearch || "",
+      status: "failed",
+      credits_used: 0,
+      scene_type: environment || mockupStyleMode || "",
+      target_audience: targetBuyer || "",
+      duration_ms: Date.now() - startedAt,
+      review_status: "needs_fix",
+      meta: {
+        requestId,
+        failureCode: "image_generation_failed",
+        printVisibility,
+        mockupStyleMode,
+        listingRole,
+        environment,
+        targetBuyer,
+      },
+    });
+    await writeSystemLog("generation_failed", "Image generation failed", {
+      severity: "high",
+      userId: getUserSession(req)?.userId || null,
+      metadata: { requestId, model: "black-forest-labs/flux-kontext-dev" },
+    });
+    res.status(500).json({ code: "server_error", error: "Image generation failed" });
   }
 });
 

@@ -5,6 +5,25 @@
   <meta name="viewport" content="width=device-width, initial-scale=1.0"/>
   <title>Etsy Mockup Generator</title>
   <style>
+    :root{
+      --bg:#0b0d12;
+      --bg-elevated:#11151d;
+      --panel:rgba(255,255,255,0.045);
+      --panel-strong:rgba(255,255,255,0.075);
+      --panel-border:rgba(255,255,255,0.09);
+      --panel-border-strong:rgba(255,255,255,0.14);
+      --text:#f5f7fb;
+      --muted:rgba(245,247,251,0.66);
+      --muted-strong:rgba(245,247,251,0.82);
+      --faint:rgba(245,247,251,0.38);
+      --accent:#ffdc64;
+      --accent-2:#ff9b40;
+      --success:#7ee8a2;
+      --info:#8ec8ff;
+      --danger:#ff8080;
+    }
+    html{scroll-behavior:smooth}
+    #root{min-height:100vh}
     #diag-overlay{display:none;position:fixed;inset:0;background:#0C0C0E;color:#fff;font-family:monospace;font-size:13px;padding:20px;z-index:99999;overflow:auto;white-space:pre-wrap;line-height:1.6}
     #diag-overlay h2{color:#FF8080;margin-bottom:14px;font-size:16px}
     #diag-overlay .diag-line{margin-bottom:8px;border-left:3px solid #FF8080;padding-left:10px}
@@ -65,15 +84,97 @@
   <link href="https://fonts.googleapis.com/css2?family=DM+Sans:wght@300;400;500;600&family=DM+Mono:wght@400;500&family=Playfair+Display:wght@700&display=swap" rel="stylesheet"/>
   <style>
     *{box-sizing:border-box;margin:0;padding:0}
-    body{background:#0C0C0E;color:#fff;font-family:'DM Sans',sans-serif;min-height:100vh}
-    input:not([type=checkbox]),textarea,select{background:rgba(255,255,255,0.05)!important;border:1px solid rgba(255,255,255,0.09)!important;border-radius:9px!important;color:#fff!important;font-family:'DM Sans',sans-serif!important;font-size:13px!important;padding:9px 12px!important;width:100%;outline:none!important;transition:border-color 0.2s!important;resize:vertical}
+    body{
+      min-height:100vh;
+      color:var(--text);
+      font-family:'DM Sans',sans-serif;
+      background:
+        radial-gradient(circle at top left, rgba(255,220,100,0.12), transparent 28%),
+        radial-gradient(circle at top right, rgba(90,180,255,0.10), transparent 24%),
+        radial-gradient(circle at 50% 0%, rgba(126,232,162,0.05), transparent 36%),
+        linear-gradient(180deg, #0a0c11 0%, #0c0f15 52%, #090b10 100%);
+      color-scheme: dark;
+      -webkit-font-smoothing: antialiased;
+      text-rendering: geometricPrecision;
+      line-height: 1.5;
+    }
+    button,input,textarea,select{font:inherit}
+    button{touch-action:manipulation}
+    input:not([type=checkbox]),textarea,select{
+      background:rgba(255,255,255,0.055)!important;
+      border:1px solid rgba(255,255,255,0.10)!important;
+      border-radius:12px!important;
+      color:#fff!important;
+      font-family:'DM Sans',sans-serif!important;
+      font-size:14px!important;
+      line-height:1.45!important;
+      padding:11px 13px!important;
+      width:100%;
+      outline:none!important;
+      transition:border-color 0.2s ease, background 0.2s ease, box-shadow 0.2s ease!important;
+      resize:vertical
+    }
+    input:not([type=checkbox])::placeholder,textarea::placeholder{color:rgba(255,255,255,0.28)!important}
     input[type=password]{letter-spacing:0.1em}
-    input:focus,textarea:focus,select:focus{border-color:rgba(255,220,100,0.35)!important}
-    select option{background:#1a1a1e}
-    ::placeholder{color:rgba(255,255,255,0.18)!important}
+    input:focus,textarea:focus,select:focus{
+      border-color:rgba(255,220,100,0.48)!important;
+      background:rgba(255,255,255,0.07)!important;
+      box-shadow:0 0 0 3px rgba(255,220,100,0.10)
+    }
+    select option{background:#151922}
+    ::placeholder{color:rgba(255,255,255,0.28)!important}
+    ::selection{background:rgba(255,220,100,0.25);color:#fff}
+    button:focus-visible,input:focus-visible,textarea:focus-visible,select:focus-visible{
+      outline:2px solid rgba(255,220,100,0.22);
+      outline-offset:2px
+    }
     @keyframes spin{to{transform:rotate(360deg)}}
     @keyframes fadeUp{from{opacity:0;transform:translateY(10px)}to{opacity:1;transform:none}}
-    ::-webkit-scrollbar{width:4px}::-webkit-scrollbar-track{background:transparent}::-webkit-scrollbar-thumb{background:rgba(255,255,255,0.08);border-radius:4px}
+    ::-webkit-scrollbar{width:8px;height:8px}
+    ::-webkit-scrollbar-track{background:transparent}
+    ::-webkit-scrollbar-thumb{background:rgba(255,255,255,0.14);border-radius:999px}
+    ::-webkit-scrollbar-thumb:hover{background:rgba(255,255,255,0.22)}
+    .auth-page{
+      min-height:100vh;
+      display:grid;
+      place-items:center;
+      padding:28px 18px;
+      background:
+        radial-gradient(900px 520px at 18% 0%, rgba(255,220,100,0.14), transparent 52%),
+        radial-gradient(780px 520px at 84% 12%, rgba(126,232,162,0.09), transparent 48%),
+        linear-gradient(180deg,#0b0d12 0%,#10141b 100%);
+    }
+    .auth-card{
+      width:min(100%,440px);
+      border:1px solid rgba(255,255,255,0.10);
+      border-radius:22px;
+      background:rgba(17,21,29,0.92);
+      box-shadow:0 24px 80px rgba(0,0,0,0.38);
+      padding:28px;
+      animation:fadeUp 0.32s ease;
+    }
+    .app-nav{
+      display:flex;
+      gap:8px;
+      flex-wrap:wrap;
+      align-items:center;
+      justify-content:flex-end;
+    }
+    .app-nav button{
+      border:1px solid rgba(255,255,255,0.10);
+      background:rgba(255,255,255,0.045);
+      color:rgba(255,255,255,0.72);
+      border-radius:999px;
+      padding:8px 11px;
+      font-size:12px;
+      cursor:pointer;
+    }
+    .app-nav button:hover{background:rgba(255,255,255,0.075);color:#fff}
+    @media (max-width: 760px){
+      .auth-card{padding:22px;border-radius:18px}
+      .app-header-row{align-items:flex-start!important;flex-direction:column}
+      .app-nav{justify-content:flex-start;width:100%}
+    }
   </style>
 </head>
 <body>
@@ -86,7 +187,6 @@ try {
     useRef,
     useEffect
   } = React;
-  const APP_ACCESS_TOKEN_STORAGE_KEY = "ko.appAccessToken";
   const PROMPT_RATINGS_STORAGE_KEY = "etsy_mockup_prompt_ratings_v1";
   const PROMPT_LEARNING_ENABLED_KEY = "etsy_mockup_prompt_learning_enabled_v1";
   const DIVERSITY_HISTORY_STORAGE_KEY = "etsy_mockup_diversity_history_v1";
@@ -342,6 +442,23 @@ try {
       const visiblePrint = typeof c.visible_print === "boolean" ? c.visible_print : true;
       const riskAnalysis = parseRiskAnalysis(c.risk_analysis);
       const businessScores = parseBusinessScores(c.business_scores);
+      const etsyListing = c.etsy_listing && typeof c.etsy_listing === "object" ? {
+        title: c.etsy_listing.title || "",
+        tags: Array.isArray(c.etsy_listing.tags) ? c.etsy_listing.tags.filter(Boolean).slice(0, 13) : [],
+        description: c.etsy_listing.description || "",
+        materials: c.etsy_listing.materials || "",
+        careInstructions: c.etsy_listing.care_instructions || "",
+        sizeChartNote: c.etsy_listing.size_chart_note || "",
+        imageAltText: c.etsy_listing.image_alt_text || ""
+      } : {
+        title: "",
+        tags: [],
+        description: "",
+        materials: "",
+        careInstructions: "",
+        sizeChartNote: "",
+        imageAltText: ""
+      };
       return {
         category: c.category || "",
         listingRole,
@@ -370,6 +487,7 @@ try {
         qaChecklist: c.qa_checklist || "",
         autoFix: c.auto_fix_prompt || "",
         thumbnailNotes: c.thumbnail_notes || "",
+        etsyListing,
         riskAnalysis,
         businessScores,
         promptWordCount: numOr0(c.prompt_word_count),
@@ -469,20 +587,8 @@ try {
     const parts = [`mockup-${String(index + 1).padStart(2, "0")}`, slugifyName(result?.conceptName), slugifyName(result?.category || catInfo?.name)].filter(Boolean);
     return `${parts.join("-")}.png`;
   }
-  function getAppAccessToken() {
-    return localStorage.getItem(APP_ACCESS_TOKEN_STORAGE_KEY) || "";
-  }
-  function setAppAccessToken(token) {
-    if (token) localStorage.setItem(APP_ACCESS_TOKEN_STORAGE_KEY, token);else localStorage.removeItem(APP_ACCESS_TOKEN_STORAGE_KEY);
-  }
   function adminHeaders() {
     return {};
-  }
-  function appAccessHeaders() {
-    const token = getAppAccessToken();
-    return token ? {
-      "x-app-token": token
-    } : {};
   }
   async function compressImageDataUrl(dataUrl, {
     maxSize = 1024,
@@ -519,21 +625,11 @@ try {
       headers
     });
   }
-  async function appFetch(path, options = {}) {
-    const headers = {
-      ...(options.headers || {}),
-      ...appAccessHeaders()
-    };
-    return fetch(path, {
-      ...options,
-      credentials: "same-origin",
-      headers
-    });
-  }
   const authedFetch = adminFetch;
   async function apiFetch(path, body) {
-    const res = await appFetch(path, {
+    const res = await fetch(path, {
       method: "POST",
+      credentials: "same-origin",
       headers: {
         "Content-Type": "application/json"
       },
@@ -547,8 +643,14 @@ try {
       d = {};
     }
     if (!res.ok) {
-      const detail = d?.error || d?.message || text.trim();
-      throw new Error(detail || `Server error ${res.status}`);
+      const safeMessage = d?.code === "service_missing"
+        ? "Service is temporarily unavailable. Please try again later."
+        : res.status === 401
+          ? "Please log in to continue."
+          : res.status >= 500
+            ? "Server error. Please try again in a moment."
+            : d?.error || "Request failed. Please try again.";
+      throw new Error(safeMessage);
     }
     return d;
   }
@@ -613,6 +715,90 @@ try {
       const v = c === "x" ? r : r & 3 | 8;
       return v.toString(16);
     });
+  }
+  function escapeXml(value = "") {
+    return String(value)
+      .replace(/&/g, "&amp;")
+      .replace(/</g, "&lt;")
+      .replace(/>/g, "&gt;")
+      .replace(/"/g, "&quot;")
+      .replace(/'/g, "&apos;");
+  }
+  function svgToDataUrl(svg) {
+    const bytes = new TextEncoder().encode(svg);
+    let binary = "";
+    const chunkSize = 0x8000;
+    for (let i = 0; i < bytes.length; i += chunkSize) {
+      binary += String.fromCharCode(...bytes.subarray(i, i + chunkSize));
+    }
+    return `data:image/svg+xml;base64,${btoa(binary)}`;
+  }
+  const SIZE_CHART_ROWS = [
+    { size: "XS", chest: "32-34 in", length: "26 in" },
+    { size: "S", chest: "34-36 in", length: "27 in" },
+    { size: "M", chest: "38-40 in", length: "28 in" },
+    { size: "L", chest: "42-44 in", length: "29 in" },
+    { size: "XL", chest: "46-48 in", length: "30 in" },
+    { size: "2XL", chest: "50-52 in", length: "31 in" },
+    { size: "3XL", chest: "54-56 in", length: "32 in" }
+  ];
+  const SIZE_CHART_TEMPLATES = [
+    { id: "classic", name: "Classic Grid", title: "Classic Fit Guide", subtitle: "Clean, simple, and marketplace-friendly", accent: "#ffdc64", bg: "#10141b", panel: "#171c26" },
+    { id: "minimal", name: "Minimal", title: "Minimal Size Chart", subtitle: "Lightweight layout with generous spacing", accent: "#8ec8ff", bg: "#0f1319", panel: "#151b24" },
+    { id: "editorial", name: "Editorial", title: "Editorial Size Chart", subtitle: "Premium look for modern Etsy listings", accent: "#7ee8a2", bg: "#0f1414", panel: "#17211b" },
+    { id: "bold", name: "Bold", title: "Bold Fit Guide", subtitle: "High-contrast style for strong branding", accent: "#ff9b40", bg: "#17110d", panel: "#221912" },
+    { id: "compact", name: "Compact", title: "Compact Size Chart", subtitle: "Small footprint for tight product pages", accent: "#d6b0ff", bg: "#13101a", panel: "#1c1626" },
+    { id: "soft", name: "Soft", title: "Soft Tone Guide", subtitle: "Friendly palette for lifestyle brands", accent: "#f4c8d7", bg: "#171114", panel: "#23191e" }
+  ];
+  function buildSizeChartSvgDataUrl(template, index = 0) {
+    const rows = SIZE_CHART_ROWS;
+    const width = 1200;
+    const height = 1500;
+    const accent = template?.accent || "#ffdc64";
+    const bg = template?.bg || "#11151d";
+    const panel = template?.panel || "#171c26";
+    const title = template?.title || "Size Chart";
+    const subtitle = template?.subtitle || "Template";
+    const bodyRows = rows.map((row, idx) => {
+      const y = 390 + (idx * 130);
+      const rowFill = idx % 2 === 0 ? "rgba(255,255,255,0.03)" : "rgba(255,255,255,0.01)";
+      return `
+        <g>
+          <rect x="90" y="${y}" width="1020" height="96" rx="20" fill="${rowFill}"/>
+          <text x="140" y="${y + 59}" font-size="34" font-family="'DM Sans',Arial,sans-serif" fill="#fff" font-weight="700">${escapeXml(row.size)}</text>
+          <text x="400" y="${y + 59}" font-size="26" font-family="'DM Sans',Arial,sans-serif" fill="rgba(255,255,255,0.76)">${escapeXml(row.chest)}</text>
+          <text x="760" y="${y + 59}" font-size="26" font-family="'DM Sans',Arial,sans-serif" fill="rgba(255,255,255,0.76)">${escapeXml(row.length)}</text>
+        </g>`;
+    }).join("");
+    const svg = `
+      <svg xmlns="http://www.w3.org/2000/svg" width="${width}" height="${height}" viewBox="0 0 ${width} ${height}">
+        <defs>
+          <linearGradient id="bg-${template?.id || index}" x1="0" y1="0" x2="1" y2="1">
+            <stop offset="0%" stop-color="${bg}"/>
+            <stop offset="100%" stop-color="#0b0d12"/>
+          </linearGradient>
+          <filter id="shadow-${template?.id || index}" x="-20%" y="-20%" width="140%" height="140%">
+            <feDropShadow dx="0" dy="24" stdDeviation="28" flood-color="#000" flood-opacity="0.35"/>
+          </filter>
+        </defs>
+        <rect width="1200" height="1500" rx="56" fill="url(#bg-${template?.id || index})"/>
+        <circle cx="1040" cy="160" r="110" fill="${accent}" opacity="0.12"/>
+        <circle cx="170" cy="1340" r="180" fill="${accent}" opacity="0.07"/>
+        <rect x="78" y="78" width="1044" height="1344" rx="44" fill="${panel}" filter="url(#shadow-${template?.id || index})" stroke="rgba(255,255,255,0.08)"/>
+        <text x="130" y="185" font-size="30" letter-spacing="8" font-family="'DM Mono',monospace" fill="${accent}">${escapeXml((template?.name || "Template").toUpperCase())}</text>
+        <text x="130" y="265" font-size="74" font-family="'Playfair Display',Georgia,serif" fill="#fff" font-weight="700">${escapeXml(title)}</text>
+        <text x="130" y="330" font-size="28" font-family="'DM Sans',Arial,sans-serif" fill="rgba(255,255,255,0.68)">${escapeXml(subtitle)}</text>
+        <rect x="130" y="345" width="940" height="6" rx="3" fill="${accent}" opacity="0.9"/>
+        <text x="140" y="420" font-size="24" font-family="'DM Mono',monospace" fill="rgba(255,255,255,0.45)">SIZE</text>
+        <text x="400" y="420" font-size="24" font-family="'DM Mono',monospace" fill="rgba(255,255,255,0.45)">CHEST</text>
+        <text x="760" y="420" font-size="24" font-family="'DM Mono',monospace" fill="rgba(255,255,255,0.45)">LENGTH</text>
+        ${bodyRows}
+        <rect x="130" y="1220" width="940" height="150" rx="28" fill="rgba(255,255,255,0.03)" stroke="rgba(255,255,255,0.07)"/>
+        <text x="165" y="1278" font-size="24" font-family="'DM Sans',Arial,sans-serif" fill="${accent}" font-weight="700">Sizing note</text>
+        <text x="165" y="1324" font-size="24" font-family="'DM Sans',Arial,sans-serif" fill="rgba(255,255,255,0.76)">Double-check the chart before ordering. Measurements are approximate.</text>
+        <text x="165" y="1360" font-size="24" font-family="'DM Sans',Arial,sans-serif" fill="rgba(255,255,255,0.76)">Generated separately from mockups</text>
+      </svg>`;
+    return svgToDataUrl(svg);
   }
   function stablePromptHash(value = "") {
     let hash = 0xcbf29ce484222325n;
@@ -993,7 +1179,7 @@ try {
       style: {
         width: size,
         height: size,
-        border: `2px solid ${color}22`,
+        border: `2px solid ${color}1f`,
         borderTop: `2px solid ${color}`,
         borderRadius: "50%",
         animation: "spin 0.7s linear infinite",
@@ -1012,17 +1198,43 @@ try {
         setTimeout(() => setC(false), 1600);
       },
       style: {
-        background: "none",
+        background: "rgba(255,255,255,0.035)",
         border: "none",
         cursor: "pointer",
-        color: c ? "#7EE8A2" : "rgba(255,255,255,0.25)",
-        fontSize: 10,
+        color: c ? "#7EE8A2" : "rgba(255,255,255,0.34)",
+        fontSize: 11,
         fontFamily: "'DM Mono',monospace",
-        padding: "3px 7px",
-        borderRadius: 5,
-        transition: "color 0.2s"
+        padding: "5px 8px",
+        borderRadius: 999,
+        transition: "color 0.2s, background 0.2s"
       }
     }, c ? "✓ copied" : "copy");
+  }
+  function CopyChip({
+    text
+  }) {
+    const [copied, setCopied] = useState(false);
+    return React.createElement("button", {
+      onClick: () => {
+        navigator.clipboard.writeText(text);
+        setCopied(true);
+        setTimeout(() => setCopied(false), 1400);
+      },
+      style: {
+        padding: "6px 10px",
+        borderRadius: 999,
+        border: "1px solid rgba(255,255,255,0.11)",
+        background: copied ? "rgba(126,232,162,0.12)" : "rgba(255,255,255,0.04)",
+        color: copied ? "#7EE8A2" : "rgba(255,255,255,0.68)",
+        fontSize: 11,
+        cursor: "pointer",
+        transition: "all 0.15s ease",
+        maxWidth: "100%",
+        overflow: "hidden",
+        textOverflow: "ellipsis",
+        whiteSpace: "nowrap"
+      }
+    }, copied ? "✓ " : "", text);
   }
   function Field({
     label,
@@ -1032,36 +1244,37 @@ try {
     if (!value) return null;
     return React.createElement("div", {
       style: {
-        marginBottom: 9
+        marginBottom: 11
       }
     }, React.createElement("div", {
       style: {
         display: "flex",
         justifyContent: "space-between",
         alignItems: "center",
-        marginBottom: 3
+        gap: 10,
+        marginBottom: 6
       }
     }, React.createElement("span", {
       style: {
-        fontSize: 9,
+        fontSize: 10,
         fontFamily: "'DM Mono',monospace",
-        color: accent || "rgba(255,255,255,0.25)",
-        letterSpacing: "0.1em",
+        color: accent || "rgba(255,255,255,0.38)",
+        letterSpacing: "0.12em",
         textTransform: "uppercase"
       }
     }, label), React.createElement(CopyBtn, {
       text: value
     })), React.createElement("div", {
       style: {
-        background: "rgba(0,0,0,0.35)",
-        borderRadius: 8,
-        padding: "9px 11px",
-        fontSize: 12,
-        color: "rgba(255,255,255,0.72)",
-        lineHeight: 1.65,
+        background: "rgba(0,0,0,0.26)",
+        borderRadius: 12,
+        padding: "11px 12px",
+        fontSize: 13,
+        color: "rgba(255,255,255,0.8)",
+        lineHeight: 1.7,
         whiteSpace: "pre-wrap",
         wordBreak: "break-word",
-        border: `1px solid ${accent || "rgba(255,255,255,0.06)"}`
+        border: `1px solid ${accent || "rgba(255,255,255,0.08)"}`
       }
     }, value));
   }
@@ -1076,24 +1289,24 @@ try {
   }) {
     return React.createElement("div", {
       style: {
-        padding: "9px 10px",
-        borderRadius: 9,
-        background: "rgba(0,0,0,0.28)",
-        border: "1px solid rgba(255,255,255,0.06)"
+        padding: "12px 12px",
+        borderRadius: 14,
+        background: "rgba(0,0,0,0.24)",
+        border: "1px solid rgba(255,255,255,0.08)"
       }
     }, React.createElement("div", {
       style: {
-        fontSize: 9,
-        color: "rgba(255,255,255,0.3)",
+        fontSize: 10,
+        color: "rgba(255,255,255,0.38)",
         fontFamily: "'DM Mono',monospace",
         textTransform: "uppercase"
       }
     }, label), React.createElement("div", {
       style: {
-        fontSize: 16,
+        fontSize: 18,
         fontWeight: 700,
         color: "#fff",
-        marginTop: 4
+        marginTop: 6
       }
     }, value));
   }
@@ -1105,23 +1318,24 @@ try {
     return React.createElement("div", {
       style: {
         overflowX: "auto",
-        border: "1px solid rgba(255,255,255,0.06)",
-        borderRadius: 9
+        border: "1px solid rgba(255,255,255,0.08)",
+        borderRadius: 12,
+        background: "rgba(0,0,0,0.18)"
       }
     }, React.createElement("table", {
       style: {
         width: "100%",
         borderCollapse: "collapse",
-        fontSize: 10,
-        color: "rgba(255,255,255,0.66)"
+        fontSize: 11,
+        color: "rgba(255,255,255,0.72)"
       }
     }, React.createElement("thead", null, React.createElement("tr", null, columns.map(col => React.createElement("th", {
       key: col.key,
       style: {
         textAlign: "left",
-        padding: "7px 8px",
-        borderBottom: "1px solid rgba(255,255,255,0.06)",
-        color: "rgba(255,255,255,0.32)",
+        padding: "9px 10px",
+        borderBottom: "1px solid rgba(255,255,255,0.08)",
+        color: "rgba(255,255,255,0.44)",
         fontFamily: "'DM Mono',monospace",
         whiteSpace: "nowrap"
       }
@@ -1129,20 +1343,21 @@ try {
       key: idx,
       onClick: onRowClick ? () => onRowClick(row) : undefined,
       style: {
-        cursor: onRowClick ? "pointer" : "default"
+        cursor: onRowClick ? "pointer" : "default",
+        background: idx % 2 ? "rgba(255,255,255,0.015)" : "transparent"
       }
     }, columns.map(col => React.createElement("td", {
       key: col.key,
       style: {
-        padding: "7px 8px",
-        borderBottom: idx === rows.length - 1 ? "none" : "1px solid rgba(255,255,255,0.04)",
+        padding: "9px 10px",
+        borderBottom: idx === rows.length - 1 ? "none" : "1px solid rgba(255,255,255,0.05)",
         whiteSpace: "nowrap"
       }
     }, col.render ? col.render(row) : row[col.key] ?? "—")))) : React.createElement("tr", null, React.createElement("td", {
       colSpan: columns.length,
       style: {
-        padding: "10px 8px",
-        color: "rgba(255,255,255,0.32)"
+        padding: "12px 10px",
+        color: "rgba(255,255,255,0.38)"
       }
     }, "No data")))));
   }
@@ -1161,8 +1376,8 @@ try {
     if (!data.length) return React.createElement("div", {
       style: {
         color: "rgba(255,255,255,0.32)",
-        fontSize: 11,
-        padding: 16
+        fontSize: 12,
+        padding: 18
       }
     }, "No trend data");
     const maxGen = Math.max(1, ...data.map(row => Number(row.generations_total) || 0));
@@ -1178,10 +1393,10 @@ try {
       viewBox: `0 0 ${width} ${height}`,
       style: {
         width: "100%",
-        height: 170,
-        background: "rgba(0,0,0,0.22)",
-        border: "1px solid rgba(255,255,255,0.06)",
-        borderRadius: 9
+        height: 184,
+        background: "rgba(0,0,0,0.18)",
+        border: "1px solid rgba(255,255,255,0.08)",
+        borderRadius: 12
       }
     }, React.createElement("polyline", {
       points: genLine,
@@ -1210,9 +1425,9 @@ try {
         display: "flex",
         gap: 10,
         flexWrap: "wrap",
-        marginTop: 6,
-        fontSize: 10,
-        color: "rgba(255,255,255,0.48)"
+        marginTop: 8,
+        fontSize: 11,
+        color: "rgba(255,255,255,0.56)"
       }
     }, React.createElement("span", null, "■ Generations"), React.createElement("span", {
       style: {
@@ -1235,31 +1450,31 @@ try {
     const max = Math.max(1, ...data.map(row => Number(row[valueKey]) || 0));
     return React.createElement("div", {
       style: {
-        padding: 10,
-        borderRadius: 9,
-        background: "rgba(0,0,0,0.22)",
-        border: "1px solid rgba(255,255,255,0.06)"
+        padding: 12,
+        borderRadius: 12,
+        background: "rgba(0,0,0,0.18)",
+        border: "1px solid rgba(255,255,255,0.08)"
       }
     }, React.createElement("div", {
       style: {
         fontSize: 10,
-        color: "rgba(255,255,255,0.32)",
+        color: "rgba(255,255,255,0.44)",
         fontFamily: "'DM Mono',monospace",
-        marginBottom: 8,
+        marginBottom: 10,
         textTransform: "uppercase"
       }
     }, title), data.length ? data.map((row, idx) => React.createElement("div", {
       key: `${row[labelKey] || idx}-${idx}`,
       style: {
-        marginBottom: 7
+        marginBottom: 8
       }
     }, React.createElement("div", {
       style: {
         display: "flex",
         justifyContent: "space-between",
         gap: 8,
-        fontSize: 10,
-        color: "rgba(255,255,255,0.62)",
+        fontSize: 11,
+        color: "rgba(255,255,255,0.72)",
         marginBottom: 3
       }
     }, React.createElement("span", {
@@ -1270,9 +1485,9 @@ try {
       }
     }, row[labelKey] || "Unknown"), React.createElement("span", null, fmtMetric(row[valueKey], suffix))), React.createElement("div", {
       style: {
-        height: 5,
+        height: 7,
         borderRadius: 999,
-        background: "rgba(255,255,255,0.06)",
+        background: "rgba(255,255,255,0.07)",
         overflow: "hidden"
       }
     }, React.createElement("div", {
@@ -1311,30 +1526,31 @@ try {
     }];
     return React.createElement("div", {
       style: {
-        marginBottom: 9
+        marginBottom: 11
       }
     }, React.createElement("div", {
       style: {
         display: "flex",
         justifyContent: "space-between",
         alignItems: "center",
-        marginBottom: 3
+        marginBottom: 6,
+        gap: 10
       }
     }, React.createElement("span", {
       style: {
-        fontSize: 9,
+        fontSize: 10,
         fontFamily: "'DM Mono',monospace",
-        color: "rgba(200,160,255,0.7)",
-        letterSpacing: "0.1em",
+        color: "rgba(200,160,255,0.76)",
+        letterSpacing: "0.12em",
         textTransform: "uppercase"
       }
     }, "\uD83D\uDEE0 Manual Fix Template"), React.createElement(CopyBtn, {
       text: text
     })), React.createElement("div", {
       style: {
-        background: "rgba(0,0,0,0.35)",
-        borderRadius: 8,
-        border: "1px solid rgba(200,160,255,0.18)",
+        background: "rgba(0,0,0,0.24)",
+        borderRadius: 12,
+        border: "1px solid rgba(200,160,255,0.20)",
         overflow: "hidden"
       }
     }, rows.map(({
@@ -1344,24 +1560,24 @@ try {
       key: k,
       style: {
         display: "grid",
-        gridTemplateColumns: "140px 1fr",
-        borderBottom: "1px solid rgba(255,255,255,0.04)"
+        gridTemplateColumns: "160px 1fr",
+        borderBottom: "1px solid rgba(255,255,255,0.05)"
       }
     }, React.createElement("div", {
       style: {
-        padding: "7px 10px",
+        padding: "9px 12px",
         fontSize: 10,
-        color: "rgba(200,160,255,0.6)",
+        color: "rgba(200,160,255,0.72)",
         fontFamily: "'DM Mono',monospace",
-        borderRight: "1px solid rgba(255,255,255,0.04)",
-        background: "rgba(255,255,255,0.02)"
+        borderRight: "1px solid rgba(255,255,255,0.05)",
+        background: "rgba(255,255,255,0.03)"
       }
     }, k), React.createElement("div", {
       style: {
-        padding: "7px 10px",
-        fontSize: 12,
-        color: "rgba(255,255,255,0.7)",
-        lineHeight: 1.5
+        padding: "9px 12px",
+        fontSize: 13,
+        color: "rgba(255,255,255,0.78)",
+        lineHeight: 1.55
       }
     }, v)) : null)));
   }
@@ -1375,25 +1591,25 @@ try {
       style: {
         display: "flex",
         alignItems: "center",
-        gap: 8,
-        marginBottom: 5
+        gap: 10,
+        marginBottom: 7
       }
     }, React.createElement("span", {
       style: {
-        fontSize: 9,
-        color: "rgba(255,255,255,0.4)",
-        width: 92,
+        fontSize: 10,
+        color: "rgba(255,255,255,0.48)",
+        width: 104,
         flexShrink: 0,
         fontFamily: "'DM Mono',monospace",
         textTransform: "uppercase",
-        letterSpacing: "0.04em"
+        letterSpacing: "0.06em"
       }
     }, label), React.createElement("div", {
       style: {
         flex: 1,
-        height: 5,
-        borderRadius: 3,
-        background: "rgba(255,255,255,0.06)",
+        height: 7,
+        borderRadius: 999,
+        background: "rgba(255,255,255,0.07)",
         overflow: "hidden"
       }
     }, React.createElement("div", {
@@ -1401,14 +1617,14 @@ try {
         width: `${v * 10}%`,
         height: "100%",
         background: color,
-        borderRadius: 3,
+        borderRadius: 999,
         transition: "width 0.3s"
       }
     })), React.createElement("span", {
       style: {
-        fontSize: 10,
+        fontSize: 11,
         color,
-        width: 24,
+        width: 32,
         textAlign: "right",
         fontFamily: "'DM Mono',monospace",
         flexShrink: 0
@@ -1423,16 +1639,493 @@ try {
     return React.createElement("button", {
       onClick: onClick,
       style: {
-        padding: "5px 13px",
-        borderRadius: 20,
-        border: active ? "1.5px solid #FFDC64" : "1.5px solid rgba(255,255,255,0.09)",
-        background: active ? "rgba(255,220,100,0.1)" : "rgba(255,255,255,0.03)",
-        color: active ? "#FFDC64" : "rgba(255,255,255,0.4)",
-        fontSize: 11,
+        padding: "7px 14px",
+        borderRadius: 999,
+        border: active ? "1px solid rgba(255,220,100,0.46)" : "1px solid rgba(255,255,255,0.10)",
+        background: active ? "linear-gradient(180deg, rgba(255,220,100,0.14), rgba(255,220,100,0.08))" : "rgba(255,255,255,0.035)",
+        color: active ? "#FFDC64" : "rgba(255,255,255,0.54)",
+        fontSize: 12,
         cursor: "pointer",
-        transition: "all 0.15s"
+        transition: "all 0.15s ease",
+        boxShadow: active ? "0 0 0 1px rgba(255,220,100,0.08) inset" : "none"
       }
     }, children);
+  }
+  function QualityReportPanel({ report, fixing, onFix, onRegenerate }) {
+    if (!report) return null;
+    const statusLabel = report.status === "PASS" ? "Ready for Etsy" : report.status === "REJECT" ? "Regenerate" : "Needs Fix";
+    return React.createElement("div", {
+      style: {
+        marginTop: 10,
+        padding: "10px 11px",
+        borderRadius: 10,
+        border: "1px solid rgba(126,232,162,0.16)",
+        background: "rgba(126,232,162,0.055)"
+      }
+    }, React.createElement("div", {
+      style: {
+        display: "flex",
+        alignItems: "center",
+        justifyContent: "space-between",
+        gap: 10,
+        marginBottom: 8
+      }
+    }, React.createElement("div", {
+      style: {
+        fontSize: 10,
+        color: "rgba(126,232,162,0.82)",
+        fontFamily: "'DM Mono',monospace",
+        letterSpacing: "0.08em",
+        textTransform: "uppercase"
+      }
+    }, "Quality Inspector"), React.createElement("div", {
+      style: {
+        fontSize: 18,
+        fontWeight: 800,
+        color: "#fff"
+      }
+    }, `${report.score || 0}/100`)), React.createElement("div", {
+      style: {
+        display: "flex",
+        gap: 6,
+        flexWrap: "wrap",
+        marginBottom: 8
+      }
+    }, React.createElement(Tag, null, statusLabel), React.createElement(Tag, null, `Visibility ${report.design_visibility || 0}`), React.createElement(Tag, null, `Realism ${report.realism || 0}`)), report.issues?.length > 0 && React.createElement("ul", {
+      style: {
+        margin: "0 0 9px 16px",
+        color: "rgba(255,255,255,0.64)",
+        fontSize: 11,
+        lineHeight: 1.45
+      }
+    }, report.issues.slice(0, 4).map((issue, issueIndex) => React.createElement("li", {
+      key: issueIndex
+    }, issue))), React.createElement("div", {
+      style: {
+        display: "flex",
+        gap: 7,
+        flexWrap: "wrap"
+      }
+    }, React.createElement("button", {
+      onClick: onFix,
+      disabled: fixing,
+      style: {
+        padding: "6px 10px",
+        borderRadius: 8,
+        border: "1px solid rgba(90,180,255,0.25)",
+        background: "rgba(90,180,255,0.08)",
+        color: "rgba(160,210,255,0.95)",
+        fontSize: 10,
+        cursor: fixing ? "not-allowed" : "pointer"
+      }
+    }, fixing ? "Thinking..." : "Fix with AI"), React.createElement("button", {
+      onClick: () => onRegenerate(report.fix_prompt || ""),
+      style: {
+        padding: "6px 10px",
+        borderRadius: 8,
+        border: "1px solid rgba(255,220,100,0.22)",
+        background: "rgba(255,220,100,0.08)",
+        color: "#FFDC64",
+        fontSize: 10,
+        cursor: "pointer"
+      }
+      }, "Regenerate")));
+  }
+  function ListingCopySection({
+    title,
+    meta,
+    defaultOpen = true,
+    children
+  }) {
+    return React.createElement("details", {
+      open: defaultOpen,
+      style: {
+        marginBottom: 10,
+        borderRadius: 14,
+        border: "1px solid rgba(255,255,255,0.08)",
+        background: "rgba(0,0,0,0.18)",
+        overflow: "hidden"
+      }
+    }, React.createElement("summary", {
+      style: {
+        listStyle: "none",
+        cursor: "pointer",
+        padding: "12px 14px",
+        display: "flex",
+        justifyContent: "space-between",
+        alignItems: "center",
+        gap: 12,
+        fontFamily: "'DM Mono',monospace",
+        fontSize: 10,
+        letterSpacing: "0.12em",
+        textTransform: "uppercase",
+        color: "rgba(255,255,255,0.7)"
+      }
+    }, React.createElement("span", null, title), meta ? React.createElement("span", {
+      style: {
+        color: "rgba(255,220,100,0.68)",
+        textTransform: "none",
+        letterSpacing: "0.04em",
+        fontFamily: "'Inter',sans-serif",
+        fontSize: 11
+      }
+    }, meta) : null), React.createElement("div", {
+      style: {
+        padding: "0 14px 14px"
+      }
+    }, children));
+  }
+  function ListingCopyResultPanel({
+    data,
+    onCopyAll,
+    onExportAll,
+    includeExport = false
+  }) {
+    if (!data) return null;
+    const titleCount = (data.title || "").length;
+    const descriptionCount = (data.description || "").length;
+    const tags = Array.isArray(data.tags) ? data.tags : [];
+    const materials = Array.isArray(data.materials) ? data.materials : [];
+    return React.createElement("div", {
+      style: {
+        marginTop: 12,
+        padding: "14px",
+        borderRadius: 16,
+        border: "1px solid rgba(126,232,162,0.14)",
+        background: "linear-gradient(180deg, rgba(126,232,162,0.06), rgba(255,255,255,0.02))"
+      }
+    }, React.createElement("div", {
+      style: {
+        display: "flex",
+        justifyContent: "space-between",
+        gap: 12,
+        alignItems: "flex-start",
+        flexWrap: "wrap",
+        marginBottom: 10
+      }
+    }, React.createElement("div", null, React.createElement("div", {
+      style: {
+        fontSize: 10,
+        color: "rgba(126,232,162,0.82)",
+        fontFamily: "'DM Mono',monospace",
+        letterSpacing: "0.14em",
+        textTransform: "uppercase"
+      }
+    }, "Listing Copy"), React.createElement("div", {
+      style: {
+        fontSize: 12,
+        color: "rgba(255,255,255,0.65)",
+        marginTop: 4
+      }
+    }, "Ready to paste into Etsy.")), React.createElement("div", {
+      style: {
+        display: "flex",
+        gap: 8,
+        flexWrap: "wrap"
+      }
+    }, React.createElement("button", {
+      onClick: onCopyAll,
+      style: {
+        padding: "7px 11px",
+        borderRadius: 10,
+        border: "1px solid rgba(126,232,162,0.24)",
+        background: "rgba(126,232,162,0.08)",
+        color: "#7EE8A2",
+        fontSize: 11,
+        cursor: "pointer"
+      }
+    }, "Copy All to Clipboard"), includeExport && React.createElement("button", {
+      onClick: onExportAll,
+      style: {
+        padding: "7px 11px",
+        borderRadius: 10,
+        border: "1px solid rgba(255,220,100,0.22)",
+        background: "rgba(255,220,100,0.08)",
+        color: "#FFDC64",
+        fontSize: 11,
+        cursor: "pointer"
+      }
+    }, "Export All"))), React.createElement(ListingCopySection, {
+      title: "📝 Title",
+      meta: `${titleCount}/140 chars`
+    }, React.createElement("div", {
+      style: {
+        display: "flex",
+        gap: 8,
+        alignItems: "center"
+      }
+    }, React.createElement("input", {
+      readOnly: true,
+      value: data.title || "",
+      style: {
+        flex: 1,
+        padding: "10px 12px",
+        borderRadius: 10,
+        border: "1px solid rgba(255,255,255,0.08)",
+        background: "rgba(0,0,0,0.24)",
+        color: "#fff",
+        fontSize: 13
+      }
+    }), React.createElement(CopyBtn, {
+      text: data.title || ""
+    }))), React.createElement(ListingCopySection, {
+      title: "📄 Description",
+      meta: `${descriptionCount} chars`
+    }, React.createElement("div", {
+      style: {
+        display: "flex",
+        gap: 8,
+        alignItems: "flex-start"
+      }
+    }, React.createElement("textarea", {
+      readOnly: true,
+      value: data.description || "",
+      rows: 8,
+      style: {
+        flex: 1,
+        padding: "10px 12px",
+        borderRadius: 10,
+        border: "1px solid rgba(255,255,255,0.08)",
+        background: "rgba(0,0,0,0.24)",
+        color: "#fff",
+        fontSize: 12,
+        lineHeight: 1.55,
+        resize: "vertical"
+      }
+    }), React.createElement(CopyBtn, {
+      text: data.description || ""
+    }))), React.createElement(ListingCopySection, {
+      title: "🏷️ Tags",
+      meta: `${tags.length}/13 tags`
+    }, React.createElement("div", {
+      style: {
+        display: "flex",
+        flexWrap: "wrap",
+        gap: 8,
+        marginBottom: 10
+      }
+    }, tags.map((tag, idx) => React.createElement(CopyChip, {
+      key: `${tag}-${idx}`,
+      text: tag
+    }))), React.createElement("div", {
+      style: {
+        display: "flex",
+        gap: 8,
+        flexWrap: "wrap",
+        alignItems: "center"
+      }
+    }, React.createElement("button", {
+      onClick: () => navigator.clipboard.writeText(tags.join(", ")),
+      style: {
+        padding: "6px 10px",
+        borderRadius: 999,
+        border: "1px solid rgba(255,255,255,0.1)",
+        background: "rgba(255,255,255,0.04)",
+        color: "rgba(255,255,255,0.68)",
+        fontSize: 11,
+        cursor: "pointer"
+      }
+    }, "Copy all"), React.createElement("div", {
+      style: {
+        fontSize: 11,
+        color: "rgba(255,255,255,0.34)"
+      }
+    }, "Comma-separated for Etsy."))), React.createElement("div", {
+      style: {
+        display: "grid",
+        gap: 8,
+        marginTop: 10
+      }
+    }, React.createElement("div", {
+      style: {
+        display: "flex",
+        flexWrap: "wrap",
+        gap: 8
+      }
+    }, materials.map((item, idx) => React.createElement(CopyChip, {
+      key: `${item}-${idx}`,
+      text: item
+    }))), data.seo_notes && React.createElement("div", {
+      style: {
+        fontSize: 12,
+        color: "rgba(255,255,255,0.52)",
+        lineHeight: 1.55
+      }
+    }, React.createElement("span", {
+      style: {
+        color: "rgba(255,220,100,0.75)",
+        fontFamily: "'DM Mono',monospace",
+        fontSize: 10,
+        letterSpacing: "0.1em",
+        textTransform: "uppercase",
+        marginRight: 8
+      }
+    }, "SEO notes"), data.seo_notes)));
+  }
+  function buildAnalysisSelections(suggestions = {}) {
+    return {
+      niche: Array.isArray(suggestions.niche) && suggestions.niche.length ? [suggestions.niche[0]] : [],
+      targetAudience: Array.isArray(suggestions.targetAudience) && suggestions.targetAudience.length ? [suggestions.targetAudience[0]] : [],
+      style: Array.isArray(suggestions.style) && suggestions.style.length ? [suggestions.style[0]] : [],
+      occasion: Array.isArray(suggestions.occasion) && suggestions.occasion.length ? [suggestions.occasion[0]] : [],
+      pricePoint: Array.isArray(suggestions.pricePoint) && suggestions.pricePoint.length ? suggestions.pricePoint[0] : "",
+      keywords: Array.isArray(suggestions.keywords) && suggestions.keywords.length ? [suggestions.keywords[0]] : [],
+    };
+  }
+  function AnalysisSkeleton() {
+    return React.createElement("div", {
+      style: {
+        marginTop: 12,
+        padding: "14px",
+        borderRadius: 16,
+        border: "1px solid rgba(255,255,255,0.08)",
+        background: "rgba(255,255,255,0.03)"
+      }
+    }, React.createElement("div", {
+      style: {
+        display: "flex",
+        alignItems: "center",
+        gap: 10,
+        marginBottom: 12
+      }
+    }, React.createElement(Spinner, {
+      size: 14,
+      color: "rgba(255,220,100,0.55)"
+    }), React.createElement("div", {
+      style: {
+        fontSize: 12,
+        color: "rgba(255,255,255,0.6)"
+      }
+    }, "Analyzing product...")), [1, 2, 3, 4, 5, 6].map(idx => React.createElement("div", {
+      key: idx,
+      style: {
+        marginBottom: 10
+      }
+    }, React.createElement("div", {
+      style: {
+        height: 10,
+        width: idx === 1 ? 120 : 150,
+        borderRadius: 999,
+        background: "linear-gradient(90deg, rgba(255,255,255,0.05), rgba(255,255,255,0.1), rgba(255,255,255,0.05))",
+        marginBottom: 8,
+        opacity: 0.7
+      }
+    }), React.createElement("div", {
+      style: {
+        display: "flex",
+        gap: 8,
+        flexWrap: "wrap"
+      }
+    }, Array.from({ length: idx <= 2 ? 3 : 2 }).map((_, chipIdx) => React.createElement("div", {
+      key: chipIdx,
+      style: {
+        height: 28,
+        width: chipIdx === 0 ? 86 : 72,
+        borderRadius: 999,
+        background: "rgba(255,255,255,0.05)",
+        border: "1px solid rgba(255,255,255,0.07)"
+      }
+    }))))));
+  }
+  function SuggestionGroup({
+    title,
+    emoji,
+    chips = [],
+    selected = [],
+    single = false,
+    maxSelected = 3,
+    customValue = "",
+    onCustomValueChange,
+    onCustomAdd,
+    onToggle,
+    inputPlaceholder = "+ Add custom",
+    helper = "",
+  }) {
+    const selectedValues = Array.isArray(selected) ? selected : (selected ? [selected] : []);
+    const selectedSet = new Set(selectedValues);
+    const canSelectMore = single ? true : selectedSet.size < maxSelected;
+    return React.createElement("div", {
+      style: {
+        padding: "12px 12px 10px",
+        borderRadius: 14,
+        border: "1px solid rgba(255,255,255,0.08)",
+        background: "rgba(0,0,0,0.2)",
+        marginBottom: 10
+      }
+    }, React.createElement("div", {
+      style: {
+        display: "flex",
+        justifyContent: "space-between",
+        gap: 10,
+        alignItems: "center",
+        marginBottom: 8,
+        flexWrap: "wrap"
+      }
+    }, React.createElement("div", {
+      style: {
+        fontSize: 10,
+        color: "rgba(255,255,255,0.5)",
+        fontFamily: "'DM Mono',monospace",
+        letterSpacing: "0.12em",
+        textTransform: "uppercase"
+      }
+    }, emoji, " ", title), helper && React.createElement("div", {
+      style: {
+        fontSize: 10,
+        color: "rgba(255,255,255,0.35)"
+      }
+    }, helper)), React.createElement("div", {
+      style: {
+        display: "flex",
+        flexWrap: "wrap",
+        gap: 8,
+        marginBottom: 10
+      }
+    }, chips.map(chip => React.createElement(Tag, {
+      key: chip,
+      active: selectedSet.has(chip),
+      onClick: () => onToggle(chip)
+    }, chip))), React.createElement("div", {
+      style: {
+        display: "flex",
+        gap: 8,
+        flexWrap: "wrap",
+        alignItems: "center"
+      }
+    }, React.createElement("input", {
+      type: "text",
+      value: customValue,
+      onChange: e => onCustomValueChange && onCustomValueChange(e.target.value),
+      onKeyDown: e => {
+        if (e.key === "Enter") {
+          e.preventDefault();
+          onCustomAdd && onCustomAdd();
+        }
+      },
+      placeholder: inputPlaceholder,
+      style: {
+        flex: 1,
+        minWidth: 160,
+        padding: "8px 10px",
+        borderRadius: 10,
+        border: "1px solid rgba(255,255,255,0.08)",
+        background: "rgba(255,255,255,0.03)",
+        color: "var(--text)",
+        fontSize: 12
+      }
+    }), React.createElement("button", {
+      onClick: onCustomAdd,
+      disabled: !customValue || !customValue.trim() || (!single && !canSelectMore),
+      style: {
+        padding: "8px 11px",
+        borderRadius: 10,
+        border: "1px solid rgba(255,255,255,0.1)",
+        background: "rgba(255,255,255,0.05)",
+        color: "var(--muted-strong)",
+        fontSize: 11,
+        cursor: !customValue || !customValue.trim() ? "not-allowed" : "pointer"
+      }
+    }, "+ Add custom")));
   }
   function SelectPanel({
     label,
@@ -1443,10 +2136,10 @@ try {
   }) {
     return React.createElement("div", {
       style: {
-        background: "rgba(255,255,255,0.022)",
-        border: "1px solid rgba(255,255,255,0.07)",
-        borderRadius: 14,
-        padding: "12px 14px"
+        background: "rgba(255,255,255,0.03)",
+        border: "1px solid rgba(255,255,255,0.09)",
+        borderRadius: 16,
+        padding: "13px 14px"
       }
     }, React.createElement("div", {
       style: {
@@ -1459,15 +2152,15 @@ try {
     }, React.createElement("div", {
       style: {
         fontSize: 10,
-        color: "rgba(255,255,255,0.28)",
+        color: "rgba(255,255,255,0.40)",
         fontFamily: "'DM Mono',monospace",
-        letterSpacing: "0.12em",
+        letterSpacing: "0.14em",
         textTransform: "uppercase"
       }
     }, label), hint && React.createElement("div", {
       style: {
         fontSize: 9,
-        color: "rgba(255,255,255,0.22)",
+        color: "rgba(255,255,255,0.34)",
         fontFamily: "'DM Mono',monospace"
       }
     }, hint)), React.createElement("select", {
@@ -1484,16 +2177,349 @@ try {
       }, item.label);
     })));
   }
+  function LayerRail({
+    items
+  }) {
+    return React.createElement("div", {
+      style: {
+        display: "grid",
+        gridTemplateColumns: "repeat(auto-fit,minmax(160px,1fr))",
+        gap: 10,
+        marginBottom: 16,
+        position: "sticky",
+        top: 12,
+        zIndex: 12
+      }
+    }, items.map(item => React.createElement("button", {
+      key: item.id,
+      onClick: () => {
+        const el = document.getElementById(item.id);
+        if (el) el.scrollIntoView({ behavior: "smooth", block: "start" });
+      },
+      style: {
+        textAlign: "left",
+        padding: "12px 13px",
+        borderRadius: 14,
+        border: "1px solid rgba(255,255,255,0.08)",
+        background: "linear-gradient(180deg, rgba(255,255,255,0.05), rgba(255,255,255,0.025))",
+        color: "#fff",
+        boxShadow: "0 12px 26px rgba(0,0,0,0.22)",
+        cursor: "pointer",
+        backdropFilter: "blur(12px)"
+      }
+    }, React.createElement("div", {
+      style: {
+        fontSize: 11,
+        letterSpacing: "0.12em",
+        textTransform: "uppercase",
+        color: "rgba(255,220,100,0.72)",
+        fontFamily: "'DM Mono',monospace",
+        marginBottom: 5
+      }
+    }, item.kicker), React.createElement("div", {
+      style: {
+        fontSize: 14,
+        fontWeight: 700,
+        marginBottom: 3
+      }
+    }, item.label), React.createElement("div", {
+      style: {
+        fontSize: 11,
+        color: "rgba(255,255,255,0.42)",
+        lineHeight: 1.45
+      }
+    }, item.description))));
+  }
+  async function requestJson(path, body, method = "POST") {
+    const res = await fetch(path, {
+      method,
+      credentials: "same-origin",
+      headers: {
+        "Content-Type": "application/json"
+      },
+      body: body ? JSON.stringify(body) : undefined
+    });
+    const data = await res.json().catch(() => ({}));
+    return { res, data };
+  }
+  function userAuthMessage(status, data) {
+    if (data?.code === "wrong_password") return "Wrong password. Check it and try again.";
+    if (data?.code === "user_not_found") return "User not found. Create an account first.";
+    if (data?.code === "missing_credentials") return "Email or username and password are required.";
+    if (data?.code === "account_disabled") return "This account is not active. Contact support.";
+    if (status >= 500 || data?.code === "server_error") return "Server error. Please try again in a moment.";
+    return "Login failed. Please check your details.";
+  }
+  function LoginScreen({ onAuthenticated }) {
+    const [mode, setMode] = useState("login");
+    const [login, setLogin] = useState("");
+    const [email, setEmail] = useState("");
+    const [username, setUsername] = useState("");
+    const [password, setPassword] = useState("");
+    const [message, setMessage] = useState("");
+    const [loading, setLoading] = useState(false);
+    const [showAdmin, setShowAdmin] = useState(false);
+    const title = showAdmin ? "Admin sign in" : mode === "register" ? "Create your account" : "Sign in to your workspace";
+    const submit = async () => {
+      setMessage("");
+      setLoading(true);
+      try {
+        if (showAdmin) {
+          const { res } = await requestJson("/api/admin/login", { username: login, password });
+          if (!res.ok) {
+            setMessage(res.status >= 500 ? "Server error. Please try again." : "Wrong username or password.");
+            return;
+          }
+          onAuthenticated({ role: "admin" });
+          return;
+        }
+        if (mode === "register") {
+          const { res, data } = await requestJson("/api/auth/register", { email, username, password });
+          if (!res.ok) {
+            setMessage(res.status === 409 ? "Account already exists. Sign in instead." : res.status >= 500 ? "Server error. Please try again." : "Use a valid email, username, and at least 8 password characters.");
+            return;
+          }
+          onAuthenticated({ role: "user", user: data.user || null });
+          return;
+        }
+        const { res, data } = await requestJson("/api/auth/login", { login, password });
+        if (!res.ok) {
+          setMessage(userAuthMessage(res.status, data));
+          return;
+        }
+        onAuthenticated({ role: "user", user: data.user || null });
+      } catch {
+        setMessage("Server error. Please try again in a moment.");
+      } finally {
+        setLoading(false);
+      }
+    };
+    const forgotPassword = async () => {
+      setMessage("");
+      setLoading(true);
+      try {
+        await requestJson("/api/auth/forgot-password", { login: login || email });
+        setMessage("If the account exists, password reset instructions will be sent.");
+      } catch {
+        setMessage("Server error. Please try again in a moment.");
+      } finally {
+        setLoading(false);
+      }
+    };
+    return React.createElement("main", { className: "auth-page" }, React.createElement("section", { className: "auth-card" },
+      React.createElement("div", {
+        style: {
+          display: "flex",
+          alignItems: "center",
+          gap: 12,
+          marginBottom: 24
+        }
+      }, React.createElement("div", {
+        style: {
+          width: 46,
+          height: 46,
+          borderRadius: 14,
+          background: "linear-gradient(135deg,#FFDC64,#FF9B40)",
+          color: "#121212",
+          display: "grid",
+          placeItems: "center",
+          fontWeight: 800,
+          letterSpacing: 0
+        }
+      }, "EM"), React.createElement("div", null, React.createElement("div", {
+        style: {
+          fontSize: 15,
+          fontWeight: 800,
+          color: "#fff"
+        }
+      }, "Etsy Mockup Studio"), React.createElement("div", {
+        style: {
+          fontSize: 12,
+          color: "rgba(255,255,255,0.52)"
+        }
+      }, "AI mockup generator for Etsy-ready product visuals."))),
+      React.createElement("h1", {
+        style: {
+          fontSize: 27,
+          lineHeight: 1.15,
+          fontWeight: 800,
+          marginBottom: 8,
+          letterSpacing: 0
+        }
+      }, title),
+      React.createElement("p", {
+        style: {
+          color: "rgba(255,255,255,0.58)",
+          fontSize: 14,
+          lineHeight: 1.55,
+          marginBottom: 22
+        }
+      }, showAdmin ? "Service status and provider settings are available only to admins." : "Create clean product mockups, manage credits, and keep your image history in one workspace."),
+      mode === "register" && !showAdmin && React.createElement(React.Fragment, null,
+        React.createElement("label", { style: { display: "block", marginBottom: 12 } }, React.createElement("div", { style: { fontSize: 12, color: "rgba(255,255,255,0.58)", marginBottom: 6 } }, "Email"), React.createElement("input", { type: "email", value: email, onChange: e => setEmail(e.target.value), placeholder: "you@shop.com" })),
+        React.createElement("label", { style: { display: "block", marginBottom: 12 } }, React.createElement("div", { style: { fontSize: 12, color: "rgba(255,255,255,0.58)", marginBottom: 6 } }, "Username"), React.createElement("input", { type: "text", value: username, onChange: e => setUsername(e.target.value), placeholder: "shopname" }))),
+      (mode !== "register" || showAdmin) && React.createElement("label", { style: { display: "block", marginBottom: 12 } }, React.createElement("div", { style: { fontSize: 12, color: "rgba(255,255,255,0.58)", marginBottom: 6 } }, showAdmin ? "Admin username" : "Email or username"), React.createElement("input", { type: "text", value: login, onChange: e => setLogin(e.target.value), placeholder: showAdmin ? "admin" : "you@shop.com" })),
+      React.createElement("label", { style: { display: "block", marginBottom: 14 } }, React.createElement("div", { style: { fontSize: 12, color: "rgba(255,255,255,0.58)", marginBottom: 6 } }, "Password"), React.createElement("input", {
+        type: "password",
+        value: password,
+        onChange: e => setPassword(e.target.value),
+        onKeyDown: e => { if (e.key === "Enter" && !loading) submit(); },
+        placeholder: "Enter your password",
+        style: { letterSpacing: 0 }
+      })),
+      message && React.createElement("div", {
+        style: {
+          border: "1px solid rgba(255,255,255,0.10)",
+          background: message.includes("sent") ? "rgba(126,232,162,0.08)" : "rgba(255,80,80,0.08)",
+          color: message.includes("sent") ? "#7EE8A2" : "#FF9B9B",
+          borderRadius: 12,
+          padding: "10px 12px",
+          fontSize: 12,
+          lineHeight: 1.45,
+          marginBottom: 14
+        }
+      }, message),
+      React.createElement("button", {
+        onClick: submit,
+        disabled: loading,
+        style: {
+          width: "100%",
+          border: "none",
+          borderRadius: 13,
+          background: loading ? "rgba(255,220,100,0.18)" : "linear-gradient(135deg,#FFDC64,#FF9B40)",
+          color: "#11151d",
+          padding: "13px 15px",
+          fontWeight: 800,
+          cursor: loading ? "not-allowed" : "pointer",
+          display: "flex",
+          alignItems: "center",
+          justifyContent: "center",
+          gap: 9
+        }
+      }, loading && React.createElement(Spinner, { size: 16, color: "#11151d" }), showAdmin ? "Login" : mode === "register" ? "Create account" : "Login"),
+      !showAdmin && React.createElement("div", {
+        style: {
+          display: "flex",
+          justifyContent: "space-between",
+          gap: 12,
+          marginTop: 16,
+          flexWrap: "wrap"
+        }
+      }, React.createElement("button", {
+        onClick: () => { setMode(mode === "register" ? "login" : "register"); setMessage(""); },
+        style: { background: "none", border: "none", color: "#FFDC64", cursor: "pointer", fontSize: 13 }
+      }, mode === "register" ? "Back to login" : "Create account"), React.createElement("button", {
+        onClick: forgotPassword,
+        disabled: loading,
+        style: { background: "none", border: "none", color: "rgba(255,255,255,0.54)", cursor: loading ? "not-allowed" : "pointer", fontSize: 13 }
+      }, "Forgot password")),
+      React.createElement("div", {
+        style: {
+          borderTop: "1px solid rgba(255,255,255,0.08)",
+          marginTop: 20,
+          paddingTop: 14,
+          display: "flex",
+          justifyContent: "center"
+        }
+      }, React.createElement("button", {
+        onClick: () => { setShowAdmin(s => !s); setMode("login"); setMessage(""); },
+        style: { background: "none", border: "none", color: "rgba(255,255,255,0.38)", cursor: "pointer", fontSize: 12 }
+      }, showAdmin ? "User login" : "Admin sign in"))
+    ));
+  }
+  function UserOverview({ session }) {
+    const [data, setData] = useState(null);
+    const [loading, setLoading] = useState(true);
+    const [error, setError] = useState("");
+    useEffect(() => {
+      let live = true;
+      setLoading(true);
+      fetch("/api/me/dashboard", { credentials: "same-origin" }).then(async r => {
+        const d = await r.json().catch(() => ({}));
+        if (!r.ok) throw new Error("Dashboard unavailable");
+        if (live) setData(d);
+      }).catch(() => {
+        if (live) setError("Dashboard is temporarily unavailable.");
+      }).finally(() => {
+        if (live) setLoading(false);
+      });
+      return () => { live = false; };
+    }, [session?.userId]);
+    const summary = data?.summary || {};
+    const cards = [{
+      label: "Credits",
+      value: summary.credits_balance ?? session?.credits_balance ?? "0"
+    }, {
+      label: "Mockups",
+      value: summary.total_images_generated ?? 0
+    }, {
+      label: "This month",
+      value: summary.total_generations_this_month ?? 0
+    }, {
+      label: "Success",
+      value: summary.average_generation_success_rate != null ? `${summary.average_generation_success_rate}%` : "New"
+    }];
+    return React.createElement("section", {
+      id: "dashboard-section",
+      style: {
+        maxWidth: 1120,
+        margin: "0 auto",
+        padding: "18px 20px 0"
+      }
+    }, React.createElement("div", {
+      style: {
+        border: "1px solid rgba(255,255,255,0.08)",
+        background: "rgba(255,255,255,0.035)",
+        borderRadius: 18,
+        padding: 16
+      }
+    }, React.createElement("div", {
+      style: {
+        display: "flex",
+        justifyContent: "space-between",
+        gap: 12,
+        alignItems: "center",
+        marginBottom: 14,
+        flexWrap: "wrap"
+      }
+    }, React.createElement("div", null, React.createElement("div", {
+      style: { fontSize: 12, color: "rgba(255,220,100,0.72)", fontFamily: "'DM Mono',monospace", letterSpacing: "0.12em", textTransform: "uppercase" }
+    }, "Dashboard"), React.createElement("h2", {
+      style: { fontSize: 20, marginTop: 4, letterSpacing: 0 }
+    }, `Welcome${session?.username ? `, ${session.username}` : ""}`)), React.createElement("div", {
+      style: { color: "rgba(255,255,255,0.48)", fontSize: 13 }
+    }, "Manage mockups, history, credits, and account details.")),
+      loading ? React.createElement("div", { style: { color: "rgba(255,255,255,0.5)", fontSize: 13, padding: "10px 0" } }, "Loading dashboard...") : error ? React.createElement("div", {
+        style: { color: "#FF9B9B", background: "rgba(255,80,80,0.08)", border: "1px solid rgba(255,80,80,0.18)", borderRadius: 12, padding: 12, fontSize: 13 }
+      }, error) : React.createElement(React.Fragment, null, React.createElement("div", {
+        style: { display: "grid", gridTemplateColumns: "repeat(auto-fit,minmax(140px,1fr))", gap: 10 }
+      }, cards.map(card => React.createElement("div", {
+        key: card.label,
+        style: { background: "rgba(0,0,0,0.20)", border: "1px solid rgba(255,255,255,0.07)", borderRadius: 12, padding: "12px 13px" }
+      }, React.createElement("div", { style: { color: "rgba(255,255,255,0.42)", fontSize: 11, marginBottom: 5 } }, card.label), React.createElement("div", { style: { color: "#fff", fontWeight: 800, fontSize: 20 } }, card.value)))), (!data?.latest_generations || !data.latest_generations.length) && React.createElement("div", {
+        style: { marginTop: 12, color: "rgba(255,255,255,0.48)", fontSize: 13, border: "1px dashed rgba(255,255,255,0.12)", borderRadius: 12, padding: 12 }
+      }, "No mockups yet. Start by uploading a design in Generate Mockups."), React.createElement("div", {
+        style: { display: "grid", gridTemplateColumns: "repeat(auto-fit,minmax(210px,1fr))", gap: 10, marginTop: 12 }
+      }, React.createElement("div", {
+        id: "history-section",
+        style: { border: "1px solid rgba(255,255,255,0.07)", borderRadius: 12, padding: 12, background: "rgba(0,0,0,0.16)" }
+      }, React.createElement("div", { style: { color: "#fff", fontWeight: 700, fontSize: 13, marginBottom: 5 } }, "History"), React.createElement("div", { style: { color: "rgba(255,255,255,0.48)", fontSize: 12 } }, data?.latest_generations?.length ? `${data.latest_generations.length} recent generation records` : "Generated mockups will appear here.")), React.createElement("div", {
+        id: "credits-section",
+        style: { border: "1px solid rgba(255,255,255,0.07)", borderRadius: 12, padding: 12, background: "rgba(0,0,0,0.16)" }
+      }, React.createElement("div", { style: { color: "#fff", fontWeight: 700, fontSize: 13, marginBottom: 5 } }, "Credits"), React.createElement("div", { style: { color: "rgba(255,255,255,0.48)", fontSize: 12 } }, `${summary.credits_balance ?? 0} credits available`)), React.createElement("div", {
+        id: "account-section",
+        style: { border: "1px solid rgba(255,255,255,0.07)", borderRadius: 12, padding: 12, background: "rgba(0,0,0,0.16)" }
+      }, React.createElement("div", { style: { color: "#fff", fontWeight: 700, fontSize: 13, marginBottom: 5 } }, "Account"), React.createElement("div", { style: { color: "rgba(255,255,255,0.48)", fontSize: 12 } }, data?.user?.email || session?.email || "Account details"))))));
+  }
   function SettingsModal({
     onClose,
-    onKeysUpdated
+    onKeysUpdated,
+    onAdminSessionChange
   }) {
     const [gem, setGem] = useState("");
     const [rep, setRep] = useState("");
-    const [appToken, setAppTokenValue] = useState(getAppAccessToken());
     const [showGem, setShowGem] = useState(false);
     const [showRep, setShowRep] = useState(false);
-    const [showAppToken, setShowAppToken] = useState(false);
     const [loginUsername, setLoginUsername] = useState("");
     const [loginPassword, setLoginPassword] = useState("");
     const [loginMsg, setLoginMsg] = useState("");
@@ -1512,7 +2538,6 @@ try {
     });
     const [info, setInfo] = useState(null);
     const [saving, setSaving] = useState(false);
-    const [appTokenMsg, setAppTokenMsg] = useState(getAppAccessToken() ? "App token saved locally on your device." : "");
     const [researchFilters, setResearchFilters] = useState({
       dateFrom: "",
       dateTo: "",
@@ -1544,8 +2569,16 @@ try {
     const [researchLoading, setResearchLoading] = useState(false);
     const [researchError, setResearchError] = useState("");
     const [selectedResearchRow, setSelectedResearchRow] = useState(null);
+    const [agentData, setAgentData] = useState({
+      summary: null,
+      sections: [],
+      rows: []
+    });
+    const [agentsLoading, setAgentsLoading] = useState(false);
+    const [agentsError, setAgentsError] = useState("");
     const loadSession = () => adminFetch("/api/admin/session").then(r => r.json()).then(d => {
       setAdminSession(d);
+      if (onAdminSessionChange) onAdminSessionChange(d);
       return d;
     }).catch(() => {
       const fallback = {
@@ -1554,6 +2587,7 @@ try {
         username: null
       };
       setAdminSession(fallback);
+      if (onAdminSessionChange) onAdminSessionChange(fallback);
       return fallback;
     });
     const loadInfo = () => authedFetch("/api/keys").then(r => {
@@ -1636,6 +2670,29 @@ try {
         setResearchLoading(false);
       }
     };
+    const loadAgents = async () => {
+      setAgentsLoading(true);
+      setAgentsError("");
+      try {
+        const res = await authedFetch("/api/admin/agents");
+        const d = await res.json();
+        if (!res.ok) throw new Error(d.error || `Server error ${res.status}`);
+        setAgentData({
+          summary: d.summary || null,
+          sections: d.sections || [],
+          rows: d.rows || []
+        });
+      } catch (e) {
+        setAgentsError(e.message || "Agent logs unavailable.");
+      } finally {
+        setAgentsLoading(false);
+      }
+    };
+    useEffect(() => {
+      if (adminSession.authenticated && info && !info.authRequired && !agentData.summary && !agentsLoading) {
+        loadAgents();
+      }
+    }, [adminSession.authenticated, info?.authRequired]);
     const downloadResearchExport = async format => {
       try {
         const params = new URLSearchParams(Object.entries(researchFilters).filter(([, value]) => value));
@@ -1688,12 +2745,6 @@ try {
       });
       setLoginMsg("Logged out.");
       await loadSession();
-    };
-    const handleAppTokenChange = e => {
-      const next = e.target.value;
-      setAppTokenValue(next);
-      setAppAccessToken(next);
-      setAppTokenMsg(next.trim() ? "App token saved locally on your device." : "");
     };
     const test = async type => {
       setSt(s => ({
@@ -1776,6 +2827,20 @@ try {
         alert("Napaka: " + e.message);
       }
     };
+    const fmtAgentTime = value => {
+      if (!value) return "—";
+      const date = new Date(value);
+      if (Number.isNaN(date.getTime())) return "—";
+      return date.toLocaleString();
+    };
+    const fmtAgentMs = value => {
+      const n = Number(value);
+      return Number.isFinite(n) && n > 0 ? `${Math.round(n)}ms` : "—";
+    };
+    const fmtAgentRate = value => {
+      const n = Number(value);
+      return Number.isFinite(n) ? `${n.toFixed(1)}%` : "—";
+    };
     const configs = [{
       type: "gemini",
       key: "gemini",
@@ -1821,21 +2886,21 @@ try {
 	      style: {
 	        position: "fixed",
 	        inset: 0,
-	        background: "rgba(0,0,0,0.75)",
+	        background: "rgba(6,8,12,0.82)",
 	        display: "flex",
 	        alignItems: "stretch",
 	        justifyContent: "center",
 	        zIndex: 999,
-	        padding: "12px",
-	        backdropFilter: "blur(4px)"
+	        padding: "16px",
+	        backdropFilter: "blur(10px)"
 	      }
 	    }, React.createElement("div", {
 	      style: {
-	        background: "#141416",
-	        border: "1px solid rgba(255,255,255,0.1)",
-	        borderRadius: 18,
+	        background: "#11151d",
+	        border: "1px solid rgba(255,255,255,0.10)",
+	        borderRadius: 20,
 	        width: "100%",
-	        maxWidth: 860,
+	        maxWidth: 980,
 	        maxHeight: "calc(100vh - 24px)",
 	        display: "flex",
 	        flexDirection: "column",
@@ -1847,14 +2912,15 @@ try {
         display: "flex",
         justifyContent: "space-between",
         alignItems: "center",
-        padding: "18px 20px",
-        borderBottom: "1px solid rgba(255,255,255,0.07)"
+        padding: "20px 22px",
+        borderBottom: "1px solid rgba(255,255,255,0.08)",
+        background: "linear-gradient(180deg, rgba(255,255,255,0.03), transparent)"
       }
     }, React.createElement("div", {
       style: {
         display: "flex",
         alignItems: "center",
-        gap: 10
+        gap: 12
       }
     }, React.createElement("span", {
       style: {
@@ -1862,26 +2928,26 @@ try {
       }
     }, "\u2699\uFE0F"), React.createElement("div", null, React.createElement("div", {
       style: {
-        fontSize: 14,
+        fontSize: 15,
         fontWeight: 600,
         color: "#fff"
       }
-    }, "Nastavitve API klju\u010Dev"), React.createElement("div", {
+    }, "Admin service status"), React.createElement("div", {
       style: {
-        fontSize: 11,
-        color: "rgba(255,255,255,0.3)",
-        marginTop: 1
+        fontSize: 12,
+        color: "rgba(255,255,255,0.42)",
+        marginTop: 2
       }
-    }, "Nastavi kot env spremenljivke na Railway ali vnesi ro\u010Dno"))), React.createElement("button", {
+    }, "Provider connection status and admin-only service controls."))), React.createElement("button", {
       onClick: onClose,
       style: {
         background: "rgba(255,255,255,0.06)",
-        border: "1px solid rgba(255,255,255,0.1)",
-        borderRadius: 8,
-        width: 30,
-        height: 30,
+        border: "1px solid rgba(255,255,255,0.10)",
+        borderRadius: 10,
+        width: 34,
+        height: 34,
         cursor: "pointer",
-        color: "rgba(255,255,255,0.5)",
+        color: "rgba(255,255,255,0.62)",
         fontSize: 15,
         display: "flex",
         alignItems: "center",
@@ -1889,28 +2955,28 @@ try {
       }
 	    }, "\xD7")), React.createElement("div", {
 	      style: {
-	        padding: "18px 20px 0",
+	        padding: "18px 22px 0",
 	        flex: 1,
 	        overflowY: "auto",
 	        WebkitOverflowScrolling: "touch"
 	      }
     }, React.createElement("div", {
       style: {
-        background: "rgba(255,255,255,0.03)",
-        border: "1px solid rgba(255,255,255,0.07)",
-        borderRadius: 12,
-        padding: "14px",
-        marginBottom: 12
+        background: "rgba(255,255,255,0.035)",
+        border: "1px solid rgba(255,255,255,0.08)",
+        borderRadius: 16,
+        padding: "16px",
+        marginBottom: 14
       }
     }, React.createElement("div", {
       style: {
-        fontSize: 12,
+        fontSize: 13,
         fontWeight: 600,
         color: "#fff",
         display: "flex",
         alignItems: "center",
         gap: 7,
-        marginBottom: 4
+        marginBottom: 5
       }
     }, React.createElement("span", {
       style: {
@@ -1918,9 +2984,10 @@ try {
       }
     }, "\uD83D\uDD10"), "Admin Login"), React.createElement("div", {
       style: {
-        fontSize: 10,
-        color: "rgba(255,255,255,0.28)",
-        marginBottom: 10
+        fontSize: 11,
+        color: "rgba(255,255,255,0.40)",
+        marginBottom: 12,
+        lineHeight: 1.45
       }
     }, "Login uses a secure HTTP-only session cookie. Admin passwords are never stored in localStorage."), !adminSession.authenticated ? React.createElement(React.Fragment, null, React.createElement("input", {
       type: "text",
@@ -1974,95 +3041,16 @@ try {
         fontFamily: "'DM Mono',monospace",
         marginTop: 8
       }
-    }, loginMsg)), React.createElement("div", {
-      style: {
-        marginTop: 12,
-        paddingTop: 12,
-        borderTop: "1px solid rgba(255,255,255,0.06)"
-      }
-    }, React.createElement("div", {
-      style: {
-        fontSize: 12,
-        fontWeight: 600,
-        color: "#fff",
-        display: "flex",
-        alignItems: "center",
-        gap: 7,
-        marginBottom: 4
-      }
-    }, React.createElement("span", {
-      style: {
-        fontSize: 14
-      }
-    }, "\uD83D\uDD11"), "App Access Token"), React.createElement("div", {
-      style: {
-        fontSize: 10,
-        color: "rgba(255,255,255,0.28)",
-        marginBottom: 10
-      }
-    }, "Optional local token for generation when `APP_ACCESS_TOKEN` is enabled on the server."), React.createElement("div", {
-      style: {
-        position: "relative",
-        marginBottom: 10
-      }
-    }, React.createElement("input", {
-      type: showAppToken ? "text" : "password",
-      placeholder: "Paste app access token here",
-      value: appToken,
-      onChange: handleAppTokenChange
-    }), React.createElement("button", {
-      onClick: () => setShowAppToken(s => !s),
-      style: {
-        position: "absolute",
-        right: 9,
-        top: "50%",
-        transform: "translateY(-50%)",
-        background: "none",
-        border: "none",
-        cursor: "pointer",
-        color: "rgba(255,255,255,0.3)",
-        fontSize: 13
-      }
-    }, showAppToken ? "\uD83D\uDE48" : "\uD83D\uDC41")), React.createElement("div", {
-      style: {
-        display: "flex",
-        gap: 7,
-        alignItems: "center",
-        flexWrap: "wrap"
-      }
-	    }, React.createElement("button", {
-	      onClick: () => {
-	        setAppTokenValue(appToken.trim());
-        setAppAccessToken(appToken.trim());
-        setAppTokenMsg(appToken.trim() ? "App token saved locally on your device." : "");
-	      },
-	      style: {
-	        ...touchButton("1px solid rgba(90,180,255,0.32)", "rgba(90,180,255,0.09)", "#8EC8FF")
-	      }
-	    }, "\uD83D\uDCBE Shrani app token"), getAppAccessToken() && React.createElement("button", {
-      onClick: () => {
-        setAppAccessToken("");
-        setAppTokenValue("");
-        setAppTokenMsg("");
-	      },
-	      style: {
-	        ...touchButton("1px solid rgba(255,80,80,0.3)", "rgba(255,80,80,0.08)", "#FF8080")
-	      }
-	    }, "\uD83D\uDDD1 Odstrani app token"), appTokenMsg && React.createElement("span", {
-      style: {
-        fontSize: 10,
-        color: "#7EE8A2",
-        fontFamily: "'DM Mono',monospace"
-      }
-    }, appTokenMsg))), info?.authRequired && React.createElement("div", {
+    }, loginMsg)), info?.authRequired && React.createElement("div", {
       style: {
         background: "rgba(80,130,255,0.08)",
         border: "1px solid rgba(80,130,255,0.2)",
-        borderRadius: 11,
-        padding: "10px 14px",
+        borderRadius: 14,
+        padding: "12px 14px",
         marginBottom: 16,
         color: "rgba(190,210,255,0.9)",
-        fontSize: 12
+        fontSize: 12,
+        lineHeight: 1.45
       }
     }, "\uD83D\uDD10 This browser is not authenticated yet. Log in above to access admin tools."), info && !info.authRequired && React.createElement("div", {
       style: {
@@ -2083,37 +3071,37 @@ try {
       key: k,
       style: {
         flex: 1,
-        padding: "8px 11px",
-        borderRadius: 9,
+        padding: "10px 12px",
+        borderRadius: 12,
         background: info[k]?.set ? "rgba(126,232,162,0.07)" : "rgba(255,80,80,0.07)",
         border: `1px solid ${info[k]?.set ? "rgba(126,232,162,0.22)" : "rgba(255,80,80,0.18)"}`
       }
     }, React.createElement("div", {
       style: {
-        fontSize: 10,
+        fontSize: 11,
         fontFamily: "'DM Mono',monospace",
         color: info[k]?.set ? "#7EE8A2" : "#FF8080"
       }
-    }, info[k]?.set ? "✓ Nastavljen" : "✗ Ni nastavljen"), React.createElement("div", {
+    }, info[k]?.set ? "Connected" : "Missing"), React.createElement("div", {
       style: {
-        fontSize: 11,
+        fontSize: 12,
         color: "rgba(255,255,255,0.55)",
         marginTop: 2
       }
     }, l), info[k]?.masked && React.createElement("div", {
       style: {
-        fontSize: 9,
+        fontSize: 10,
         fontFamily: "'DM Mono',monospace",
         color: "rgba(255,255,255,0.18)",
         marginTop: 2
       }
     }, info[k].masked)))), info && !info.authRequired && React.createElement("div", {
       style: {
-        background: "rgba(255,255,255,0.03)",
-        border: "1px solid rgba(255,255,255,0.07)",
-        borderRadius: 12,
-        padding: "14px",
-        marginBottom: 12
+        background: "rgba(255,255,255,0.035)",
+        border: "1px solid rgba(255,255,255,0.08)",
+        borderRadius: 16,
+        padding: "16px",
+        marginBottom: 14
       }
     }, React.createElement("div", {
       style: {
@@ -2121,19 +3109,207 @@ try {
         justifyContent: "space-between",
         alignItems: "center",
         gap: 10,
-        marginBottom: 12
+        marginBottom: 14
       }
     }, React.createElement("div", null, React.createElement("div", {
       style: {
+        fontSize: 13,
+        fontWeight: 600,
+        color: "#fff"
+      }
+    }, "AI Agents"), React.createElement("div", {
+      style: {
+        fontSize: 11,
+        color: "rgba(255,255,255,0.40)",
+        marginTop: 4,
+        lineHeight: 1.45
+      }
+    }, "Admin-only status from existing agent_logs.")), React.createElement("button", {
+      onClick: loadAgents,
+      disabled: agentsLoading,
+      style: {
+        ...touchButton("1px solid rgba(255,220,100,0.32)", "rgba(255,220,100,0.09)", "#FFDC64", {
+          cursor: agentsLoading ? "wait" : "pointer"
+        })
+      }
+    }, agentsLoading ? "Nalagam..." : "Naloži")), agentsError && React.createElement("div", {
+      style: {
+        border: "1px solid rgba(255,80,80,0.22)",
+        background: "rgba(255,80,80,0.08)",
+        color: "#FFAAAA",
+        borderRadius: 10,
+        padding: "8px 10px",
+        fontSize: 11,
+        marginBottom: 12
+      }
+    }, agentsError), agentData.summary && React.createElement("div", {
+      style: {
+        display: "grid",
+        gridTemplateColumns: "repeat(4,1fr)",
+        gap: 8,
+        marginBottom: 12
+      }
+    }, React.createElement(KpiCard, {
+      label: "Runs today",
+      value: agentData.summary.runs_today ?? 0
+    }), React.createElement(KpiCard, {
+      label: "Total runs",
+      value: agentData.summary.total_runs ?? 0
+    }), React.createElement(KpiCard, {
+      label: "Success rate",
+      value: fmtAgentRate(agentData.summary.success_rate)
+    }), React.createElement(KpiCard, {
+      label: "Avg runtime",
+      value: fmtAgentMs(agentData.summary.average_runtime)
+    })), React.createElement("div", {
+      style: {
+        display: "grid",
+        gridTemplateColumns: "repeat(auto-fit,minmax(180px,1fr))",
+        gap: 10,
+        marginBottom: agentData.rows?.length ? 12 : 0
+      }
+    }, (agentData.sections || []).map(section => React.createElement("div", {
+      key: section.agent,
+      style: {
+        border: "1px solid rgba(255,255,255,0.08)",
+        background: "rgba(0,0,0,0.20)",
+        borderRadius: 12,
+        padding: 12
+      }
+    }, React.createElement("div", {
+      style: {
+        display: "flex",
+        justifyContent: "space-between",
+        alignItems: "center",
+        gap: 8,
+        marginBottom: 8
+      }
+    }, React.createElement("div", {
+      style: {
+        color: "#fff",
         fontSize: 12,
+        fontWeight: 700
+      }
+    }, section.label), React.createElement("span", {
+      style: {
+        borderRadius: 999,
+        padding: "3px 7px",
+        fontSize: 9,
+        fontFamily: "'DM Mono',monospace",
+        color: section.success === true ? "#7EE8A2" : section.success === false ? "#FF8080" : "rgba(255,255,255,0.45)",
+        background: section.success === true ? "rgba(126,232,162,0.09)" : section.success === false ? "rgba(255,80,80,0.09)" : "rgba(255,255,255,0.05)",
+        border: `1px solid ${section.success === true ? "rgba(126,232,162,0.20)" : section.success === false ? "rgba(255,80,80,0.20)" : "rgba(255,255,255,0.08)"}`
+      }
+    }, section.success === true ? "Success" : section.success === false ? "Failed" : "No runs")), React.createElement("div", {
+      style: {
+        display: "grid",
+        gridTemplateColumns: "1fr 1fr",
+        gap: 7,
+        fontSize: 10,
+        color: "rgba(255,255,255,0.42)"
+      }
+    }, React.createElement("div", null, "Last run", React.createElement("div", {
+      style: {
+        color: "rgba(255,255,255,0.72)",
+        marginTop: 2
+      }
+    }, fmtAgentTime(section.last_run))), React.createElement("div", null, "Runtime", React.createElement("div", {
+      style: {
+        color: "rgba(255,255,255,0.72)",
+        marginTop: 2,
+        fontFamily: "'DM Mono',monospace"
+      }
+    }, fmtAgentMs(section.execution_time))), React.createElement("div", null, "Runs today", React.createElement("div", {
+      style: {
+        color: "rgba(255,255,255,0.72)",
+        marginTop: 2,
+        fontFamily: "'DM Mono',monospace"
+      }
+    }, section.runs_today ?? 0)), React.createElement("div", null, "Success rate", React.createElement("div", {
+      style: {
+        color: "rgba(255,255,255,0.72)",
+        marginTop: 2,
+        fontFamily: "'DM Mono',monospace"
+      }
+    }, fmtAgentRate(section.success_rate)))), section.recent_score != null && React.createElement("div", {
+      style: {
+        marginTop: 9,
+        borderTop: "1px solid rgba(255,255,255,0.06)",
+        paddingTop: 8,
+        fontSize: 11,
+        color: "#FFDC64",
+        fontFamily: "'DM Mono',monospace"
+      }
+    }, "Recent score: ", Math.round(Number(section.recent_score))), section.error && React.createElement("div", {
+      style: {
+        marginTop: 9,
+        border: "1px solid rgba(255,80,80,0.18)",
+        background: "rgba(255,80,80,0.07)",
+        borderRadius: 8,
+        padding: "7px 8px",
+        color: "#FFAAAA",
+        fontSize: 10,
+        lineHeight: 1.35,
+        wordBreak: "break-word"
+      }
+    }, section.error)))), !agentsLoading && !(agentData.sections || []).some(section => section.last_run) && React.createElement("div", {
+      style: {
+        fontSize: 11,
+        color: "rgba(255,255,255,0.38)",
+        padding: "10px 0 0"
+      }
+    }, "No agent runs logged yet."), agentData.rows?.length > 0 && React.createElement(TinyTable, {
+      columns: [{
+        key: "agent",
+        label: "Agent"
+      }, {
+        key: "status",
+        label: "Status"
+      }, {
+        key: "executionTime",
+        label: "Runtime"
+      }, {
+        key: "createdAt",
+        label: "Created"
+      }, {
+        key: "error",
+        label: "Error"
+      }],
+      rows: agentData.rows.slice(0, 8).map(row => ({
+        agent: row.agent,
+        status: row.success ? "success" : "failed",
+        executionTime: fmtAgentMs(row.executionTime),
+        createdAt: fmtAgentTime(row.createdAt),
+        error: row.error ? String(row.error).slice(0, 80) : "—"
+      }))
+    })), info && !info.authRequired && React.createElement("div", {
+      style: {
+        background: "rgba(255,255,255,0.035)",
+        border: "1px solid rgba(255,255,255,0.08)",
+        borderRadius: 16,
+        padding: "16px",
+        marginBottom: 14
+      }
+    }, React.createElement("div", {
+      style: {
+        display: "flex",
+        justifyContent: "space-between",
+        alignItems: "center",
+        gap: 10,
+        marginBottom: 14
+      }
+    }, React.createElement("div", null, React.createElement("div", {
+      style: {
+        fontSize: 13,
         fontWeight: 600,
         color: "#fff"
       }
     }, "Poglobljeno raziskovanje"), React.createElement("div", {
       style: {
-        fontSize: 10,
-        color: "rgba(255,255,255,0.28)",
-        marginTop: 3
+        fontSize: 11,
+        color: "rgba(255,255,255,0.40)",
+        marginTop: 4,
+        lineHeight: 1.45
       }
     }, "Admin-only analytics from server-side Supabase views.")), React.createElement("div", {
       style: {
@@ -3114,6 +4290,11 @@ try {
         border: "1px solid rgba(255,255,255,0.08)",
         display: "block"
       }
+    }), React.createElement(QualityReportPanel, {
+      report: imgState?.qualityReport,
+      fixing,
+      onFix: onAiFix,
+      onRegenerate: prompt => onGenImage(prompt || customPrompt || "")
     })), imgState?.fixSuggestion && React.createElement("div", {
       style: {
         marginTop: 9,
@@ -3306,7 +4487,52 @@ try {
       label: "SEO Keywords",
       value: result.categoryKeywords,
       accent: "rgba(90,180,255,0.2)"
+    }), result.etsyListing && (result.etsyListing.title || result.etsyListing.description || result.etsyListing.tags?.length) && React.createElement("div", {
+      style: {
+        marginBottom: 11,
+        padding: "12px",
+        borderRadius: 12,
+        border: "1px solid rgba(126,232,162,0.14)",
+        background: "rgba(126,232,162,0.035)"
+      }
+    }, React.createElement("div", {
+      style: {
+        fontSize: 10,
+        color: "rgba(126,232,162,0.78)",
+        fontFamily: "'DM Mono',monospace",
+        letterSpacing: "0.12em",
+        textTransform: "uppercase",
+        marginBottom: 9
+      }
+    }, "Full Etsy Listing"), React.createElement(Field, {
+      label: "Listing Title",
+      value: result.etsyListing.title,
+      accent: "rgba(126,232,162,0.78)"
     }), React.createElement(Field, {
+      label: "13 Etsy Tags",
+      value: (result.etsyListing.tags || []).join(", "),
+      accent: "rgba(126,232,162,0.62)"
+    }), React.createElement(Field, {
+      label: "Description",
+      value: result.etsyListing.description,
+      accent: "rgba(126,232,162,0.52)"
+    }), React.createElement(Field, {
+      label: "Materials",
+      value: result.etsyListing.materials,
+      accent: "rgba(126,232,162,0.42)"
+    }), React.createElement(Field, {
+      label: "Care Instructions",
+      value: result.etsyListing.careInstructions,
+      accent: "rgba(126,232,162,0.42)"
+    }), React.createElement(Field, {
+      label: "Size Chart Note",
+      value: result.etsyListing.sizeChartNote,
+      accent: "rgba(126,232,162,0.42)"
+    }), React.createElement(Field, {
+      label: "Image Alt Text",
+      value: result.etsyListing.imageAltText,
+      accent: "rgba(126,232,162,0.42)"
+    })), React.createElement(Field, {
       label: "Shirt Research",
       value: result.shirtResearch,
       accent: "rgba(126,232,162,0.24)"
@@ -3345,6 +4571,9 @@ try {
   function App() {
     const [showSettings, setShowSettings] = useState(false);
     const [keyInfo, setKeyInfo] = useState(null);
+    const [authChecked, setAuthChecked] = useState(false);
+    const [userSession, setUserSession] = useState(null);
+    const [adminSession, setAdminSession] = useState(null);
     const [form, setForm] = useState({
       brandStyle: "",
       niche: "",
@@ -3357,7 +4586,45 @@ try {
       autoDetect: true,
       printVisibility: "front_only",
       mockupStyleMode: "ugc_review",
-      mockupStyleBrief: ""
+      mockupStyleBrief: "",
+      generateFullListing: false,
+      additionalInfo: ""
+    });
+    const [listingMode, setListingMode] = useState("listing_copy");
+    const [listingCopy, setListingCopy] = useState(null);
+    const [listingCopyLoading, setListingCopyLoading] = useState(false);
+    const [listingCopyError, setListingCopyError] = useState("");
+    const [analysisState, setAnalysisState] = useState({
+      status: "idle",
+      error: "",
+      productDescription: "",
+      suggestions: {
+        niche: [],
+        targetAudience: [],
+        style: [],
+        occasion: [],
+        pricePoint: [],
+        keywords: []
+      },
+      selected: {
+        niche: [],
+        targetAudience: [],
+        style: [],
+        occasion: [],
+        pricePoint: "",
+        keywords: []
+      },
+      customInputs: {
+        niche: "",
+        targetAudience: "",
+        style: "",
+        occasion: "",
+        pricePoint: "",
+        keywords: ""
+      },
+      confirmed: false,
+      sourceHash: "",
+      cached: false
     });
     const [imageFile, setImageFile] = useState(null);
     const [imagePreview, setImagePreview] = useState(null);
@@ -3380,12 +4647,218 @@ try {
     const [diversityHistory, setDiversityHistory] = useState([]);
     const fileRef = useRef();
     const refsRef = useRef();
+    const [sizeChartTemplateId, setSizeChartTemplateId] = useState(SIZE_CHART_TEMPLATES[0].id);
+    const [sizeChartArtifacts, setSizeChartArtifacts] = useState({});
+    const [sizeChartBusy, setSizeChartBusy] = useState(false);
+    const listingCopySource = {
+      productDescription: form.additionalInfo || "",
+      niche: form.niche || "",
+      targetAudience: form.audience || "",
+      style: form.brandStyle || "",
+    };
+    const formatListingCopy = copy => {
+      if (!copy) return "";
+      return [
+        `Title: ${copy.title || ""}`,
+        `Description:\n${copy.description || ""}`,
+        `Tags: ${(copy.tags || []).join(", ")}`,
+        `Materials: ${(copy.materials || []).join(", ")}`,
+        `SEO Notes: ${copy.seo_notes || ""}`,
+      ].join("\n\n");
+    };
+    const formatExportAll = copy => {
+      const listingText = formatListingCopy(copy);
+      const imageSlots = results.slice(0, 20).map((r, idx) => {
+        const label = r.catInfo?.name || r.data?.category || `Image ${idx + 1}`;
+        return `${idx + 1}. ${label}`;
+      }).join("\n");
+      return [
+        listingText,
+        "Image Slots:",
+        imageSlots || "No generated images yet.",
+      ].join("\n\n");
+    };
+    const handleGenerateListingCopy = async () => {
+      if (!analysisReady) {
+        setListingCopyError("Confirm the analysis selections first.");
+        return;
+      }
+      if (!listingCopySource.productDescription || !listingCopySource.niche || !listingCopySource.targetAudience || !listingCopySource.style) {
+        setListingCopyError("Fill in the product, niche, audience, and style fields first.");
+        return;
+      }
+      setListingCopyLoading(true);
+      setListingCopyError("");
+      try {
+        const d = await apiFetch("/api/generate-listing-copy", {
+          productDescription: listingCopySource.productDescription,
+          niche: listingCopySource.niche,
+          targetAudience: listingCopySource.targetAudience,
+          style: listingCopySource.style,
+          ...selectedContextPayload,
+        });
+        setListingCopy(d);
+      } catch (e) {
+        setListingCopy(null);
+        setListingCopyError("Listing copy generation failed. Please try again.");
+      } finally {
+        setListingCopyLoading(false);
+      }
+    };
+    const copyListingCopyAll = () => {
+      if (!listingCopy) return;
+      navigator.clipboard.writeText(formatListingCopy(listingCopy));
+    };
+    const exportListingCopyAll = () => {
+      if (!listingCopy) return;
+      navigator.clipboard.writeText(formatExportAll(listingCopy));
+    };
+    const productDescription = form.additionalInfo || "";
+    const analysisReady = analysisState.confirmed && analysisState.selected.niche.length > 0 && analysisState.selected.targetAudience.length > 0;
+    const selectedContextPayload = {
+      selectedNiche: analysisState.selected.niche,
+      selectedAudience: analysisState.selected.targetAudience,
+      selectedStyle: analysisState.selected.style,
+      selectedOccasion: analysisState.selected.occasion,
+      selectedPricePoint: analysisState.selected.pricePoint,
+      selectedKeywords: analysisState.selected.keywords,
+    };
+    const syncAnalysisDefaults = suggestions => {
+      setAnalysisState(prev => ({
+        ...prev,
+        status: "ready",
+        error: "",
+        suggestions,
+        selected: buildAnalysisSelections(suggestions),
+        customInputs: {
+          niche: "",
+          targetAudience: "",
+          style: "",
+          occasion: "",
+          pricePoint: "",
+          keywords: ""
+        },
+        confirmed: false,
+        cached: false
+      }));
+    };
+    const analyzeProduct = async nextValue => {
+      const value = typeof nextValue === "string" ? nextValue : productDescription;
+      if (!value || !value.trim()) {
+        setAnalysisState(prev => ({
+          ...prev,
+          status: "idle",
+          error: "",
+          productDescription: "",
+          confirmed: false
+        }));
+        return;
+      }
+      if (analysisState.status === "loading" && analysisState.productDescription === value) return;
+      if (analysisState.status === "ready" && analysisState.productDescription === value) return;
+      setAnalysisState(prev => ({
+        ...prev,
+        status: "loading",
+        error: "",
+        productDescription: value,
+        confirmed: false
+      }));
+      try {
+        const d = await apiFetch("/api/analyze-product", {
+          productDescription: value
+        });
+        syncAnalysisDefaults(d);
+        setAnalysisState(prev => ({
+          ...prev,
+          productDescription: value,
+          sourceHash: d.cacheKey || prev.sourceHash,
+          cached: !!d.cached,
+          confirmed: false
+        }));
+      } catch (e) {
+        setAnalysisState(prev => ({
+          ...prev,
+          status: "error",
+          error: "Product analysis failed. Please try again.",
+          productDescription: value,
+          confirmed: false
+        }));
+      }
+    };
+    const toggleSelectedValue = (group, value) => {
+      setAnalysisState(prev => {
+        if (group === "pricePoint") {
+          return {
+            ...prev,
+            selected: {
+              ...prev.selected,
+              pricePoint: prev.selected.pricePoint === value ? "" : value
+            },
+            confirmed: false
+          };
+        }
+        const selected = { ...prev.selected };
+        const current = Array.isArray(selected[group]) ? [...selected[group]] : [];
+        const limit = group === "niche" ? 3 : group === "targetAudience" ? 4 : group === "style" ? 4 : group === "occasion" ? 3 : 10;
+        const next = current.includes(value)
+          ? current.filter(item => item !== value)
+          : current.length >= limit
+            ? current
+            : [...current, value];
+        selected[group] = next;
+        return { ...prev, selected, confirmed: false };
+      });
+    };
+    const addCustomValue = (group) => {
+      setAnalysisState(prev => {
+        const customValue = String(prev.customInputs[group] || "").trim();
+        if (!customValue) return prev;
+        const selected = { ...prev.selected };
+        if (group === "pricePoint") {
+          selected.pricePoint = customValue;
+        } else {
+          const current = Array.isArray(selected[group]) ? [...selected[group]] : [];
+          if (!current.includes(customValue)) {
+            const limit = group === "niche" ? 3 : group === "targetAudience" ? 4 : group === "style" ? 4 : group === "occasion" ? 3 : 10;
+            selected[group] = [...current.slice(0, limit - 1), customValue];
+          }
+        }
+        return {
+          ...prev,
+          selected,
+          customInputs: { ...prev.customInputs, [group]: "" },
+          confirmed: false
+        };
+      });
+    };
+    const confirmAnalysisSelections = () => {
+      if (analysisState.selected.niche.length < 1 || analysisState.selected.targetAudience.length < 1) return;
+      setAnalysisState(prev => ({ ...prev, confirmed: true }));
+    };
     useEffect(() => {
       if (typeof markAppRendered === "function") markAppRendered();
       getAnalyticsInstallId();
       getAnalyticsConsent();
     }, []);
     useEffect(() => {
+      let live = true;
+      Promise.all([
+        fetch("/api/auth/session", { credentials: "same-origin" }).then(r => r.json()).catch(() => ({ authenticated: false })),
+        fetch("/api/admin/session", { credentials: "same-origin" }).then(r => r.json()).catch(() => ({ authenticated: false }))
+      ]).then(([user, admin]) => {
+        if (!live) return;
+        setUserSession(user);
+        setAdminSession(admin);
+      }).finally(() => {
+        if (live) setAuthChecked(true);
+      });
+      return () => { live = false; };
+    }, []);
+    useEffect(() => {
+      if (!adminSession?.authenticated) {
+        setKeyInfo(null);
+        return;
+      }
       authedFetch("/api/keys").then(r => {
         if (r.status === 401) {
           setKeyInfo({
@@ -3397,7 +4870,7 @@ try {
       }).then(d => {
         if (d) setKeyInfo(d);
       }).catch(() => {});
-    }, []);
+    }, [adminSession?.authenticated]);
     useEffect(() => {
       setPromptRatings(loadPromptRatings());
       setLearningEnabled(loadLearningEnabled());
@@ -3412,6 +4885,111 @@ try {
     useEffect(() => {
       saveJsonStorage(DIVERSITY_HISTORY_STORAGE_KEY, diversityHistory);
     }, [diversityHistory]);
+    const refreshSessions = async next => {
+      const [user, admin] = await Promise.all([
+        fetch("/api/auth/session", { credentials: "same-origin" }).then(r => r.json()).catch(() => ({ authenticated: false })),
+        fetch("/api/admin/session", { credentials: "same-origin" }).then(r => r.json()).catch(() => ({ authenticated: false }))
+      ]);
+      if (next?.role === "user" && next.user) {
+        setUserSession({ authenticated: true, ...next.user, userId: next.user.id });
+      } else {
+        setUserSession(user);
+      }
+      setAdminSession(next?.role === "admin" ? { ...admin, authenticated: true } : admin);
+      setAuthChecked(true);
+      if (next?.role === "admin") setShowSettings(true);
+    };
+    const logout = async () => {
+      await Promise.all([
+        fetch("/api/auth/logout", { method: "POST", credentials: "same-origin" }).catch(() => {}),
+        fetch("/api/admin/logout", { method: "POST", credentials: "same-origin" }).catch(() => {})
+      ]);
+      setUserSession({ authenticated: false });
+      setAdminSession({ authenticated: false });
+      setShowSettings(false);
+    };
+    if (!authChecked) {
+      return React.createElement("main", { className: "auth-page" }, React.createElement("div", {
+        className: "auth-card",
+        style: { display: "flex", alignItems: "center", gap: 12, color: "rgba(255,255,255,0.72)" }
+      }, React.createElement(Spinner, { size: 18 }), React.createElement("span", null, "Loading workspace...")));
+    }
+    if (!userSession?.authenticated && !adminSession?.authenticated) {
+      return React.createElement(LoginScreen, { onAuthenticated: refreshSessions });
+    }
+    const isAdmin = !!adminSession?.authenticated;
+    const isUser = !!userSession?.authenticated;
+    if (isAdmin && !isUser) {
+      return React.createElement("div", {
+        style: {
+          minHeight: "100vh",
+          color: "var(--text)",
+          background: "radial-gradient(900px 520px at 18% 0%, rgba(255,220,100,0.12), transparent 52%), linear-gradient(180deg,#0b0d12,#10141b)"
+        }
+      }, showSettings && React.createElement(SettingsModal, {
+        onClose: () => setShowSettings(false),
+        onKeysUpdated: d => setKeyInfo(d),
+        onAdminSessionChange: setAdminSession
+      }), React.createElement("div", {
+        className: "app-header-row",
+        style: {
+          maxWidth: 1120,
+          margin: "0 auto",
+          padding: "30px 22px",
+          display: "flex",
+          gap: 14,
+          alignItems: "center",
+          justifyContent: "space-between"
+        }
+      }, React.createElement("div", {
+        style: { display: "flex", alignItems: "center", gap: 13 }
+      }, React.createElement("div", {
+        style: {
+          width: 46,
+          height: 46,
+          borderRadius: 13,
+          background: "linear-gradient(135deg,#FFDC64,#FF9B40)",
+          display: "grid",
+          placeItems: "center",
+          color: "#11151d",
+          fontWeight: 800
+        }
+      }, "AD"), React.createElement("div", null, React.createElement("div", {
+        style: {
+          fontSize: 10,
+          letterSpacing: "0.2em",
+          color: "rgba(255,220,100,0.6)",
+          textTransform: "uppercase",
+          fontFamily: "'DM Mono',monospace",
+          marginBottom: 3
+        }
+      }, "Admin dashboard"), React.createElement("h1", {
+        style: { fontSize: 22, fontWeight: 800, letterSpacing: 0 }
+      }, "Service Control"))), React.createElement("nav", {
+        className: "app-nav"
+      }, React.createElement("button", {
+        onClick: () => setShowSettings(true)
+      }, "Service status"), React.createElement("button", {
+        onClick: logout
+      }, "Logout"))), React.createElement("main", {
+        style: {
+          maxWidth: 1120,
+          margin: "0 auto",
+          padding: "0 22px 40px"
+        }
+      }, React.createElement("section", {
+        style: {
+          border: "1px solid rgba(255,255,255,0.09)",
+          borderRadius: 18,
+          background: "rgba(255,255,255,0.04)",
+          padding: 18
+        }
+      }, React.createElement("h2", {
+        style: { fontSize: 18, marginBottom: 8 }
+      }, "Admin area"), React.createElement("p", {
+        style: { color: "rgba(255,255,255,0.56)", fontSize: 14, lineHeight: 1.55 }
+      }, "Provider connection status, analytics, and platform controls are available from Service status. Normal seller navigation is hidden from this admin-only view."))));
+    }
     const setImg = (id, patch) => setImgStates(s => ({
       ...s,
       [id]: {
@@ -3457,16 +5035,28 @@ try {
       if (r?.promptId) acc[r.promptId] = r.rating;
       return acc;
     }, {});
-    const handleFile = e => {
-      const f = e.target.files[0];
-      if (!f) return;
-      setImageFile(f);
+    const selectMainImageFile = file => {
+      if (!file) return;
+      if (!String(file.type || "").startsWith("image/")) {
+        setError("Please select an image file from your gallery.");
+        return;
+      }
+      setError(null);
+      setImageFile(file);
       const r = new FileReader();
       r.onload = ev => {
         setImagePreview(ev.target.result);
         setImageBase64(ev.target.result.split(",")[1]);
       };
-      r.readAsDataURL(f);
+      r.readAsDataURL(file);
+    };
+    const handleFile = e => {
+      selectMainImageFile(e.target.files?.[0]);
+      e.target.value = "";
+    };
+    const handleMainDrop = e => {
+      e.preventDefault();
+      selectMainImageFile(e.dataTransfer?.files?.[0]);
     };
     const handleReferenceFiles = async e => {
       const files = Array.from(e.target.files || []).slice(0, 3);
@@ -3486,6 +5076,41 @@ try {
       }));
       setReferenceImages(refs);
     };
+    const selectedSizeChartTemplate = SIZE_CHART_TEMPLATES.find(t => t.id === sizeChartTemplateId) || SIZE_CHART_TEMPLATES[0];
+    const currentSizeChartArtifact = sizeChartArtifacts[sizeChartTemplateId] || null;
+    const generateSizeChart = async templateId => {
+      const template = SIZE_CHART_TEMPLATES.find(t => t.id === templateId) || SIZE_CHART_TEMPLATES[0];
+      setSizeChartBusy(true);
+      try {
+        const dataUrl = buildSizeChartSvgDataUrl(template);
+        const artifact = {
+          id: template.id,
+          name: `${slugifyName(template.name) || "size-chart"}.svg`,
+          type: "image/svg+xml",
+          dataUrl,
+          base64: dataUrl.split(",")[1]
+        };
+        setSizeChartArtifacts(prev => ({
+          ...prev,
+          [template.id]: artifact
+        }));
+        setSizeChartTemplateId(template.id);
+        return artifact;
+      } finally {
+        setSizeChartBusy(false);
+      }
+    };
+    const generateAllSizeCharts = async () => {
+      setSizeChartBusy(true);
+      try {
+        for (const template of SIZE_CHART_TEMPLATES) {
+          await generateSizeChart(template.id);
+        }
+      } finally {
+        setSizeChartBusy(false);
+      }
+    };
+    const sizeChartArtifactsList = SIZE_CHART_TEMPLATES.map(template => sizeChartArtifacts[template.id] || null).filter(Boolean);
     const analyzeDesign = async () => {
       if (!imageBase64) return "";
       setAnalyzing(true);
@@ -3503,6 +5128,10 @@ try {
     const handleGenerate = async () => {
       if (!imageBase64) {
         setError("Naloži grafiko najprej.");
+        return;
+      }
+      if (!analysisReady) {
+        setError("Confirm the analysis selections first.");
         return;
       }
       setError(null);
@@ -3543,6 +5172,10 @@ try {
             printVisibility: form.printVisibility,
             mockupStyleMode: resolvedMockupStyleMode(),
             mockupStyleBrief: resolvedMockupStyleBrief(),
+            generateFullListing: form.generateFullListing,
+            additionalInfo: form.additionalInfo,
+            sizeChartIncluded: sizeChartArtifactsList.length > 0,
+            ...selectedContextPayload,
             learningContext,
             usedAttributes: runningHistory
           });
@@ -3564,6 +5197,10 @@ try {
               printVisibility: form.printVisibility,
               mockupStyleMode: resolvedMockupStyleMode(),
               mockupStyleBrief: resolvedMockupStyleBrief(),
+              generateFullListing: form.generateFullListing,
+              additionalInfo: form.additionalInfo,
+              sizeChartIncluded: sizeChartArtifactsList.length > 0,
+              ...selectedContextPayload,
               designAnalysis: analysis,
               listingRole: parsed[j]?.listingRole || inferListingRoleFromCategory(cat.name || "", j),
               listingRolePhase: parsed[j]?.listingRolePhase || (j < LISTING_ROLE_OPTIONS.length ? "primary" : "supporting"),
@@ -3600,6 +5237,15 @@ try {
               qaChecklist: "",
               autoFix: "",
               thumbnailNotes: "",
+              etsyListing: {
+                title: "",
+                tags: [],
+                description: "",
+                materials: "",
+                careInstructions: "",
+                sizeChartNote: "",
+                imageAltText: ""
+              },
               riskAnalysis: parseRiskAnalysis(null),
               businessScores: parseBusinessScores(null),
               promptWordCount: 0,
@@ -3627,7 +5273,7 @@ try {
           outcome: "failed",
           failureCode: "prompt_generation_failed"
         });
-        setError("Napaka: " + e.message);
+        setError("Mockup generation failed. Please try again in a moment.");
       } finally {
         setLoading(false);
       }
@@ -3659,10 +5305,10 @@ try {
           quality: 0.88,
           mimeType: "image/png"
         });
-        const d = await apiFetch("/api/generate-image", {
-          fluxPrompt,
-          customPrompt: resolvedCustom,
-          designAnalysis,
+          const d = await apiFetch("/api/generate-image", {
+            fluxPrompt,
+            customPrompt: resolvedCustom,
+            designAnalysis,
           printVisibility: meta.printVisibility || form.printVisibility,
           mockupStyleMode: meta.mockupStyleMode || resolvedMockupStyleMode(),
           mockupStyleBrief: meta.mockupStyleBrief || resolvedMockupStyleBrief(),
@@ -3677,25 +5323,27 @@ try {
           environment: meta.environment || target?.data?.environment || "",
           targetBuyer: meta.targetBuyer || target?.data?.targetBuyer || "",
           pose: meta.pose || target?.data?.pose || "",
-          cameraSetup: meta.cameraSetup || target?.data?.cameraSetup || "",
-          lighting: meta.lighting || target?.data?.lighting || "",
-          referenceImages: referenceImages.map(r => ({
-            imageBase64: r.base64,
-            imageType: r.type,
-            name: r.name
-          })),
+            cameraSetup: meta.cameraSetup || target?.data?.cameraSetup || "",
+            lighting: meta.lighting || target?.data?.lighting || "",
+            ...selectedContextPayload,
+            referenceImages: referenceImages.map(r => ({
+              imageBase64: r.base64,
+              imageType: r.type,
+              name: r.name
+            })),
           imageBase64: compressed.split(",")[1],
           imageType: "image/png"
         });
         setImg(id, {
           status: "done",
           url: d.url,
+          qualityReport: d.qualityReport || null,
           lastAction: resolvedCustom ? "regenerate_with_context" : "regenerate"
         });
       } catch (e) {
         setImg(id, {
           status: "error",
-          error: e.message
+          error: "Image generation failed. Please try again."
         });
       }
     };
@@ -3735,6 +5383,7 @@ try {
             pose: r.meta?.pose || r.data?.pose || "",
             cameraSetup: r.meta?.cameraSetup || r.data?.cameraSetup || "",
             lighting: r.meta?.lighting || r.data?.lighting || "",
+            ...selectedContextPayload,
             referenceImages: referenceImages.map(ref => ({
               imageBase64: ref.base64,
               imageType: ref.type,
@@ -3746,13 +5395,14 @@ try {
           setImg(id, {
             status: "done",
             url: d.url,
+            qualityReport: d.qualityReport || null,
             lastAction: resolvedCustom ? "bulk_regenerate_with_context" : "bulk_regenerate"
           });
         } catch (e) {
           setImg(id, {
-            status: "error",
-            error: e.message
-          });
+          status: "error",
+          error: "Image generation failed. Please try again."
+        });
         }
       }
       setGenAllBusy(false);
@@ -3795,7 +5445,7 @@ try {
       } catch (e) {
         setImg(id, {
           fixing: false,
-          error: e.message
+          error: "AI fix is temporarily unavailable."
         });
       }
     };
@@ -3829,6 +5479,9 @@ try {
         image
       }) => {
         zip.file(mockupFileName(result.data, result.catInfo, index), dataUrlToBlob(image));
+      });
+      sizeChartArtifactsList.forEach((artifact, index) => {
+        zip.file(artifact.name || `size-chart-${index + 1}.svg`, dataUrlToBlob(artifact.dataUrl));
       });
       done.forEach(({
         result
@@ -3870,6 +5523,16 @@ ${r.data.categoryResearch}
 SEO KEYWORDS:
 ${r.data.categoryKeywords}
 
+ETSY LISTING:
+Title: ${r.data.etsyListing?.title || ""}
+Tags: ${(r.data.etsyListing?.tags || []).join(", ")}
+Description:
+${r.data.etsyListing?.description || ""}
+Materials: ${r.data.etsyListing?.materials || ""}
+Care: ${r.data.etsyListing?.careInstructions || ""}
+Size Chart Note: ${r.data.etsyListing?.sizeChartNote || ""}
+Image Alt Text: ${r.data.etsyListing?.imageAltText || ""}
+
 SHIRT RESEARCH:
 ${r.data.shirtResearch}
 
@@ -3901,25 +5564,80 @@ ${r.data.thumbnailNotes}`;
     const gemOk = keyInfo?.gemini?.set;
     const repOk = keyInfo?.replicate?.set;
     const total = form.mockupCount;
+    const scrollToSection = id => {
+      const el = document.getElementById(id);
+      if (el) el.scrollIntoView({ behavior: "smooth", block: "start" });
+    };
+    const navItems = [{
+      id: "dashboard-section",
+      label: "Dashboard"
+    }, {
+      id: "compose-section",
+      label: "Generate Mockups"
+    }, {
+      id: "history-section",
+      label: "History"
+    }, {
+      id: "credits-section",
+      label: "Credits"
+    }, {
+      id: "account-section",
+      label: "Account"
+    }];
+    const sectionItems = [...(isUser ? [{
+      id: "dashboard-section",
+      kicker: "00",
+      label: "Dashboard",
+      description: "Credits, history, and account overview."
+    }] : []), {
+      id: "compose-section",
+      kicker: "01",
+      label: "Composer",
+      description: "Upload, design intent, and prompt controls."
+    }, {
+      id: "learning-section",
+      kicker: "02",
+      label: "Learning",
+      description: "Local ratings and preference signals."
+    }, {
+      id: "results-section",
+      kicker: "03",
+      label: "Results",
+      description: "Generated concepts, images, and exports."
+    }];
+    const batches = selectedBatches();
     return React.createElement("div", {
       style: {
         minHeight: "100vh",
-        paddingBottom: 70
-      }
-    }, showSettings && React.createElement(SettingsModal, {
-      onClose: () => setShowSettings(false),
-      onKeysUpdated: d => {
-        setKeyInfo(d);
-      }
-    }), React.createElement("div", {
-      style: {
-        background: "linear-gradient(180deg,rgba(255,220,100,0.05) 0%,transparent 100%)",
-        borderBottom: "1px solid rgba(255,255,255,0.05)",
-        padding: "26px 22px 18px"
+        paddingBottom: 70,
+        color: "var(--text)",
+        position: "relative",
+        overflow: "hidden",
+        background: "radial-gradient(1200px 700px at 10% 0%, rgba(255,220,100,0.10), transparent 48%), radial-gradient(1000px 700px at 92% 10%, rgba(90,180,255,0.10), transparent 46%), radial-gradient(900px 600px at 50% 100%, rgba(126,232,162,0.06), transparent 40%), #0C0C0E"
       }
     }, React.createElement("div", {
       style: {
-        maxWidth: 740,
+        position: "absolute",
+        inset: 0,
+        pointerEvents: "none",
+        background: "linear-gradient(180deg, rgba(255,255,255,0.02), transparent 18%, rgba(255,255,255,0.01) 60%, transparent 100%)"
+      }
+    }), showSettings && React.createElement(SettingsModal, {
+      onClose: () => setShowSettings(false),
+      onKeysUpdated: d => {
+        setKeyInfo(d);
+      },
+      onAdminSessionChange: setAdminSession
+    }), React.createElement("div", {
+      style: {
+        background: "linear-gradient(180deg,rgba(255,220,100,0.05) 0%,transparent 100%)",
+        borderBottom: "1px solid rgba(255,255,255,0.06)",
+        padding: "30px 22px 20px"
+      }
+    }, React.createElement("div", {
+      className: "app-header-row",
+      style: {
+        maxWidth: 1120,
         margin: "0 auto",
         display: "flex",
         gap: 14,
@@ -3951,7 +5669,7 @@ ${r.data.thumbnailNotes}`;
         fontFamily: "'DM Mono',monospace",
         marginBottom: 3
       }
-    }, "Backend v2 \xB7 Fixed"), React.createElement("h1", {
+    }, isAdmin ? "Admin workspace" : "Seller workspace"), React.createElement("h1", {
       style: {
         fontSize: 20,
         fontFamily: "'Playfair Display',serif",
@@ -3961,110 +5679,36 @@ ${r.data.thumbnailNotes}`;
         WebkitTextFillColor: "transparent",
         lineHeight: 1.2
       }
-    }, "Etsy Flux Mockup Generator")), React.createElement("button", {
+    }, "Etsy Mockup Studio")), React.createElement("nav", {
+      className: "app-nav"
+    }, isUser && navItems.map(item => React.createElement("button", {
+      key: item.id,
+      onClick: () => scrollToSection(item.id)
+    }, item.label)), isAdmin && React.createElement("button", {
       onClick: () => setShowSettings(true),
+    }, "Admin"), React.createElement("button", {
+      onClick: logout
+    }, "Logout")))), isUser && React.createElement(UserOverview, {
+      session: userSession
+    }), React.createElement("div", {
       style: {
-        display: "flex",
-        alignItems: "center",
-        gap: 7,
-        padding: "8px 13px",
-        borderRadius: 10,
-        border: "1px solid rgba(255,255,255,0.1)",
-        background: "rgba(255,255,255,0.05)",
-        color: "rgba(255,255,255,0.7)",
-        fontSize: 12,
-        cursor: "pointer",
-        flexShrink: 0,
-        whiteSpace: "nowrap",
-        transition: "all 0.2s"
-      }
-    }, React.createElement("span", {
-      style: {
-        fontSize: 14
-      }
-    }, "\u2699\uFE0F"), React.createElement("span", null, "Nastavitve"), React.createElement("span", {
-      style: {
-        fontSize: 9,
-        color: gemOk ? "#7EE8A2" : "rgba(255,80,80,0.6)",
-        fontFamily: "'DM Mono',monospace",
-        marginLeft: 3
-      }
-    }, "GEM", gemOk ? "✓" : "–"), React.createElement("span", {
-      style: {
-        fontSize: 9,
-        color: "rgba(255,255,255,0.15)"
-      }
-    }, "\xB7"), React.createElement("span", {
-      style: {
-        fontSize: 9,
-        color: repOk ? "#7EE8A2" : "rgba(255,80,80,0.6)",
-        fontFamily: "'DM Mono',monospace"
-      }
-    }, "REP", repOk ? "✓" : "–")))), React.createElement("div", {
-      style: {
-        maxWidth: 740,
+        maxWidth: 1120,
         margin: "0 auto",
-        padding: "18px 20px 0"
+        padding: "14px 20px 0"
       }
-    }, keyInfo?.authRequired && React.createElement("div", {
+    }, React.createElement(LayerRail, {
+      items: sectionItems
+    })), React.createElement("div", {
       style: {
-        background: "rgba(80,130,255,0.08)",
-        border: "1px solid rgba(80,130,255,0.2)",
-        borderRadius: 11,
-        padding: "10px 14px",
-        marginBottom: 13,
-        display: "flex",
-        alignItems: "center",
-        justifyContent: "space-between",
-        gap: 10
+        maxWidth: 1120,
+        margin: "0 auto",
+        padding: "18px 20px 0",
+        display: "grid",
+        gridTemplateColumns: "minmax(340px, 380px) minmax(0, 1fr)",
+        gap: 16,
+        alignItems: "start"
       }
-    }, React.createElement("span", {
-      style: {
-        fontSize: 12,
-        color: "rgba(190,210,255,0.85)"
-      }
-    }, "\uD83D\uDD10 Admin token required. Open Settings and store the server token in this browser."), React.createElement("button", {
-      onClick: () => setShowSettings(true),
-      style: {
-        background: "rgba(80,130,255,0.16)",
-        border: "1px solid rgba(80,130,255,0.3)",
-        borderRadius: 7,
-        padding: "5px 12px",
-        color: "rgba(190,210,255,0.95)",
-        fontSize: 11,
-        cursor: "pointer",
-        whiteSpace: "nowrap"
-      }
-    }, "Odpri nastavitve")), keyInfo && !keyInfo.authRequired && (!gemOk || !repOk) && React.createElement("div", {
-      style: {
-        background: "rgba(255,180,50,0.06)",
-        border: "1px solid rgba(255,180,50,0.18)",
-        borderRadius: 11,
-        padding: "10px 14px",
-        marginBottom: 13,
-        display: "flex",
-        alignItems: "center",
-        justifyContent: "space-between"
-      }
-    }, React.createElement("span", {
-      style: {
-        fontSize: 12,
-        color: "rgba(255,180,50,0.8)"
-      }
-    }, !gemOk && !repOk ? "⚠ Oba API ključa manjkata" : !gemOk ? "⚠ Gemini ključ manjka" : !repOk ? "⚠ Replicate ključ manjka — slike ne bodo na voljo" : ""), React.createElement("button", {
-      onClick: () => setShowSettings(true),
-      style: {
-        background: "rgba(255,180,50,0.15)",
-        border: "1px solid rgba(255,180,50,0.3)",
-        borderRadius: 7,
-        padding: "5px 12px",
-        color: "rgba(255,180,50,0.9)",
-        fontSize: 11,
-        cursor: "pointer",
-        marginLeft: 10,
-        whiteSpace: "nowrap"
-      }
-    }, "Dodaj klju\u010De \u2192")), React.createElement("div", {
+    }, React.createElement("div", {
       style: {
         background: "rgba(255,255,255,0.022)",
         border: "1px solid rgba(255,255,255,0.07)",
@@ -4082,7 +5726,10 @@ ${r.data.thumbnailNotes}`;
         marginBottom: 10
       }
     }, "\uD83C\uDFA8 Design Upload"), React.createElement("div", {
+      id: "compose-section",
       onClick: () => fileRef.current.click(),
+      onDragOver: e => e.preventDefault(),
+      onDrop: handleMainDrop,
       style: {
         border: `2px dashed ${imagePreview ? "rgba(255,220,100,0.22)" : "rgba(255,255,255,0.07)"}`,
         borderRadius: 11,
@@ -4132,10 +5779,32 @@ ${r.data.thumbnailNotes}`;
         fontSize: 10,
         color: "rgba(255,255,255,0.18)"
       }
-    }, "PNG transparentno \xB7 JPG / WEBP ok")))), React.createElement("input", {
+    }, "PNG transparentno \xB7 JPG / WEBP ok")), React.createElement("button", {
+      onClick: e => {
+        e.stopPropagation();
+        fileRef.current.click();
+      },
+      style: {
+        marginTop: 12,
+        padding: "9px 13px",
+        borderRadius: 999,
+        border: "1px solid rgba(255,220,100,0.28)",
+        background: "rgba(255,220,100,0.08)",
+        color: "#FFDC64",
+        fontSize: 12,
+        fontWeight: 700,
+        cursor: "pointer"
+      }
+    }, "Choose from gallery"), React.createElement("div", {
+      style: {
+        marginTop: 8,
+        fontSize: 10,
+        color: "rgba(255,255,255,0.22)"
+      }
+    }, "Tap to open gallery, or drag and drop an image."))), React.createElement("input", {
       ref: fileRef,
       type: "file",
-      accept: "image/*",
+      accept: "image/png,image/jpeg,image/webp,image/*",
       onChange: handleFile,
       style: {
         display: "none"
@@ -4213,7 +5882,149 @@ ${r.data.thumbnailNotes}`;
         textOverflow: "ellipsis",
         whiteSpace: "nowrap"
       }
-	    }, ref.name))))), React.createElement("div", {
+    }, ref.name))))), React.createElement("div", {
+      style: {
+        marginTop: 12,
+        paddingTop: 12,
+        borderTop: "1px solid rgba(255,255,255,0.06)"
+      }
+    }, React.createElement("div", {
+      style: {
+        fontSize: 10,
+        color: "rgba(255,255,255,0.28)",
+        fontFamily: "'DM Mono',monospace",
+        letterSpacing: "0.12em",
+        textTransform: "uppercase",
+        marginBottom: 6
+      }
+    }, "Size Chart Studio"), React.createElement("div", {
+      style: { color: "rgba(255,255,255,0.62)", fontSize: 12, lineHeight: 1.5, marginBottom: 10 }
+    }, "Generated separately from mockups. Pick a template, render it, and export it as its own asset."), React.createElement("div", {
+      style: {
+        display: "flex",
+        gap: 8,
+        flexWrap: "wrap",
+        marginBottom: 10
+      }
+    }, React.createElement("button", {
+      onClick: () => generateSizeChart(sizeChartTemplateId),
+      disabled: sizeChartBusy,
+      style: {
+        padding: "8px 12px",
+        borderRadius: 8,
+        border: "1px solid rgba(126,232,162,0.22)",
+        background: sizeChartBusy ? "rgba(126,232,162,0.04)" : "rgba(126,232,162,0.09)",
+        color: "rgba(190,255,210,0.96)",
+        fontSize: 11,
+        cursor: sizeChartBusy ? "not-allowed" : "pointer"
+      }
+    }, sizeChartBusy ? "Generating..." : `Generate ${selectedSizeChartTemplate?.name || "selected"} `), React.createElement("button", {
+      onClick: generateAllSizeCharts,
+      disabled: sizeChartBusy,
+      style: {
+        padding: "8px 12px",
+        borderRadius: 8,
+        border: "1px solid rgba(90,180,255,0.22)",
+        background: sizeChartBusy ? "rgba(90,180,255,0.04)" : "rgba(90,180,255,0.09)",
+        color: "rgba(185,225,255,0.96)",
+        fontSize: 11,
+        cursor: sizeChartBusy ? "not-allowed" : "pointer"
+      }
+    }, "Generate all templates"), React.createElement("button", {
+      onClick: () => setSizeChartArtifacts({}),
+      style: {
+        padding: "8px 12px",
+        borderRadius: 8,
+        border: "1px solid rgba(255,128,128,0.22)",
+        background: "rgba(255,128,128,0.07)",
+        color: "rgba(255,180,180,0.95)",
+        fontSize: 11,
+        cursor: "pointer"
+      }
+    }, "Clear exports")), React.createElement("div", {
+      style: {
+        display: "grid",
+        gridTemplateColumns: "repeat(auto-fit,minmax(160px,1fr))",
+        gap: 8,
+        marginBottom: 10
+      }
+    }, SIZE_CHART_TEMPLATES.map(template => React.createElement("button", {
+        key: template.id,
+        onClick: () => setSizeChartTemplateId(template.id),
+        style: {
+          textAlign: "left",
+          padding: "10px",
+          borderRadius: 12,
+          border: `1px solid ${template.id === sizeChartTemplateId ? "rgba(255,220,100,0.35)" : "rgba(255,255,255,0.07)"}`,
+          background: template.id === sizeChartTemplateId ? "rgba(255,220,100,0.06)" : "rgba(255,255,255,0.03)",
+          cursor: "pointer"
+        }
+      }, React.createElement("img", {
+        src: buildSizeChartSvgDataUrl(template),
+        alt: template.name,
+        style: {
+          width: "100%",
+          aspectRatio: "3 / 4",
+          objectFit: "cover",
+          borderRadius: 10,
+          marginBottom: 8,
+          border: "1px solid rgba(255,255,255,0.08)"
+        }
+      }), React.createElement("div", {
+        style: {
+          fontSize: 12,
+          fontWeight: 700,
+          marginBottom: 2,
+          color: "#fff"
+        }
+      }, template.name), React.createElement("div", {
+        style: {
+          fontSize: 11,
+          color: "rgba(255,255,255,0.55)",
+          lineHeight: 1.4
+        }
+      }, template.subtitle), sizeChartArtifacts[template.id] && React.createElement("div", {
+        style: {
+          marginTop: 6,
+          fontSize: 10,
+          color: "rgba(126,232,162,0.9)",
+          fontFamily: "'DM Mono',monospace",
+          letterSpacing: "0.06em",
+          textTransform: "uppercase"
+        }
+      }, "Generated")))), currentSizeChartArtifact && React.createElement("div", {
+      style: {
+        display: "flex",
+        alignItems: "center",
+        gap: 10,
+        padding: 10,
+        borderRadius: 12,
+        background: "rgba(255,255,255,0.03)",
+        border: "1px solid rgba(255,255,255,0.08)"
+      }
+    }, React.createElement("img", {
+      src: currentSizeChartArtifact.dataUrl,
+      alt: currentSizeChartArtifact.name,
+      style: {
+        width: 72,
+        height: 92,
+        objectFit: "cover",
+        borderRadius: 10,
+        border: "1px solid rgba(255,255,255,0.1)"
+      }
+    }), React.createElement("div", null, React.createElement("div", {
+      style: {
+        fontSize: 12,
+        color: "#fff",
+        fontWeight: 700,
+        marginBottom: 3
+      }
+    }, currentSizeChartArtifact.name), React.createElement("div", {
+      style: {
+        fontSize: 11,
+        color: "rgba(255,255,255,0.55)"
+      }
+    }, "Included in export, but not used as a mockup reference.")))), React.createElement("div", {
 	      style: {
 	        display: "grid",
 	        gridTemplateColumns: "repeat(auto-fit,minmax(180px,1fr))",
@@ -4454,6 +6265,401 @@ ${r.data.thumbnailNotes}`;
     }), React.createElement("div", {
       style: {
         marginTop: 12,
+        padding: "12px",
+        borderRadius: 12,
+        border: "1px solid rgba(90,180,255,0.16)",
+        background: "rgba(90,180,255,0.04)"
+      }
+    }, React.createElement("div", {
+      style: {
+        display: "flex",
+        justifyContent: "space-between",
+        gap: 10,
+        alignItems: "center",
+        marginBottom: 8,
+        flexWrap: "wrap"
+      }
+    }, React.createElement("div", {
+      style: {
+        fontSize: 9,
+        color: "rgba(255,255,255,0.22)",
+        fontFamily: "'DM Mono',monospace",
+        letterSpacing: "0.12em",
+        textTransform: "uppercase"
+      }
+    }, "PRODUCT DESCRIPTION"), React.createElement("button", {
+      onClick: () => analyzeProduct(productDescription),
+      disabled: !productDescription.trim() || analysisState.status === "loading",
+      style: {
+        padding: "7px 10px",
+        borderRadius: 10,
+        border: "1px solid rgba(90,180,255,0.22)",
+        background: analysisState.status === "loading" ? "rgba(90,180,255,0.04)" : "rgba(90,180,255,0.08)",
+        color: analysisState.status === "loading" ? "rgba(160,210,255,0.4)" : "rgba(160,210,255,0.95)",
+        fontSize: 11,
+        cursor: !productDescription.trim() || analysisState.status === "loading" ? "not-allowed" : "pointer"
+      }
+    }, analysisState.status === "loading" ? "Analyzing..." : "Analyze")), React.createElement("textarea", {
+      rows: 4,
+      placeholder: "Describe the product, design, theme, or item you want to sell on Etsy...",
+      value: productDescription,
+      onChange: e => setForm(f => ({
+        ...f,
+        additionalInfo: e.target.value
+      })),
+      onBlur: e => {
+        const nextValue = e.target.value || "";
+        if (nextValue.trim()) analyzeProduct(nextValue);
+      }
+    }), React.createElement("div", {
+      style: {
+        marginTop: 7,
+        fontSize: 10,
+        color: "rgba(255,255,255,0.34)",
+        lineHeight: 1.45
+      }
+    }, "Use this field as the product description and listing context for all generation modes."), analysisState.status === "loading" ? React.createElement(AnalysisSkeleton, null) : analysisState.status === "ready" && analysisState.suggestions ? React.createElement("div", {
+      style: {
+        marginTop: 12
+      }
+    }, React.createElement(SuggestionGroup, {
+      title: "Niche",
+      emoji: "🎯",
+      chips: analysisState.suggestions.niche,
+      selected: analysisState.selected.niche,
+      maxSelected: 3,
+      customValue: analysisState.customInputs.niche,
+      onCustomValueChange: value => setAnalysisState(prev => ({ ...prev, customInputs: { ...prev.customInputs, niche: value } })),
+      onCustomAdd: () => addCustomValue("niche"),
+      onToggle: value => toggleSelectedValue("niche", value),
+      helper: "Select 1-3"
+    }), React.createElement(SuggestionGroup, {
+      title: "Target Audience",
+      emoji: "👥",
+      chips: analysisState.suggestions.targetAudience,
+      selected: analysisState.selected.targetAudience,
+      maxSelected: 4,
+      customValue: analysisState.customInputs.targetAudience,
+      onCustomValueChange: value => setAnalysisState(prev => ({ ...prev, customInputs: { ...prev.customInputs, targetAudience: value } })),
+      onCustomAdd: () => addCustomValue("targetAudience"),
+      onToggle: value => toggleSelectedValue("targetAudience", value),
+      helper: "Select 1-4"
+    }), React.createElement(SuggestionGroup, {
+      title: "Style",
+      emoji: "🎨",
+      chips: analysisState.suggestions.style,
+      selected: analysisState.selected.style,
+      maxSelected: 4,
+      customValue: analysisState.customInputs.style,
+      onCustomValueChange: value => setAnalysisState(prev => ({ ...prev, customInputs: { ...prev.customInputs, style: value } })),
+      onCustomAdd: () => addCustomValue("style"),
+      onToggle: value => toggleSelectedValue("style", value),
+      helper: "Select 1-4"
+    }), React.createElement(SuggestionGroup, {
+      title: "Occasion",
+      emoji: "🎁",
+      chips: analysisState.suggestions.occasion,
+      selected: analysisState.selected.occasion,
+      maxSelected: 3,
+      customValue: analysisState.customInputs.occasion,
+      onCustomValueChange: value => setAnalysisState(prev => ({ ...prev, customInputs: { ...prev.customInputs, occasion: value } })),
+      onCustomAdd: () => addCustomValue("occasion"),
+      onToggle: value => toggleSelectedValue("occasion", value),
+      helper: "Select 1-3"
+    }), React.createElement(SuggestionGroup, {
+      title: "Price Point",
+      emoji: "💰",
+      chips: analysisState.suggestions.pricePoint,
+      selected: analysisState.selected.pricePoint,
+      single: true,
+      customValue: analysisState.customInputs.pricePoint,
+      onCustomValueChange: value => setAnalysisState(prev => ({ ...prev, customInputs: { ...prev.customInputs, pricePoint: value } })),
+      onCustomAdd: () => addCustomValue("pricePoint"),
+      onToggle: value => toggleSelectedValue("pricePoint", value),
+      helper: "Select 1"
+    }), React.createElement(SuggestionGroup, {
+      title: "Keywords",
+      emoji: "🔑",
+      chips: analysisState.suggestions.keywords,
+      selected: analysisState.selected.keywords,
+      maxSelected: 10,
+      customValue: analysisState.customInputs.keywords,
+      onCustomValueChange: value => setAnalysisState(prev => ({ ...prev, customInputs: { ...prev.customInputs, keywords: value } })),
+      onCustomAdd: () => addCustomValue("keywords"),
+      onToggle: value => toggleSelectedValue("keywords", value),
+      helper: "Select any"
+    }), React.createElement("button", {
+      onClick: confirmAnalysisSelections,
+      disabled: !analysisState.selected.niche.length || !analysisState.selected.targetAudience.length,
+      style: {
+        width: "100%",
+        marginTop: 2,
+        padding: "12px 14px",
+        borderRadius: 12,
+        border: "1px solid rgba(126,232,162,0.22)",
+        background: !analysisState.selected.niche.length || !analysisState.selected.targetAudience.length ? "rgba(126,232,162,0.04)" : "linear-gradient(135deg,#7EE8A2 0%,#38C77E 100%)",
+        color: !analysisState.selected.niche.length || !analysisState.selected.targetAudience.length ? "rgba(126,232,162,0.35)" : "#07100B",
+        fontSize: 13,
+        fontWeight: 700,
+        cursor: !analysisState.selected.niche.length || !analysisState.selected.targetAudience.length ? "not-allowed" : "pointer"
+      }
+    }, analysisState.confirmed ? "Selections locked" : "Looks good →")) : analysisState.status === "error" ? React.createElement("div", {
+      style: {
+        marginTop: 12,
+        color: "#FF8080",
+        fontSize: 12
+      }
+    }, analysisState.error || "Analysis failed.") : null), React.createElement("div", {
+      style: {
+        marginTop: 12,
+        padding: "12px",
+        borderRadius: 12,
+        border: "1px solid rgba(126,232,162,0.14)",
+        background: "rgba(126,232,162,0.035)"
+      }
+    }, React.createElement("div", {
+      style: {
+        display: "flex",
+        gap: 8,
+        flexWrap: "wrap",
+        marginBottom: 10
+      }
+    }, React.createElement(Tag, {
+      active: listingMode === "full_listing",
+      onClick: () => {
+        setListingMode("full_listing");
+        setForm(f => ({ ...f, generateFullListing: true }));
+      }
+    }, "Full Etsy Listing"), React.createElement(Tag, {
+      active: listingMode === "custom_style",
+      onClick: () => {
+        setListingMode("custom_style");
+        setForm(f => ({ ...f, mockupStyleMode: "custom" }));
+      }
+    }, "Custom Style"), React.createElement(Tag, {
+      active: listingMode === "listing_copy",
+      onClick: () => setListingMode("listing_copy")
+    }, "Listing Copy")), listingMode === "full_listing" && React.createElement(React.Fragment, null, React.createElement("label", {
+      style: {
+        display: "flex",
+        alignItems: "center",
+        gap: 8,
+        fontSize: 12,
+        color: "rgba(255,255,255,0.62)",
+        cursor: "pointer",
+        marginBottom: 0
+      }
+    }, React.createElement("input", {
+      type: "checkbox",
+      checked: form.generateFullListing,
+      onChange: e => setForm(f => ({
+        ...f,
+        generateFullListing: e.target.checked
+      })),
+      style: {
+        width: 16
+      }
+    }), "Generate full Etsy listing copy"), React.createElement("div", {
+      style: {
+        fontSize: 10,
+        color: "rgba(255,255,255,0.34)",
+        marginTop: 7,
+        lineHeight: 1.45
+      }
+    }, "Use the product description panel above as the source for listing copy.")), listingMode === "custom_style" && React.createElement(React.Fragment, null, React.createElement("div", {
+      style: {
+        fontSize: 9,
+        color: "rgba(255,255,255,0.28)",
+        marginBottom: 5,
+        fontFamily: "'DM Mono',monospace",
+        letterSpacing: "0.08em",
+        textTransform: "uppercase"
+      }
+    }, "Custom style brief"), React.createElement("textarea", {
+      rows: 3,
+      placeholder: "clean premium studio, lifestyle, slightly warm, minimal props",
+      value: form.mockupStyleBrief,
+      onChange: e => setForm(f => ({
+        ...f,
+        mockupStyleBrief: e.target.value
+      }))
+    }), React.createElement("div", {
+      style: {
+        fontSize: 10,
+        color: "rgba(255,255,255,0.34)",
+        marginTop: 7,
+        lineHeight: 1.45
+      }
+    }, "This brief is used when Mockup Style is set to Custom above.")), listingMode === "listing_copy" && React.createElement(React.Fragment, null, React.createElement("div", {
+      style: {
+        fontSize: 9,
+        color: "rgba(255,255,255,0.28)",
+        marginBottom: 5,
+        fontFamily: "'DM Mono',monospace",
+        letterSpacing: "0.08em",
+        textTransform: "uppercase"
+      }
+    }, "Listing copy inputs"), React.createElement("div", {
+      style: {
+        display: "grid",
+        gap: 8,
+        marginBottom: 10
+      }
+    }, React.createElement("div", {
+      style: {
+        fontSize: 11,
+        color: "rgba(255,255,255,0.55)",
+        lineHeight: 1.5
+      }
+    }, React.createElement("strong", null, "Product description"), ": ", listingCopySource.productDescription || "Add the product details in the field above."), React.createElement("div", {
+      style: {
+        fontSize: 11,
+        color: "rgba(255,255,255,0.55)",
+        lineHeight: 1.5
+      }
+    }, React.createElement("strong", null, "Niche"), ": ", listingCopySource.niche || "—"), React.createElement("div", {
+      style: {
+        fontSize: 11,
+        color: "rgba(255,255,255,0.55)",
+        lineHeight: 1.5
+      }
+    }, React.createElement("strong", null, "Audience"), ": ", listingCopySource.targetAudience || "—"), React.createElement("div", {
+      style: {
+        fontSize: 11,
+        color: "rgba(255,255,255,0.55)",
+        lineHeight: 1.5
+      }
+    }, React.createElement("strong", null, "Style"), ": ", listingCopySource.style || "—")), React.createElement("button", {
+      onClick: handleGenerateListingCopy,
+      disabled: listingCopyLoading || !analysisReady,
+      style: {
+        width: "100%",
+        padding: "12px 14px",
+        background: listingCopyLoading || !analysisReady ? "rgba(255,220,100,0.05)" : "linear-gradient(135deg,#7EE8A2 0%,#38C77E 100%)",
+        border: "none",
+        borderRadius: 12,
+        color: listingCopyLoading || !analysisReady ? "rgba(126,232,162,0.35)" : "#07100B",
+        fontSize: 13,
+        fontWeight: 700,
+        cursor: listingCopyLoading || !analysisReady ? "not-allowed" : "pointer",
+        marginBottom: 8
+      }
+    }, listingCopyLoading ? React.createElement(React.Fragment, null, React.createElement(Spinner, {
+      size: 14,
+      color: "rgba(126,232,162,0.55)"
+    }), React.createElement("span", null, "Generating listing copy...")) : React.createElement(React.Fragment, null, analysisReady ? "\u2728 Generate Listing Copy" : "Confirm analysis first")), listingCopyError && React.createElement("div", {
+      style: {
+        marginTop: 6,
+        fontSize: 12,
+        color: "#FF8080"
+      }
+    }, listingCopyError), listingCopy && React.createElement(ListingCopyResultPanel, {
+      data: listingCopy,
+      onCopyAll: copyListingCopyAll,
+      onExportAll: exportListingCopyAll,
+      includeExport: form.generateFullListing && results.length > 0
+    }), form.generateFullListing && results.length > 0 && React.createElement("div", {
+      style: {
+        marginTop: 12,
+        padding: "12px",
+        borderRadius: 14,
+        border: "1px solid rgba(126,232,162,0.14)",
+        background: "rgba(126,232,162,0.03)",
+        maxHeight: 520,
+        overflow: "auto"
+      }
+    }, React.createElement("div", {
+      style: {
+        display: "flex",
+        justifyContent: "space-between",
+        alignItems: "center",
+        gap: 10,
+        flexWrap: "wrap",
+        marginBottom: 10
+      }
+    }, React.createElement("div", null, React.createElement("div", {
+      style: {
+        fontSize: 10,
+        color: "rgba(126,232,162,0.82)",
+        fontFamily: "'DM Mono',monospace",
+        letterSpacing: "0.12em",
+        textTransform: "uppercase"
+      }
+    }, "Mockup Grid + Copy"), React.createElement("div", {
+      style: {
+        fontSize: 12,
+        color: "rgba(255,255,255,0.6)",
+        marginTop: 4
+      }
+    }, "Scroll to review copy and image slots together.")), React.createElement("button", {
+      onClick: exportListingCopyAll,
+      style: {
+        padding: "7px 11px",
+        borderRadius: 10,
+        border: "1px solid rgba(255,220,100,0.22)",
+        background: "rgba(255,220,100,0.08)",
+        color: "#FFDC64",
+        fontSize: 11,
+        cursor: "pointer"
+      }
+    }, "Export All")), React.createElement("div", {
+      style: {
+        display: "grid",
+        gridTemplateColumns: "repeat(auto-fill, minmax(140px, 1fr))",
+        gap: 10
+      }
+    }, results.slice(0, 20).map((r, idx) => {
+      const id = r.catInfo?.id;
+      const img = imgStates[id]?.url;
+      const title = r.catInfo?.name || `Image ${idx + 1}`;
+      return React.createElement("div", {
+        key: `${id || idx}-combined`,
+        style: {
+          borderRadius: 12,
+          overflow: "hidden",
+          border: "1px solid rgba(255,255,255,0.08)",
+          background: "rgba(0,0,0,0.24)"
+        }
+      }, React.createElement("div", {
+        style: {
+          padding: "8px 10px",
+          display: "flex",
+          justifyContent: "space-between",
+          alignItems: "center",
+          gap: 8,
+          fontSize: 10,
+          color: "rgba(255,255,255,0.55)",
+          fontFamily: "'DM Mono',monospace",
+          borderBottom: "1px solid rgba(255,255,255,0.06)"
+        }
+      }, React.createElement("span", null, idx + 1), React.createElement("span", {
+        style: {
+          overflow: "hidden",
+          textOverflow: "ellipsis",
+          whiteSpace: "nowrap"
+        }
+      }, title)), img ? React.createElement("img", {
+        src: img,
+        alt: title,
+        style: {
+          width: "100%",
+          display: "block",
+          aspectRatio: "1 / 1",
+          objectFit: "cover"
+        }
+      }) : React.createElement("div", {
+        style: {
+          minHeight: 140,
+          display: "grid",
+          placeItems: "center",
+          color: "rgba(255,255,255,0.28)",
+          fontSize: 26
+        }
+      }, r.catInfo?.emoji || "🖼️"));
+    }))), React.createElement("div", {
+      id: "learning-section",
+      style: {
+        marginTop: 12,
         padding: "12px 12px",
         borderRadius: 12,
         border: "1px solid rgba(255,220,100,0.12)",
@@ -4669,17 +6875,17 @@ ${r.data.thumbnailNotes}`;
       }
     }, "\u26A0\uFE0F ", error), React.createElement("button", {
       onClick: handleGenerate,
-      disabled: loading,
+      disabled: loading || !analysisReady,
       style: {
         width: "100%",
         padding: "13px",
-        background: loading ? "rgba(255,220,100,0.05)" : "linear-gradient(135deg,#FFDC64 0%,#FF9B40 100%)",
+        background: loading || !analysisReady ? "rgba(255,220,100,0.05)" : "linear-gradient(135deg,#FFDC64 0%,#FF9B40 100%)",
         border: "none",
         borderRadius: 12,
-        color: loading ? "rgba(255,220,100,0.35)" : "#0C0C0E",
+        color: loading || !analysisReady ? "rgba(255,220,100,0.35)" : "#0C0C0E",
         fontSize: 14,
         fontWeight: 600,
-        cursor: loading ? "not-allowed" : "pointer",
+        cursor: loading || !analysisReady ? "not-allowed" : "pointer",
         display: "flex",
         alignItems: "center",
         justifyContent: "center",
@@ -4690,7 +6896,7 @@ ${r.data.thumbnailNotes}`;
     }, loading ? React.createElement(React.Fragment, null, React.createElement(Spinner, {
       size: 17,
       color: "rgba(255,220,100,0.5)"
-    }), React.createElement("span", null, "Generiram\u2026")) : React.createElement("span", null, "\u26A1 Generiraj ", total, " Mockup Promptov")), loading && React.createElement("div", {
+    }), React.createElement("span", null, "Generiram\u2026")) : React.createElement("span", null, analysisReady ? "\u26A1 Generiraj " + total + " Mockup Promptov" : "Confirm analysis first")), loading && React.createElement("div", {
       style: {
         background: "rgba(255,255,255,0.022)",
         border: "1px solid rgba(255,255,255,0.07)",
@@ -4735,10 +6941,10 @@ ${r.data.thumbnailNotes}`;
     })), React.createElement("div", {
       style: {
         display: "grid",
-        gridTemplateColumns: `repeat(${selectedBatches().length},1fr)`,
+        gridTemplateColumns: `repeat(${batches.length},1fr)`,
         gap: 6
       }
-    }, selectedBatches().map((b, bi) => {
+    }, batches.map((b, bi) => {
       const done = results.some(r => r.catInfo?.id === b[0].id);
       return React.createElement("div", {
         key: bi,
@@ -4762,6 +6968,7 @@ ${r.data.thumbnailNotes}`;
         }
       }, b.map(c => c.emoji).join(" ")));
     }))), results.length > 0 && React.createElement("div", {
+      id: "results-section",
       style: {
         animation: "fadeUp 0.4s ease"
       }
