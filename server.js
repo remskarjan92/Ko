@@ -74,6 +74,21 @@ const adminAnalyticsCache = new Map();
 const adminLoginRateBuckets = new Map();
 const userLoginRateBuckets = new Map();
 const analyzeProductCache = new Map();
+const ANALYZE_PRODUCT_CACHE_MAX = 100;
+function pruneAnalyzeCache() {
+  if (analyzeProductCache.size <= ANALYZE_PRODUCT_CACHE_MAX) return;
+  const now = Date.now();
+  // first pass: drop expired
+  for (const [k, v] of analyzeProductCache) {
+    if (v.expiresAt <= now) analyzeProductCache.delete(k);
+    if (analyzeProductCache.size <= ANALYZE_PRODUCT_CACHE_MAX) return;
+  }
+  // second pass: drop oldest by insertion order until under cap
+  for (const k of analyzeProductCache.keys()) {
+    analyzeProductCache.delete(k);
+    if (analyzeProductCache.size <= ANALYZE_PRODUCT_CACHE_MAX) return;
+  }
+}
 
 app.use(express.json({ limit: "25mb" }));
 app.use(express.static(__dirname));
@@ -3977,6 +3992,7 @@ Return only valid JSON, no markdown.`;
       const parsed = normalizeAnalysisSuggestions(extractJsonObject(raw));
       if (parsed) {
         const payload = { ...parsed, cacheKey, cached: false };
+        pruneAnalyzeCache();
         analyzeProductCache.set(cacheKey, { data: parsed, expiresAt: Date.now() + ANALYZE_PRODUCT_CACHE_TTL_MS });
         return res.json(payload);
       }
@@ -4094,6 +4110,162 @@ productDescription: ${productDescription}`;
   } catch (error) {
     console.error("[listing-copy] failed:", error.message);
     return res.status(502).json({ error: "Listing copy generation failed" });
+  }
+});
+
+function normalizeListingSetPayload(payload) {
+  if (!Array.isArray(payload) || payload.length !== 20) return null;
+  const normalized = payload.map((item, index) => {
+    if (!item || typeof item !== "object" || Array.isArray(item)) return null;
+    const slotNumber = Number(item.slot_number);
+    const slotName = safeText(item.slot_name, 80).trim();
+    const prompt = safeText(item.prompt, 5000).trim();
+    const shotType = safeText(item.shot_type, 80).trim();
+    const priority = Number(item.priority);
+    if (!Number.isInteger(slotNumber) || slotNumber < 1 || slotNumber > 20) return null;
+    if (!slotName || !prompt || !shotType) return null;
+    if (![1, 2, 3].includes(priority)) return null;
+    if (slotNumber !== index + 1) return null;
+    return {
+      slot_number: slotNumber,
+      slot_name: slotName,
+      prompt,
+      shot_type: shotType,
+      priority,
+    };
+  });
+  if (normalized.some(item => !item)) return null;
+  return normalized;
+}
+
+app.post("/api/generate-listing-set", async (req, res) => {
+  const session = requireAuth(req, res);
+  if (!session) return;
+
+  const productDescription = safeText(req.body?.productDescription || "", 5000).trim();
+  const selectedNiche = Array.isArray(req.body?.selectedNiche) ? req.body.selectedNiche : [];
+  const selectedAudience = Array.isArray(req.body?.selectedAudience) ? req.body.selectedAudience : [];
+  const selectedStyle = Array.isArray(req.body?.selectedStyle) ? req.body.selectedStyle : [];
+  const selectedOccasion = Array.isArray(req.body?.selectedOccasion) ? req.body.selectedOccasion : [];
+  const selectedPricePoint = safeText(req.body?.selectedPricePoint || "", 40).trim();
+  const selectedKeywords = Array.isArray(req.body?.selectedKeywords) ? req.body.selectedKeywords : [];
+
+  const { gemini } = loadKeys();
+  if (!gemini) {
+    return res.status(503).json({ code: "service_missing", error: "Listing set service is not configured" });
+  }
+
+  const systemPrompt = `You are an expert Etsy product photographer and mockup strategist
+specializing in print-on-demand.
+Generate exactly 20 mockup prompts as a complete Etsy listing image set.
+Each prompt must serve a distinct slot role from this ordered list:
+  1  hero           - main listing image, lifestyle, highest conversion impact
+  2  lifestyle_1    - in-use, natural setting
+  3  lifestyle_2    - different environment or demographic
+  4  lifestyle_3    - gifting or occasion context
+  5  detail_1       - closeup of print or graphic
+  6  detail_2       - fabric texture or material quality
+  7  detail_3       - stitching, tag, or finishing detail
+  8  scale          - worn or held to show size in context
+  9  flat_lay_1     - clean flat lay, neutral background
+  10 flat_lay_2     - flat lay with props or context items
+  11 packaging      - folded, tagged, or in packaging
+  12 back_view      - rear angle of garment
+  13 side_view      - side profile angle
+  14 group          - multiple colorways or variants together
+  15 editorial_1    - styled, fashion-forward shot
+  16 editorial_2    - movement or action shot
+  17 size_chart     - mockup-style size guide visual
+  18 gifting        - wrapped, gift bag, or occasion scene
+  19 social_proof   - review quote overlaid on product shot
+  20 brand_story    - brand or shop identity lifestyle shot
+
+Slots 1-10 must prioritize visual impact and conversion.
+Slots 11-20 support trust, brand, and SEO.
+
+Product context:
+  niche: [selectedNiche]
+  audience: [selectedAudience]
+  style: [selectedStyle]
+  occasion: [selectedOccasion]
+  price point: [selectedPricePoint]
+  focus keywords: [selectedKeywords]
+  product: [productDescription]
+
+Return ONLY a valid JSON array of exactly 20 objects, no markdown:
+[
+  {
+    slot_number: number,
+    slot_name: string,
+    prompt: string (detailed Flux-ready image generation prompt),
+    shot_type: string,
+    priority: number (1=highest, 3=lowest)
+  }
+]`;
+
+  const joinOrEmpty = arr => (Array.isArray(arr) ? arr.map(item => safeText(item, 120).trim()).filter(Boolean).join(", ") : "");
+  const userMessage = `Product context:
+niche: ${joinOrEmpty(selectedNiche)}
+audience: ${joinOrEmpty(selectedAudience)}
+style: ${joinOrEmpty(selectedStyle)}
+occasion: ${joinOrEmpty(selectedOccasion)}
+price point: ${selectedPricePoint}
+focus keywords: ${joinOrEmpty(selectedKeywords)}
+product: ${productDescription}`;
+
+  const attemptGenerate = async () => {
+    const response = await fetchJsonWithRetry("https://generativelanguage.googleapis.com/v1beta/models/gemini-2.5-flash:generateContent", {
+      method: "POST",
+      headers: {
+        "Content-Type": "application/json",
+        "x-goog-api-key": gemini,
+      },
+      body: JSON.stringify({
+        systemInstruction: {
+          parts: [{
+            text: systemPrompt.replace("[selectedNiche]", joinOrEmpty(selectedNiche))
+              .replace("[selectedAudience]", joinOrEmpty(selectedAudience))
+              .replace("[selectedStyle]", joinOrEmpty(selectedStyle))
+              .replace("[selectedOccasion]", joinOrEmpty(selectedOccasion))
+              .replace("[selectedPricePoint]", selectedPricePoint || "Not provided")
+              .replace("[selectedKeywords]", joinOrEmpty(selectedKeywords))
+              .replace("[productDescription]", productDescription || "Not provided"),
+          }],
+        },
+        generationConfig: {
+          maxOutputTokens: 2000,
+          responseMimeType: "application/json",
+        },
+        contents: [{
+          role: "user",
+          parts: [{
+            text: userMessage,
+          }],
+        }],
+      }),
+    }, { retries: 1, delayMs: 900, label: "gemini listing-set" });
+    const data = await response.json();
+    if (data.error) throw new Error(data.error.message);
+    return data;
+  };
+
+  try {
+    let parsed = null;
+    for (let attempt = 0; attempt < 2; attempt++) {
+      const data = await attemptGenerate();
+      parsed = normalizeListingSetPayload(extractJsonArray(getGeminiText(data)));
+      if (parsed) {
+        return res.json({ slots: parsed, total: parsed.length });
+      }
+      console.warn(`[listing-set] invalid JSON on attempt ${attempt + 1}`, {
+        rawLength: getGeminiText(data).length,
+        preview: getGeminiText(data).slice(0, 300),
+      });
+    }
+    return res.status(502).json({ error: "Listing set generation failed" });
+  } catch (error) {
+    console.error("[listing-set] failed:", error.message);
+    return res.status(502).json({ error: "Listing set generation failed" });
   }
 });
 
