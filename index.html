@@ -151,6 +151,8 @@
     }
     @keyframes spin{to{transform:rotate(360deg)}}
     @keyframes fadeUp{from{opacity:0;transform:translateY(10px)}to{opacity:1;transform:none}}
+    @keyframes ko-spin{to{transform:rotate(360deg)}}
+    .ko-spin{display:inline-block;animation:ko-spin 0.8s linear infinite}
     ::-webkit-scrollbar{width:8px;height:8px}
     ::-webkit-scrollbar-track{background:transparent}
     ::-webkit-scrollbar-thumb{background:rgba(255,255,255,0.14);border-radius:999px}
@@ -4662,6 +4664,11 @@ try {
     const [listingCopy, setListingCopy] = useState(null);
     const [listingCopyLoading, setListingCopyLoading] = useState(false);
     const [listingCopyError, setListingCopyError] = useState("");
+    const [listingSetSlots, setListingSetSlots] = useState([]);
+    const [listingSetLoading, setListingSetLoading] = useState(false);
+    const [listingSetError, setListingSetError] = useState("");
+    const [listingSetRegenSlot, setListingSetRegenSlot] = useState(null);
+    const [expandedSlots, setExpandedSlots] = useState(new Set());
     const [analysisState, setAnalysisState] = useState({
       status: "idle",
       error: "",
@@ -4773,6 +4780,54 @@ try {
         setListingCopyLoading(false);
       }
     };
+    async function generateListingSet() {
+      if (!analysisReady) return;
+      setListingSetLoading(true);
+      setListingSetError("");
+      try {
+        const d = await apiFetch("/api/generate-listing-set", {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({
+            productDescription,
+            ...selectedContextPayload
+          })
+        });
+        if (d?.slots?.length === 20) {
+          setListingSetSlots(d.slots);
+          setExpandedSlots(new Set());
+        } else {
+          setListingSetError("Unexpected response — try again.");
+        }
+      } catch (e) {
+        setListingSetError(e.message || "Generation failed.");
+      } finally {
+        setListingSetLoading(false);
+      }
+    }
+    async function regenerateSlot(slotNumber) {
+      setListingSetRegenSlot(slotNumber);
+      try {
+        const d = await apiFetch("/api/generate-listing-set", {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({
+            productDescription,
+            ...selectedContextPayload,
+            slotFilter: [slotNumber]
+          })
+        });
+        if (d?.slots?.length > 0) {
+          setListingSetSlots(prev =>
+            prev.map(s => d.slots.find(r => r.slot_number === s.slot_number) || s)
+          );
+        }
+      } catch (e) {
+        // silent fail — keep existing slot
+      } finally {
+        setListingSetRegenSlot(null);
+      }
+    }
     const copyListingCopyAll = () => {
       if (!listingCopy) return;
       navigator.clipboard.writeText(formatListingCopy(listingCopy));
@@ -6507,34 +6562,145 @@ ${r.data.thumbnailNotes}`;
     }, "Custom Style"), React.createElement(Tag, {
       active: listingMode === "listing_copy",
       onClick: () => setListingMode("listing_copy")
-    }, "Listing Copy")), listingMode === "full_listing" && React.createElement(React.Fragment, null, React.createElement("label", {
+    }, "Listing Copy")), listingMode === "full_listing" && React.createElement(React.Fragment, null, React.createElement("div", {
+      style: {
+        fontSize: 12,
+        color: "var(--text-secondary)",
+        marginBottom: 12
+      }
+    }, "Generates all 20 Etsy image slots with optimized Flux prompts for each position."), React.createElement("button", {
+      onClick: generateListingSet,
+      disabled: listingSetLoading || !analysisReady,
+      style: {
+        ...touchButton(
+          "1.5px solid rgba(255,220,100,0.35)",
+          "rgba(255,220,100,0.08)",
+          "var(--accent-gold)"
+        ),
+        width: "100%",
+        opacity: (listingSetLoading || !analysisReady) ? 0.5 : 1,
+        cursor: (listingSetLoading || !analysisReady) ? "not-allowed" : "pointer"
+      }
+    }, listingSetLoading ? "⏳ Generating 20 slots..." : "⚡ Generate Full Listing"), !analysisReady && React.createElement("div", {
+      style: {
+        fontSize: 11,
+        color: "var(--text-tertiary)",
+        marginTop: 6
+      }
+    }, "Confirm your product analysis above first."), listingSetError && React.createElement("div", {
+      style: {
+        fontSize: 11,
+        color: "var(--danger)",
+        marginTop: 6
+      }
+    }, listingSetError), listingSetSlots.length > 0 && React.createElement("div", {
+      style: {
+        display: "grid",
+        gridTemplateColumns: "1fr 1fr",
+        gap: 8,
+        marginTop: 16
+      }
+    }, listingSetSlots.map(slot => React.createElement("div", {
+      key: slot.slot_number,
+      style: {
+        background: "var(--bg-elevated)",
+        border: "1px solid var(--border-subtle)",
+        borderRadius: "var(--radius-md)",
+        padding: "10px 12px",
+        display: "flex",
+        flexDirection: "column",
+        gap: 6
+      }
+    }, React.createElement("div", {
       style: {
         display: "flex",
-        alignItems: "center",
-        gap: 8,
-        fontSize: 12,
-        color: "rgba(255,255,255,0.62)",
-        cursor: "pointer",
-        marginBottom: 0
+        justifyContent: "space-between",
+        alignItems: "center"
       }
-    }, React.createElement("input", {
-      type: "checkbox",
-      checked: form.generateFullListing,
-      onChange: e => setForm(f => ({
-        ...f,
-        generateFullListing: e.target.checked
-      })),
+    }, React.createElement("span", {
       style: {
-        width: 16
+        background: "rgba(255,220,100,0.1)",
+        color: "var(--accent-gold)",
+        borderRadius: "var(--radius-sm)",
+        padding: "2px 7px",
+        fontSize: 10,
+        fontWeight: 700,
+        fontFamily: "'DM Mono',monospace"
       }
-    }), "Generate full Etsy listing copy"), React.createElement("div", {
+    }, slot.slot_number), React.createElement("button", {
+      onClick: () => regenerateSlot(slot.slot_number),
+      disabled: listingSetRegenSlot !== null,
+      style: {
+        background: "none",
+        border: "none",
+        cursor: listingSetRegenSlot !== null ? "not-allowed" : "pointer",
+        color: "var(--text-tertiary)",
+        fontSize: 14,
+        padding: "2px 4px"
+      }
+    }, React.createElement("span", {
+      className: listingSetRegenSlot === slot.slot_number ? "ko-spin" : ""
+    }, "↻"))), React.createElement("div", {
+      style: {
+        fontSize: 11,
+        fontWeight: 600,
+        color: "var(--text-primary)"
+      }
+    }, slot.slot_name.replace(/_/g, " ")), React.createElement("span", {
+      style: {
+        display: "inline-block",
+        background: "var(--bg-hover)",
+        border: "1px solid var(--border-subtle)",
+        borderRadius: "var(--radius-pill)",
+        padding: "2px 8px",
+        fontSize: 10,
+        color: "var(--text-secondary)",
+        alignSelf: "flex-start"
+      }
+    }, slot.shot_type), React.createElement("div", {
       style: {
         fontSize: 10,
-        color: "rgba(255,255,255,0.34)",
-        marginTop: 7,
-        lineHeight: 1.45
+        color: "var(--text-tertiary)"
       }
-    }, "Use the product description panel above as the source for listing copy.")), listingMode === "custom_style" && React.createElement(React.Fragment, null, React.createElement("div", {
+    }, slot.priority === 1 ? "🔥 High priority" : slot.priority === 2 ? "● Mid priority" : "○ Supporting"), React.createElement("div", null, React.createElement("div", {
+      style: {
+        fontSize: 11,
+        color: "var(--text-secondary)",
+        lineHeight: 1.5,
+        fontFamily: "'DM Mono',monospace",
+        wordBreak: "break-word"
+      }
+    }, expandedSlots.has(slot.slot_number)
+      ? slot.prompt
+      : slot.prompt.slice(0, 80) + (slot.prompt.length > 80 ? "..." : "")
+    ), slot.prompt.length > 80 && React.createElement("button", {
+      onClick: () => setExpandedSlots(prev => {
+        const next = new Set(prev);
+        next.has(slot.slot_number) ? next.delete(slot.slot_number) : next.add(slot.slot_number);
+        return next;
+      }),
+      style: {
+        background: "none",
+        border: "none",
+        cursor: "pointer",
+        color: "var(--accent-blue)",
+        fontSize: 10,
+        padding: "2px 0",
+        marginTop: 2
+      }
+    }, expandedSlots.has(slot.slot_number) ? "‹ Hide" : "Show prompt ›"), expandedSlots.has(slot.slot_number) && React.createElement("button", {
+      onClick: () => navigator.clipboard.writeText(slot.prompt),
+      style: {
+        background: "none",
+        border: "none",
+        cursor: "pointer",
+        color: "var(--accent-blue)",
+        fontSize: 10,
+        padding: "2px 0",
+        marginTop: 2,
+        display: "block"
+      }
+    }, "Copy prompt"))))), listingMode === "custom_style" && React.createElement(React.Fragment, null, React.createElement("div", {
       style: {
         fontSize: 9,
         color: "rgba(255,255,255,0.28)",
@@ -7195,7 +7361,7 @@ ${r.data.thumbnailNotes}`;
           selected: true
         })
       });
-    })))));
+    })))))));
   }
   ReactDOM.createRoot(document.getElementById("root")).render(React.createElement(App, null));
 } catch (err) {
