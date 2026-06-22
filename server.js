@@ -465,6 +465,14 @@ function authStorageErrorCode(error) {
   return "server_error";
 }
 
+function authStorageDiagnostic(error) {
+  const raw = String(error?.message || error || "");
+  return raw
+    .replace(new RegExp(SUPABASE_SERVICE_ROLE_KEY, "g"), "[redacted]")
+    .replace(/eyJ[A-Za-z0-9_-]+\.[A-Za-z0-9_-]+\.[A-Za-z0-9_-]+/g, "[jwt]")
+    .slice(0, 420);
+}
+
 function normalizeAuthEmail(value) {
   return String(value || "").trim().toLowerCase().slice(0, 180);
 }
@@ -2420,7 +2428,7 @@ app.post("/api/auth/register", async (req, res) => {
     if (code === "auth_storage_permission") return res.status(503).json({ code, error: "Account storage permission failed" });
     if (code === "auth_schema_missing") return res.status(503).json({ code, error: "Account database is not ready" });
     if (code === "auth_schema_mismatch") return res.status(503).json({ code, error: "Account database schema does not match the app" });
-    res.status(500).json({ code: "server_error", error: "Registration failed" });
+    res.status(500).json({ code: "server_error", error: "Registration failed", diagnostic: authStorageDiagnostic(e) });
   }
 });
 
@@ -2449,7 +2457,7 @@ app.post("/api/auth/login", async (req, res) => {
     if (code === "auth_storage_permission") return res.status(503).json({ code, error: "Account storage permission failed" });
     if (code === "auth_schema_missing") return res.status(503).json({ code, error: "Account database is not ready" });
     if (code === "auth_schema_mismatch") return res.status(503).json({ code, error: "Account database schema does not match the app" });
-    res.status(500).json({ code: "server_error", error: "Login failed" });
+    res.status(500).json({ code: "server_error", error: "Login failed", diagnostic: authStorageDiagnostic(e) });
   }
 });
 
