@@ -427,7 +427,13 @@ function sanitizeUserRow(row = {}) {
 }
 
 function authStorageConfigured() {
-  return !!(SUPABASE_URL && SUPABASE_SERVICE_ROLE_KEY);
+  if (!SUPABASE_URL || !SUPABASE_SERVICE_ROLE_KEY) return false;
+  try {
+    const url = new URL(SUPABASE_URL);
+    return url.protocol === "https:" && url.hostname.endsWith(".supabase.co");
+  } catch {
+    return false;
+  }
 }
 
 function supabaseConnectionInfo() {
@@ -436,7 +442,7 @@ function supabaseConnectionInfo() {
     const url = new URL(SUPABASE_URL);
     return {
       configured: authStorageConfigured(),
-      urlValid: url.protocol === "https:" && !!url.hostname,
+      urlValid: url.protocol === "https:" && url.hostname.endsWith(".supabase.co"),
       host: url.hostname,
     };
   } catch {
