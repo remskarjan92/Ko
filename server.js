@@ -431,7 +431,9 @@ function authStorageErrorCode(error) {
     message.includes("relation") && message.includes("does not exist") ||
     message.includes("could not find the table") ||
     message.includes("schema cache") ||
-    message.includes("column") && message.includes("does not exist")
+    message.includes("column") && message.includes("does not exist") ||
+    message.includes("pgrst204") ||
+    message.includes("pgrst205")
   ) {
     return "auth_schema_missing";
   }
@@ -439,9 +441,19 @@ function authStorageErrorCode(error) {
     message.includes("permission denied") ||
     message.includes("row-level security") ||
     message.includes("invalid api key") ||
-    message.includes("jwt")
+    message.includes("jwt") ||
+    message.includes("invalid claim") ||
+    message.includes("apikey")
   ) {
     return "auth_storage_permission";
+  }
+  if (
+    message.includes("null value") ||
+    message.includes("violates not-null constraint") ||
+    message.includes("violates check constraint") ||
+    message.includes("invalid input syntax")
+  ) {
+    return "auth_schema_mismatch";
   }
   if (message.includes("duplicate key") || message.includes("23505")) return "account_exists";
   return "server_error";
@@ -2399,6 +2411,7 @@ app.post("/api/auth/register", async (req, res) => {
     if (code === "auth_storage_not_configured") return res.status(503).json({ code, error: "Account storage is not configured" });
     if (code === "auth_storage_permission") return res.status(503).json({ code, error: "Account storage permission failed" });
     if (code === "auth_schema_missing") return res.status(503).json({ code, error: "Account database is not ready" });
+    if (code === "auth_schema_mismatch") return res.status(503).json({ code, error: "Account database schema does not match the app" });
     res.status(500).json({ code: "server_error", error: "Registration failed" });
   }
 });
