@@ -22,7 +22,7 @@ const USER_SESSION_TTL_MS = 1000 * 60 * 60 * 24 * 7;
 const ADMIN_LOGIN_RATE_WINDOW_MS = 60 * 1000;
 const ADMIN_LOGIN_RATE_MAX = 8;
 const FLORENCE_VERSION = "da53547e17d45b9cfb48174b2f18af8b83ca020fa76db62136bf9c6616762595";
-const SUPABASE_URL = (process.env.SUPABASE_URL || "").replace(/\/+$/, "");
+const SUPABASE_URL = (process.env.SUPABASE_URL || "").trim().replace(/\/+$/, "");
 const SUPABASE_SERVICE_ROLE_KEY = process.env.SUPABASE_SERVICE_ROLE_KEY || "";
 const ANALYTICS_HMAC_SECRET = process.env.ANALYTICS_HMAC_SECRET || "";
 const ANALYTICS_SCHEMA = "analytics_private";
@@ -430,6 +430,20 @@ function authStorageConfigured() {
   return !!(SUPABASE_URL && SUPABASE_SERVICE_ROLE_KEY);
 }
 
+function supabaseConnectionInfo() {
+  if (!SUPABASE_URL) return { configured: false, urlValid: false, host: null };
+  try {
+    const url = new URL(SUPABASE_URL);
+    return {
+      configured: authStorageConfigured(),
+      urlValid: url.protocol === "https:" && !!url.hostname,
+      host: url.hostname,
+    };
+  } catch {
+    return { configured: authStorageConfigured(), urlValid: false, host: null };
+  }
+}
+
 function authStorageErrorCode(error) {
   const message = String(error?.message || error || "").toLowerCase();
   if (message.includes("supabase is not configured")) return "auth_storage_not_configured";
@@ -467,7 +481,8 @@ function authStorageErrorCode(error) {
 
 function authStorageDiagnostic(error) {
   const raw = String(error?.message || error || "");
-  return raw
+  const cause = error?.cause ? ` cause=${error.cause.code || error.cause.name || "unknown"} ${error.cause.hostname || ""}` : "";
+  return `${raw}${cause}`
     .replace(new RegExp(SUPABASE_SERVICE_ROLE_KEY, "g"), "[redacted]")
     .replace(/eyJ[A-Za-z0-9_-]+\.[A-Za-z0-9_-]+\.[A-Za-z0-9_-]+/g, "[jwt]")
     .slice(0, 420);
@@ -2355,6 +2370,7 @@ app.get("/api/auth/session", (req, res) => {
     email: session?.email || null,
     configured: !!USER_SESSION_SECRET,
     storageConfigured: authStorageConfigured(),
+    storage: supabaseConnectionInfo(),
     build: process.env.RAILWAY_GIT_COMMIT_SHA || process.env.GIT_COMMIT_SHA || "local",
   });
 });
