@@ -430,12 +430,29 @@ function authStorageErrorCode(error) {
   if (
     message.includes("relation") && message.includes("does not exist") ||
     message.includes("could not find the table") ||
-    message.includes("schema cache")
+    message.includes("schema cache") ||
+    message.includes("column") && message.includes("does not exist")
   ) {
     return "auth_schema_missing";
   }
+  if (
+    message.includes("permission denied") ||
+    message.includes("row-level security") ||
+    message.includes("invalid api key") ||
+    message.includes("jwt")
+  ) {
+    return "auth_storage_permission";
+  }
   if (message.includes("duplicate key") || message.includes("23505")) return "account_exists";
   return "server_error";
+}
+
+function normalizeAuthEmail(value) {
+  return String(value || "").trim().toLowerCase().slice(0, 180);
+}
+
+function normalizeAuthUsername(value) {
+  return String(value || "").trim().replace(/\s+/g, "_").slice(0, 80);
 }
 
 function stablePromptHash(value = "") {
@@ -2319,17 +2336,22 @@ app.post("/api/auth/register", async (req, res) => {
   if (!authStorageConfigured()) return res.status(503).json({ code: "auth_storage_not_configured", error: "Account storage is not configured" });
   if (!rateLimitUserLogin(req, res)) return;
   try {
-    const email = safeText(req.body?.email, 180).toLowerCase();
-    const username = safeText(req.body?.username, 80);
+    const email = normalizeAuthEmail(req.body?.email);
+    const username = normalizeAuthUsername(req.body?.username);
     const password = String(req.body?.password || "");
-    if (!email || !username || password.length < 8) {
-      return res.status(400).json({ error: "Invalid registration details" });
+    if (!email || !email.includes("@") || !username || password.length < 8) {
+      return res.status(400).json({ code: "invalid_registration", error: "Invalid registration details" });
     }
-    const existing = await supabaseRestQuerySchema("public", "ko_users", {
-      params: { or: `(email.eq.${email},username.eq.${username})` },
+    const existingByEmail = await supabaseRestQuerySchema("public", "ko_users", {
+      params: { email: `eq.${email}` },
       limit: 1,
     });
-    if (existing.length) return res.status(409).json({ error: "Account already exists" });
+    if (existingByEmail.length) return res.status(409).json({ code: "account_exists", error: "Account already exists" });
+    const existingByUsername = await supabaseRestQuerySchema("public", "ko_users", {
+      params: { username: `eq.${username}` },
+      limit: 1,
+    });
+    if (existingByUsername.length) return res.status(409).json({ code: "account_exists", error: "Account already exists" });
     const password_hash = createPasswordHash(password);
     const [user] = await (async () => {
       const res2 = await fetch(`${SUPABASE_URL}/rest/v1/ko_users`, {
@@ -2356,6 +2378,7 @@ app.post("/api/auth/register", async (req, res) => {
       }
       return await res2.json();
     })();
+    if (!user?.id) throw new Error("Supabase ko_users insert returned no user");
     await supabaseRestInsertSchema("public", "ko_credit_transactions", [{
       user_id: user.id,
       action: "welcome_credit",
@@ -2374,6 +2397,7 @@ app.post("/api/auth/register", async (req, res) => {
     console.error("[auth/register] failed:", e.message);
     if (code === "account_exists") return res.status(409).json({ code, error: "Account already exists" });
     if (code === "auth_storage_not_configured") return res.status(503).json({ code, error: "Account storage is not configured" });
+    if (code === "auth_storage_permission") return res.status(503).json({ code, error: "Account storage permission failed" });
     if (code === "auth_schema_missing") return res.status(503).json({ code, error: "Account database is not ready" });
     res.status(500).json({ code: "server_error", error: "Registration failed" });
   }
