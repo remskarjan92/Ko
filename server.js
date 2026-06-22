@@ -91,6 +91,12 @@ function pruneAnalyzeCache() {
 }
 
 app.use(express.json({ limit: "25mb" }));
+app.use((req, res, next) => {
+  if (req.path === "/" || req.path === "/index.html") {
+    res.setHeader("Cache-Control", "no-store, max-age=0");
+  }
+  next();
+});
 app.use(express.static(__dirname));
 
 // ─── Key storage ──────────────────────────────────────────────────────────────
@@ -2340,6 +2346,8 @@ app.get("/api/auth/session", (req, res) => {
     username: session?.username || null,
     email: session?.email || null,
     configured: !!USER_SESSION_SECRET,
+    storageConfigured: authStorageConfigured(),
+    build: process.env.RAILWAY_GIT_COMMIT_SHA || process.env.GIT_COMMIT_SHA || "local",
   });
 });
 
