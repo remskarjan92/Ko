@@ -2304,6 +2304,8 @@ try {
     if (data?.code === "user_not_found") return "User not found. Create an account first.";
     if (data?.code === "missing_credentials") return "Email or username and password are required.";
     if (data?.code === "account_disabled") return "This account is not active. Contact support.";
+    if (data?.code === "user_auth_not_configured" || data?.code === "auth_storage_not_configured") return "Account creation is not configured yet.";
+    if (data?.code === "auth_schema_missing") return "Account database is not ready yet. Contact support.";
     if (status >= 500 || data?.code === "server_error") return "Server error. Please try again in a moment.";
     return "Login failed. Please check your details.";
   }
@@ -2333,7 +2335,7 @@ try {
         if (mode === "register") {
           const { res, data } = await requestJson("/api/auth/register", { email, username, password });
           if (!res.ok) {
-            setMessage(res.status === 409 ? "Account already exists. Sign in instead." : res.status >= 500 ? "Server error. Please try again." : "Use a valid email, username, and at least 8 password characters.");
+            setMessage(res.status === 409 ? "Account already exists. Sign in instead." : userAuthMessage(res.status, data));
             return;
           }
           onAuthenticated({ role: "user", user: data.user || null });

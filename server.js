@@ -420,6 +420,24 @@ function sanitizeUserRow(row = {}) {
   };
 }
 
+function authStorageConfigured() {
+  return !!(SUPABASE_URL && SUPABASE_SERVICE_ROLE_KEY);
+}
+
+function authStorageErrorCode(error) {
+  const message = String(error?.message || error || "").toLowerCase();
+  if (message.includes("supabase is not configured")) return "auth_storage_not_configured";
+  if (
+    message.includes("relation") && message.includes("does not exist") ||
+    message.includes("could not find the table") ||
+    message.includes("schema cache")
+  ) {
+    return "auth_schema_missing";
+  }
+  if (message.includes("duplicate key") || message.includes("23505")) return "account_exists";
+  return "server_error";
+}
+
 function stablePromptHash(value = "") {
   return crypto.createHash("sha256").update(String(value || "")).digest("hex").slice(0, 24);
 }
@@ -2297,7 +2315,8 @@ app.get("/api/auth/session", (req, res) => {
 });
 
 app.post("/api/auth/register", async (req, res) => {
-  if (!USER_SESSION_SECRET) return res.status(503).json({ error: "User auth is not configured" });
+  if (!USER_SESSION_SECRET) return res.status(503).json({ code: "user_auth_not_configured", error: "Account creation is not configured" });
+  if (!authStorageConfigured()) return res.status(503).json({ code: "auth_storage_not_configured", error: "Account storage is not configured" });
   if (!rateLimitUserLogin(req, res)) return;
   try {
     const email = safeText(req.body?.email, 180).toLowerCase();
@@ -2312,10 +2331,6 @@ app.post("/api/auth/register", async (req, res) => {
     });
     if (existing.length) return res.status(409).json({ error: "Account already exists" });
     const password_hash = createPasswordHash(password);
-    const inserted = await supabaseRestQuerySchema("public", "ko_users", {
-      select: "*",
-      limit: 1,
-    }).catch(() => []);
     const [user] = await (async () => {
       const res2 = await fetch(`${SUPABASE_URL}/rest/v1/ko_users`, {
         method: "POST",
@@ -2349,11 +2364,18 @@ app.post("/api/auth/register", async (req, res) => {
       credits_removed: 0,
       balance_after: DEFAULT_STARTING_CREDITS,
       metadata: { source: "register" },
-    }]);
+    }]).catch(error => {
+      console.warn("[auth/register] welcome credit transaction skipped:", error.message);
+    });
     setUserSessionCookie(res, user);
     res.json({ ok: true, user: sanitizeUserRow(user) });
   } catch (e) {
-    res.status(500).json({ error: "Registration failed" });
+    const code = authStorageErrorCode(e);
+    console.error("[auth/register] failed:", e.message);
+    if (code === "account_exists") return res.status(409).json({ code, error: "Account already exists" });
+    if (code === "auth_storage_not_configured") return res.status(503).json({ code, error: "Account storage is not configured" });
+    if (code === "auth_schema_missing") return res.status(503).json({ code, error: "Account database is not ready" });
+    res.status(500).json({ code: "server_error", error: "Registration failed" });
   }
 });
 
