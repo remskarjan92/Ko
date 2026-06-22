@@ -2304,7 +2304,8 @@ try {
     if (data?.code === "user_not_found") return "User not found. Create an account first.";
     if (data?.code === "missing_credentials") return "Email or username and password are required.";
     if (data?.code === "account_disabled") return "This account is not active. Contact support.";
-    if (data?.code === "user_auth_not_configured" || data?.code === "auth_storage_not_configured") return "Account creation is not configured yet.";
+    if (data?.code === "user_auth_not_configured") return "Account sessions are not configured. Set USER_SESSION_SECRET or ADMIN_SESSION_SECRET in Railway.";
+    if (data?.code === "auth_storage_not_configured") return "Account storage is not configured. Set SUPABASE_URL and SUPABASE_SERVICE_ROLE_KEY in Railway.";
     if (data?.code === "auth_storage_permission") return "Account storage permissions are not configured correctly.";
     if (data?.code === "auth_schema_missing") return "Account database is not ready yet. Contact support.";
     if (data?.code === "auth_schema_mismatch") return "Account database schema does not match this app version.";
