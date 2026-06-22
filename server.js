@@ -2425,7 +2425,8 @@ app.post("/api/auth/register", async (req, res) => {
 });
 
 app.post("/api/auth/login", async (req, res) => {
-  if (!USER_SESSION_SECRET) return res.status(503).json({ error: "User auth is not configured" });
+  if (!USER_SESSION_SECRET) return res.status(503).json({ code: "user_auth_not_configured", error: "Account sessions are not configured" });
+  if (!authStorageConfigured()) return res.status(503).json({ code: "auth_storage_not_configured", error: "Account storage is not configured" });
   if (!rateLimitUserLogin(req, res)) return;
   try {
     const login = safeText(req.body?.login || req.body?.email || req.body?.username, 180);
@@ -2442,6 +2443,12 @@ app.post("/api/auth/login", async (req, res) => {
     setUserSessionCookie(res, user);
     res.json({ ok: true, user: sanitizeUserRow(user) });
   } catch (e) {
+    const code = authStorageErrorCode(e);
+    console.error("[auth/login] failed:", e.message);
+    if (code === "auth_storage_not_configured") return res.status(503).json({ code, error: "Account storage is not configured" });
+    if (code === "auth_storage_permission") return res.status(503).json({ code, error: "Account storage permission failed" });
+    if (code === "auth_schema_missing") return res.status(503).json({ code, error: "Account database is not ready" });
+    if (code === "auth_schema_mismatch") return res.status(503).json({ code, error: "Account database schema does not match the app" });
     res.status(500).json({ code: "server_error", error: "Login failed" });
   }
 });
