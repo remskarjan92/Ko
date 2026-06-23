@@ -2319,6 +2319,7 @@ try {
     const [email, setEmail] = useState("");
     const [username, setUsername] = useState("");
     const [password, setPassword] = useState("");
+    const [showPassword, setShowPassword] = useState(false);
     const [message, setMessage] = useState("");
     const [loading, setLoading] = useState(false);
     const [showAdmin, setShowAdmin] = useState(false);
@@ -2422,14 +2423,34 @@ try {
         React.createElement("label", { style: { display: "block", marginBottom: 12 } }, React.createElement("div", { style: { fontSize: 12, color: "rgba(255,255,255,0.58)", marginBottom: 6 } }, "Email"), React.createElement("input", { type: "email", value: email, onChange: e => setEmail(e.target.value), placeholder: "you@shop.com" })),
         React.createElement("label", { style: { display: "block", marginBottom: 12 } }, React.createElement("div", { style: { fontSize: 12, color: "rgba(255,255,255,0.58)", marginBottom: 6 } }, "Username"), React.createElement("input", { type: "text", value: username, onChange: e => setUsername(e.target.value), placeholder: "shopname" }))),
       (mode !== "register" || showAdmin) && React.createElement("label", { style: { display: "block", marginBottom: 12 } }, React.createElement("div", { style: { fontSize: 12, color: "rgba(255,255,255,0.58)", marginBottom: 6 } }, showAdmin ? "Admin username" : "Email or username"), React.createElement("input", { type: "text", value: login, onChange: e => setLogin(e.target.value), placeholder: showAdmin ? "admin" : "you@shop.com" })),
-      React.createElement("label", { style: { display: "block", marginBottom: 14 } }, React.createElement("div", { style: { fontSize: 12, color: "rgba(255,255,255,0.58)", marginBottom: 6 } }, "Password"), React.createElement("input", {
-        type: "password",
+      React.createElement("label", { style: { display: "block", marginBottom: 14 } }, React.createElement("div", { style: { fontSize: 12, color: "rgba(255,255,255,0.58)", marginBottom: 6 } }, "Password"), React.createElement("div", {
+        style: {
+          position: "relative"
+        }
+      }, React.createElement("input", {
+        type: showPassword ? "text" : "password",
         value: password,
         onChange: e => setPassword(e.target.value),
         onKeyDown: e => { if (e.key === "Enter" && !loading) submit(); },
         placeholder: "Enter your password",
-        style: { letterSpacing: 0 }
-      })),
+        style: { letterSpacing: 0, paddingRight: 78 }
+      }), React.createElement("button", {
+        type: "button",
+        onClick: () => setShowPassword(s => !s),
+        style: {
+          position: "absolute",
+          right: 10,
+          top: "50%",
+          transform: "translateY(-50%)",
+          background: "none",
+          border: "none",
+          color: "rgba(255,255,255,0.58)",
+          cursor: "pointer",
+          fontSize: 12,
+          fontWeight: 700,
+          padding: 0
+        }
+      }, showPassword ? "Hide" : "Show"))),
       message && React.createElement("div", {
         style: {
           border: "1px solid rgba(255,255,255,0.10)",
