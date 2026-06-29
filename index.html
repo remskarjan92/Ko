@@ -222,10 +222,80 @@
       cursor:pointer;
     }
     .app-nav button:hover{background:rgba(255,255,255,0.075);color:#fff}
+    .app-nav button[data-active="true"]{
+      background:rgba(255,220,100,0.12);
+      border-color:rgba(255,220,100,0.32);
+      color:#fff;
+    }
+    .app-shell-sidebar{
+      position:fixed;
+      top:0;
+      left:0;
+      bottom:0;
+      width:288px;
+      padding:18px 14px;
+      z-index:20;
+      pointer-events:none;
+    }
+    .app-shell-sidebar > *{
+      pointer-events:auto;
+    }
+    .app-shell-sidebar-panel{
+      height:100%;
+      border:1px solid rgba(255,255,255,0.08);
+      border-radius:22px;
+      background:rgba(11,13,18,0.78);
+      backdrop-filter: blur(18px);
+      box-shadow:0 24px 80px rgba(0,0,0,0.32);
+      padding:18px 14px;
+      display:flex;
+      flex-direction:column;
+      gap:14px;
+      overflow:hidden;
+    }
+    .app-shell-sidebar-nav{
+      display:flex;
+      flex-direction:column;
+      gap:8px;
+    }
+    .app-shell-sidebar-nav button{
+      width:100%;
+      text-align:left;
+      border-radius:14px;
+      border:1px solid rgba(255,255,255,0.08);
+      background:rgba(255,255,255,0.03);
+      color:rgba(255,255,255,0.82);
+      padding:12px 12px;
+      cursor:pointer;
+      transition:all 0.18s ease;
+      display:flex;
+      align-items:center;
+      justify-content:space-between;
+      gap:10px;
+    }
+    .app-shell-sidebar-nav button:hover{
+      background:rgba(255,255,255,0.06);
+      border-color:rgba(255,220,100,0.24);
+      color:#fff;
+    }
+    .app-shell-sidebar-nav button[data-active="true"]{
+      background:linear-gradient(135deg, rgba(255,220,100,0.14), rgba(255,255,255,0.05));
+      border-color:rgba(255,220,100,0.30);
+      color:#fff;
+    }
+    .app-root-shell{
+      margin-left:288px;
+    }
     @media (max-width: 760px){
       .auth-card{padding:22px;border-radius:18px}
       .app-header-row{align-items:flex-start!important;flex-direction:column}
       .app-nav{justify-content:flex-start;width:100%}
+      .workspace-intro-grid{grid-template-columns:minmax(0,1fr)!important}
+      .workspace-intro-actions{flex-direction:column}
+      .workspace-intro-actions button{width:100%}
+      .app-shell-sidebar{position:static;width:auto;padding:0 18px 12px}
+      .app-shell-sidebar-panel{height:auto;border-radius:18px}
+      .app-root-shell{margin-left:0}
     }
   </style>
 </head>
@@ -243,6 +313,58 @@ try {
   const PROMPT_LEARNING_ENABLED_KEY = "etsy_mockup_prompt_learning_enabled_v1";
   const DIVERSITY_HISTORY_STORAGE_KEY = "etsy_mockup_diversity_history_v1";
   const ANALYTICS_INSTALL_ID_KEY = "ko.analytics.installId";
+  const USER_ROUTE_MAP = Object.freeze({
+    "/dashboard": { shell: "user", label: "Dashboard", title: "Overview", description: "Account health, credits, recent work, and the current generation workspace.", sectionId: "dashboard-section", status: "existing" },
+    "/generations": { shell: "user", label: "Generations", title: "Generations", description: "Generated mockups, prompt outputs, downloads, and regeneration actions.", sectionId: "results-section", status: "existing" },
+    "/credits": { shell: "user", label: "Credits", title: "Billing", description: "Credit balance and usage history are shown in the account overview for now.", sectionId: "credits-section", status: "existing" },
+    "/account": { shell: "user", label: "Account", title: "Profile", description: "Profile details, account status, and account management.", sectionId: "account-section", status: "existing" },
+    "/settings": { shell: "user", label: "Settings", title: "Settings", description: "Generation preferences, prompt preferences, and account/session controls.", sectionId: "account-section", status: "existing" }
+  });
+  const ADMIN_ROUTE_MAP = Object.freeze({
+    "/admin": { shell: "admin", label: "Dashboard", title: "Admin Overview", description: "Platform status, provider readiness, and operational controls.", sectionId: "dashboard-section", status: "existing" },
+    "/admin/users": { shell: "admin", label: "Users", title: "Users", description: "Search, inspect, and manage user accounts.", sectionId: "dashboard-section", status: "existing" },
+    "/admin/credits": { shell: "admin", label: "Credits", title: "Credit Management", description: "Credit rules, packages, pricing, and manual adjustments.", sectionId: "credits-section", status: "existing" },
+    "/admin/transactions": { shell: "admin", label: "Transactions", title: "Transactions", description: "Complete credit ledger and account balance history.", sectionId: "credits-section", status: "existing" },
+    "/admin/generations": { shell: "admin", label: "Generations", title: "Generation Management", description: "Review platform generation activity, outputs, failures, and refunds.", sectionId: "results-section", status: "existing" },
+    "/admin/analytics": { shell: "admin", label: "Analytics", title: "Analytics", description: "Usage, quality, cost, model, and category performance.", sectionId: "learning-section", status: "existing" },
+    "/admin/prompts": { shell: "admin", label: "Prompts", title: "Prompt Management", description: "Master, fix, scoring, research, and video prompt operations.", sectionId: "compose-section", status: "existing" },
+    "/admin/models": { shell: "admin", label: "AI Models", title: "AI Models", description: "Provider status, priority, fallback, cost, and response time controls.", sectionId: "compose-section", status: "existing" },
+    "/admin/quality": { shell: "admin", label: "Quality", title: "Quality Control", description: "Quality score trends, issue breakdowns, fixes, and regeneration behavior.", sectionId: "learning-section", status: "existing" },
+    "/admin/learning": { shell: "admin", label: "Learning", title: "Learning Center", description: "Concept scores, dimensions, prompt variants, and self-improvement signals.", sectionId: "learning-section", status: "existing" },
+    "/admin/research": { shell: "admin", label: "Research", title: "Research Database", description: "Learning analytics, concept leaderboards, and research exports.", sectionId: "learning-section", status: "existing" },
+    "/admin/settings": { shell: "admin", label: "Settings", title: "Admin Settings", description: "Keys, storage, model settings, feature toggles, and deployment controls.", sectionId: "account-section", status: "existing" }
+  });
+  const FRONTEND_ROUTE_MAP = Object.freeze({
+    ...USER_ROUTE_MAP,
+    ...ADMIN_ROUTE_MAP
+  });
+  const normalizeRoute = path => {
+    let value = String(path || "").trim();
+    if (!value && typeof window !== "undefined") {
+      value = window.location.hash || window.location.pathname || "/dashboard";
+    }
+    if (value.startsWith("#")) value = value.slice(1);
+    try {
+      if (/^https?:\/\//i.test(value)) value = new URL(value).pathname;
+    } catch {}
+    value = value.split("?")[0].split("#")[0] || "/dashboard";
+    if (!value.startsWith("/")) value = `/${value}`;
+    value = value.replace(/\/{2,}/g, "/").replace(/\/+$/, "") || "/dashboard";
+    if (FRONTEND_ROUTE_MAP[value]) return value;
+    return value.startsWith("/admin") ? "/admin" : "/dashboard";
+  };
+  const getRouteConfig = path => FRONTEND_ROUTE_MAP[normalizeRoute(path)] || FRONTEND_ROUTE_MAP["/dashboard"];
+  const getShellType = path => getRouteConfig(path).shell;
+  const isAdminRoute = path => getShellType(path) === "admin";
+  const getCurrentRoutePath = () => normalizeRoute(typeof window === "undefined" ? "/dashboard" : window.location.hash || window.location.pathname);
+  const setHashRoute = route => {
+    if (typeof window === "undefined") return;
+    const normalized = normalizeRoute(route);
+    if (window.location.hash !== `#${normalized}`) {
+      window.history.pushState(null, "", `#${normalized}`);
+      window.dispatchEvent(new Event("hashchange"));
+    }
+  };
   const ANALYTICS_CONSENT_KEY = "ko.analytics.consent";
   const ANALYTICS_OUTBOX_KEY = "ko.analytics.outbox.v1";
   const DEBUG_FLAGS_KEY = "ko.debug.flags";
@@ -2287,6 +2409,1028 @@ try {
       }
     }, item.description))));
   }
+  function RoutePageHeader({
+    route
+  }) {
+    if (!route) return null;
+    const isPlaceholder = route.status === "placeholder";
+    return React.createElement("section", {
+      style: {
+        maxWidth: 1120,
+        margin: "0 auto",
+        padding: "16px 20px 0"
+      }
+    }, React.createElement("div", {
+      style: {
+        display: "flex",
+        justifyContent: "space-between",
+        gap: 14,
+        alignItems: "flex-start",
+        borderBottom: "1px solid rgba(255,255,255,0.07)",
+        paddingBottom: 14
+      }
+    }, React.createElement("div", {
+      style: { minWidth: 0 }
+    }, React.createElement("div", {
+      style: {
+        color: isPlaceholder ? "rgba(90,180,255,0.74)" : "rgba(255,220,100,0.70)",
+        fontFamily: "'DM Mono',monospace",
+        fontSize: 10,
+        letterSpacing: "0.16em",
+        marginBottom: 6,
+        textTransform: "uppercase"
+      }
+    }, `${route.shell} route · ${route.status}`), React.createElement("h2", {
+      style: {
+        color: "#fff",
+        fontFamily: "'Playfair Display',serif",
+        fontSize: 25,
+        lineHeight: 1.15,
+        marginBottom: 6
+      }
+    }, route.title || route.label), React.createElement("p", {
+      style: {
+        color: "rgba(255,255,255,0.58)",
+        fontSize: 13,
+        lineHeight: 1.55,
+        maxWidth: 720
+      }
+    }, route.description)), React.createElement("div", {
+      style: {
+        border: "1px solid rgba(255,255,255,0.09)",
+        borderRadius: 999,
+        color: isPlaceholder ? "rgba(90,180,255,0.90)" : "rgba(126,232,162,0.88)",
+        background: isPlaceholder ? "rgba(90,180,255,0.07)" : "rgba(126,232,162,0.07)",
+        fontFamily: "'DM Mono',monospace",
+        fontSize: 10,
+        letterSpacing: "0.10em",
+        padding: "7px 10px",
+        textTransform: "uppercase",
+        whiteSpace: "nowrap"
+      }
+    }, isPlaceholder ? "Next phase" : "Existing")));
+  }
+  function RoutePlaceholderPanel({
+    route
+  }) {
+    if (!route || route.status !== "placeholder") return null;
+    return React.createElement("section", {
+      style: {
+        maxWidth: 1120,
+        margin: "0 auto",
+        padding: "14px 20px 0"
+      }
+    }, React.createElement("div", {
+      style: {
+        border: "1px solid rgba(90,180,255,0.16)",
+        borderRadius: 14,
+        background: "rgba(90,180,255,0.045)",
+        padding: "14px 15px"
+      }
+    }, React.createElement("div", {
+      style: {
+        color: "rgba(90,180,255,0.88)",
+        fontFamily: "'DM Mono',monospace",
+        fontSize: 10,
+        letterSpacing: "0.14em",
+        marginBottom: 7,
+        textTransform: "uppercase"
+      }
+    }, "Placeholder"), React.createElement("h3", {
+      style: {
+        color: "#fff",
+        fontSize: 15,
+        marginBottom: 5
+      }
+    }, route.title || route.label), React.createElement("p", {
+      style: {
+        color: "rgba(255,255,255,0.58)",
+        fontSize: 13,
+        lineHeight: 1.55,
+        marginBottom: 8
+      }
+    }, route.placeholder || "This page will get dedicated content in the next phase."), React.createElement("div", {
+      style: {
+        color: "rgba(255,255,255,0.38)",
+        fontSize: 12
+      }
+    }, "Coming in next phase. Existing workspace content remains available below.")));
+  }
+  function UserRouteContent({
+    routePath,
+    session,
+    resultsCount,
+    generatedImages,
+    imageStatusCounts,
+    ratingCount,
+    onNavigate,
+    onOpenSettings
+  }) {
+    if (!["/dashboard", "/credits", "/account", "/generations", "/settings"].includes(routePath)) return null;
+    const creditBalance = session?.credits_balance ?? session?.creditBalance ?? session?.credits ?? null;
+    const rowStyle = {
+      display: "grid",
+      gridTemplateColumns: "minmax(130px, 0.45fr) minmax(0, 1fr)",
+      gap: 12,
+      padding: "10px 0",
+      borderBottom: "1px solid rgba(255,255,255,0.06)"
+    };
+    const labelStyle = {
+      color: "rgba(255,220,100,0.60)",
+      fontFamily: "'DM Mono',monospace",
+      fontSize: 10,
+      letterSpacing: "0.12em",
+      textTransform: "uppercase"
+    };
+    const valueStyle = {
+      color: "rgba(255,255,255,0.82)",
+      fontSize: 13,
+      overflowWrap: "anywhere"
+    };
+    const field = (label, value) => React.createElement("div", {
+      key: label,
+      style: rowStyle
+    }, React.createElement("div", {
+      style: labelStyle
+    }, label), React.createElement("div", {
+      style: valueStyle
+    }, value ?? "Not available"));
+    const statCard = (label, value) => React.createElement("div", {
+      key: label,
+      style: {
+        border: "1px solid rgba(255,255,255,0.07)",
+        borderRadius: 12,
+        background: "rgba(0,0,0,0.14)",
+        padding: "12px"
+      }
+    }, React.createElement("div", {
+      style: labelStyle
+    }, label), React.createElement("div", {
+      style: {
+        color: "#fff",
+        fontSize: 20,
+        fontWeight: 800,
+        marginTop: 5
+      }
+    }, value));
+    const gridStyle = {
+      display: "grid",
+      gridTemplateColumns: "repeat(auto-fit,minmax(180px,1fr))",
+      gap: 10,
+      marginBottom: 12
+    };
+    const actionButtonStyle = {
+      border: "1px solid rgba(255,220,100,0.24)",
+      background: "rgba(255,220,100,0.08)",
+      color: "var(--accent-gold)",
+      borderRadius: 10,
+      padding: "9px 12px",
+      fontWeight: 700,
+      cursor: "pointer"
+    };
+    const sectionCard = (label, value) => React.createElement("div", {
+      key: label,
+      style: {
+        border: "1px solid rgba(255,255,255,0.07)",
+        borderRadius: 12,
+        background: "rgba(0,0,0,0.14)",
+        padding: "12px"
+      }
+    }, React.createElement("div", {
+      style: labelStyle
+    }, label), React.createElement("div", {
+      style: {
+        color: "rgba(255,255,255,0.68)",
+        fontSize: 13,
+        lineHeight: 1.5,
+        marginTop: 5
+      }
+    }, value));
+    return React.createElement("section", {
+      style: {
+        maxWidth: 1120,
+        margin: "0 auto",
+        padding: "14px 20px 0"
+      }
+    }, React.createElement("div", {
+      style: {
+        border: "1px solid rgba(255,255,255,0.08)",
+        borderRadius: 14,
+        background: "rgba(255,255,255,0.028)",
+        padding: "15px"
+      }
+    }, routePath === "/settings" ? React.createElement(React.Fragment, null, React.createElement("div", {
+      style: gridStyle
+    }, [{
+      label: "Generation Defaults",
+      value: "Current defaults remain in the existing generation controls below."
+    }, {
+      label: "Prompt Preferences",
+      value: "Prompt learning and saved preference controls remain in the current workspace for now."
+    }, {
+      label: "Account / Session",
+      value: session?.authenticated ? "This browser has an active user session." : "No active user session details are loaded."
+    }, {
+      label: "API / Provider Keys",
+      value: "Provider keys are still managed through the existing settings modal."
+    }].map(item => sectionCard(item.label, item.value))), React.createElement("div", {
+      style: {
+        color: "rgba(255,255,255,0.56)",
+        fontSize: 13,
+        lineHeight: 1.55,
+        marginBottom: 12
+      }
+    }, "Settings are still managed through the existing modal for now. This panel is a route wrapper only."), React.createElement("button", {
+      type: "button",
+      onClick: onOpenSettings,
+      style: actionButtonStyle
+    }, "Open Settings Modal")) : routePath === "/dashboard" ? React.createElement(React.Fragment, null, React.createElement("div", {
+      style: gridStyle
+    }, [{
+      label: "Credit Balance",
+      value: creditBalance ?? "Not loaded"
+    }, {
+      label: "Current Prompts",
+      value: resultsCount || 0
+    }, {
+      label: "Completed Images",
+      value: generatedImages || 0
+    }, {
+      label: "Ratings / Signals",
+      value: ratingCount || 0
+    }].map(card => statCard(card.label, card.value))), React.createElement("div", {
+      style: {
+        color: "rgba(255,255,255,0.56)",
+        fontSize: 13,
+        lineHeight: 1.55,
+        marginBottom: 12
+      }
+    }, creditBalance == null ? "Dashboard uses the current local session and in-memory generation state. Credit balance is not loaded in this session payload." : "Dashboard uses the current local session and in-memory generation state."), React.createElement("div", {
+      style: {
+        display: "flex",
+        gap: 9,
+        flexWrap: "wrap"
+      }
+    }, React.createElement("button", {
+      type: "button",
+      onClick: () => onNavigate("compose-section"),
+      style: actionButtonStyle
+    }, "Start Generation"), React.createElement("button", {
+      type: "button",
+      onClick: () => onNavigate("results-section", "/generations"),
+      style: actionButtonStyle
+    }, "View Results"), React.createElement("button", {
+      type: "button",
+      onClick: () => onNavigate("credits-section", "/credits"),
+      style: actionButtonStyle
+    }, "Manage Credits"))) : routePath === "/generations" ? React.createElement(React.Fragment, null, React.createElement("div", {
+      style: gridStyle
+    }, [{
+      label: "Prompt Results",
+      value: resultsCount || 0
+    }, {
+      label: "Completed Images",
+      value: generatedImages || 0
+    }, {
+      label: "Pending",
+      value: imageStatusCounts?.pending || 0
+    }, {
+      label: "Failed",
+      value: imageStatusCounts?.failed || 0
+    }, {
+      label: "Rated",
+      value: ratingCount || 0
+    }].map(card => statCard(card.label, card.value))), React.createElement("div", {
+      style: {
+        color: "rgba(255,255,255,0.56)",
+        fontSize: 13,
+        lineHeight: 1.55,
+        marginBottom: 12
+      }
+    }, resultsCount ? "This panel summarizes the current in-memory generation session. The full results grid remains below." : "No generated prompts are loaded in the current workspace yet."), React.createElement("div", {
+      style: {
+        display: "flex",
+        gap: 9,
+        flexWrap: "wrap"
+      }
+    }, React.createElement("button", {
+      type: "button",
+      onClick: () => onNavigate("compose-section"),
+      style: actionButtonStyle
+    }, "Jump to Composer"), React.createElement("button", {
+      type: "button",
+      onClick: () => onNavigate("results-section", "/generations"),
+      style: actionButtonStyle
+    }, "Jump to Results"))) : routePath === "/credits" ? React.createElement(React.Fragment, null, React.createElement("div", {
+      style: gridStyle
+    }, [{
+      label: "Current Credits",
+      value: creditBalance ?? "Not loaded"
+    }, {
+      label: "Prompt Sets This Session",
+      value: resultsCount || 0
+    }, {
+      label: "Images This Session",
+      value: generatedImages || 0
+    }].map(card => statCard(card.label, card.value))), React.createElement("div", {
+      style: {
+        color: "rgba(255,255,255,0.56)",
+        fontSize: 13,
+        lineHeight: 1.55,
+        marginBottom: 12
+      }
+    }, creditBalance == null ? "Credit balance is not present in the current session payload. No extra backend call was added in this phase." : "Credit balance is shown from the current frontend session payload."), React.createElement("div", {
+      style: {
+        border: "1px dashed rgba(255,255,255,0.12)",
+        borderRadius: 12,
+        padding: "12px",
+        color: "rgba(255,255,255,0.46)",
+        fontSize: 13,
+        marginBottom: 12
+      }
+    }, "Transaction history is not loaded in this route yet."), React.createElement("button", {
+      type: "button",
+      onClick: () => onNavigate("results-section", "/generations"),
+      style: actionButtonStyle
+    }, "Back to Generations")) : React.createElement(React.Fragment, null, field("Session Status", session?.authenticated ? "Authenticated" : "Not authenticated"), field("Username", session?.username), field("Email", session?.email), field("User ID", session?.userId || session?.id), field("Account Type", "User"), field("Role", session?.role || "seller"), React.createElement("div", {
+      style: {
+        color: "rgba(255,255,255,0.42)",
+        fontSize: 12,
+        lineHeight: 1.55,
+        paddingTop: 10
+      }
+    }, "Profile editing and password management remain in the existing account/settings flow for now."))));
+  }
+  function AdminRouteContent({
+    routePath,
+    isAdmin,
+    adminSession,
+    keyInfo,
+    resultsCount,
+    generatedImages,
+    imageStatusCounts,
+    ratingCount,
+    onNavigate,
+    onOpenSettings
+  }) {
+    if (!isAdminRoute(routePath)) return null;
+    if (!isAdmin) return null;
+    const route = getRouteConfig(routePath);
+    const panelCopy = {
+      "/admin": "Platform overview, provider readiness, quality signals, and recent operational activity will consolidate here.",
+      "/admin/users": "User search, account status, credit balance, last activity, and admin user actions will live here.",
+      "/admin/credits": "Credit packages, feature costs, manual adjustments, refunds, and pricing controls will live here.",
+      "/admin/transactions": "A filterable ledger of credit additions, usage, refunds, balance changes, and admin adjustments will live here.",
+      "/admin/generations": "All generation records, status, model, score, credit usage, refunds, and detail actions will live here.",
+      "/admin/analytics": "Usage, success rate, average score, cost, latency, model usage, and category trends will live here.",
+      "/admin/prompts": "Master, fix, scoring, research, video prompts, version history, rollback, testing, and performance tracking will live here.",
+      "/admin/models": "Gemini, Claude, Flux, video providers, status, response time, priority, fallback, and cost controls will live here.",
+      "/admin/quality": "Quality score trends, issue breakdowns, fix rate, regeneration rate, and failure diagnostics will live here.",
+      "/admin/learning": "Concept scores, dimension scores, prompt hashes, confidence, and self-improvement signals will live here.",
+      "/admin/research": "Research analytics, concept leaderboards, learning exports, and future Etsy/competitor research will live here.",
+      "/admin/settings": "API keys, Railway/storage settings, feature toggles, model settings, and admin preferences will move here."
+    };
+    const existingTarget = {
+      "/admin": "dashboard-section",
+      "/admin/users": "dashboard-section",
+      "/admin/credits": "credits-section",
+      "/admin/transactions": "credits-section",
+      "/admin/generations": "results-section",
+      "/admin/analytics": "learning-section",
+      "/admin/prompts": "compose-section",
+      "/admin/models": "compose-section",
+      "/admin/quality": "learning-section",
+      "/admin/learning": "learning-section",
+      "/admin/research": "learning-section",
+      "/admin/settings": "account-section"
+    }[routePath];
+    const labelStyle = {
+      color: "rgba(255,220,100,0.60)",
+      fontFamily: "'DM Mono',monospace",
+      fontSize: 10,
+      letterSpacing: "0.12em",
+      textTransform: "uppercase"
+    };
+    const actionButtonStyle = {
+      border: "1px solid rgba(255,220,100,0.24)",
+      background: "rgba(255,220,100,0.08)",
+      color: "var(--accent-gold)",
+      borderRadius: 10,
+      padding: "9px 12px",
+      fontWeight: 700,
+      cursor: "pointer"
+    };
+    const card = (label, value) => React.createElement("div", {
+      key: label,
+      style: {
+        border: "1px solid rgba(255,255,255,0.07)",
+        borderRadius: 12,
+        background: "rgba(0,0,0,0.14)",
+        padding: "12px"
+      }
+    }, React.createElement("div", {
+      style: labelStyle
+    }, label), React.createElement("div", {
+      style: {
+        color: "rgba(255,255,255,0.72)",
+        fontSize: 13,
+        lineHeight: 1.5,
+        marginTop: 5
+      }
+    }, value));
+    const statusCards = [{
+      label: "Admin Session",
+      value: adminSession?.authenticated ? "Authenticated" : "Locked"
+    }, {
+      label: "Provider Keys",
+      value: keyInfo?.gemini?.set && keyInfo?.replicate?.set ? "Ready" : "Check settings"
+    }, {
+      label: "Session Prompts",
+      value: resultsCount || 0
+    }, {
+      label: "Completed Images",
+      value: generatedImages || 0
+    }, {
+      label: "Local Signals",
+      value: ratingCount || 0
+    }];
+    const overviewCards = [{
+      label: "Admin Status",
+      value: adminSession?.authenticated ? "Authenticated" : "Locked"
+    }, {
+      label: "API Key Status",
+      value: keyInfo?.gemini?.set && keyInfo?.replicate?.set ? "Gemini + Replicate ready" : "Needs review"
+    }, {
+      label: "Current Session Prompts",
+      value: resultsCount || 0
+    }, {
+      label: "Completed Images",
+      value: generatedImages || 0
+    }, {
+      label: "Quality / Rating Signals",
+      value: ratingCount || 0
+    }];
+    const analyticsCards = [{
+      label: "Generated Prompts",
+      value: resultsCount || 0
+    }, {
+      label: "Completed Images",
+      value: generatedImages || 0
+    }, {
+      label: "Pending Images",
+      value: imageStatusCounts?.pending || 0
+    }, {
+      label: "Failed Images",
+      value: imageStatusCounts?.failed || 0
+    }, {
+      label: "Rating Signals",
+      value: ratingCount || 0
+    }];
+    const researchCards = [{
+      label: "Research Tools",
+      value: "Available in Service Status"
+    }, {
+      label: "Admin Access",
+      value: adminSession?.authenticated ? "Authenticated" : "Locked"
+    }, {
+      label: "Provider Keys",
+      value: keyInfo?.gemini?.set && keyInfo?.replicate?.set ? "Ready" : "Check settings"
+    }, {
+      label: "Current Prompts",
+      value: resultsCount || 0
+    }];
+    const learningCards = [{
+      label: "Prompt Rating Signals",
+      value: ratingCount || 0
+    }, {
+      label: "Current Session Prompts",
+      value: resultsCount || 0
+    }, {
+      label: "Completed Images",
+      value: generatedImages || 0
+    }, {
+      label: "Pending Images",
+      value: imageStatusCounts?.pending || 0
+    }];
+    const cardsForRoute = routePath === "/admin"
+      ? overviewCards
+      : routePath === "/admin/analytics"
+        ? analyticsCards
+        : routePath === "/admin/research"
+          ? researchCards
+          : routePath === "/admin/learning"
+            ? learningCards
+            : statusCards;
+    const copyForRoute = routePath === "/admin"
+      ? "This overview uses the current admin session and in-memory workspace state. Full platform totals will move here after admin data pages are separated."
+      : routePath === "/admin/analytics"
+        ? "This analytics summary uses only the current browser session. Server-side analytics and research views remain available in the existing admin research area."
+        : routePath === "/admin/research"
+          ? "Research tools are still hosted in the existing admin settings modal. This route provides a landing panel and safe jumps until the real research UI is moved."
+          : routePath === "/admin/learning"
+            ? "Learning summary uses local prompt ratings and current session generation state. Server-side learning views stay in the existing research/admin tools for now."
+            : panelCopy[routePath] || route.description || "This admin page will get dedicated content in a later phase.";
+    return React.createElement("section", {
+      style: {
+        maxWidth: 1120,
+        margin: "0 auto",
+        padding: "14px 20px 0"
+      }
+    }, React.createElement("div", {
+      style: {
+        border: "1px solid rgba(255,255,255,0.08)",
+        borderRadius: 14,
+        background: "rgba(255,255,255,0.028)",
+        padding: "15px"
+      }
+    }, React.createElement("div", {
+      style: {
+        display: "grid",
+        gridTemplateColumns: "repeat(auto-fit,minmax(180px,1fr))",
+        gap: 10,
+        marginBottom: 12
+      }
+    }, cardsForRoute.map(item => card(item.label, item.value))), React.createElement("div", {
+      style: {
+        color: "rgba(255,255,255,0.58)",
+        fontSize: 13,
+        lineHeight: 1.55,
+        marginBottom: 12
+      }
+    }, copyForRoute), React.createElement("div", {
+      style: {
+        display: "flex",
+        gap: 9,
+        flexWrap: "wrap"
+      }
+    }, existingTarget && React.createElement("button", {
+      type: "button",
+      onClick: () => onNavigate(existingTarget, routePath),
+      style: actionButtonStyle
+    }, "Jump to Current Section"), React.createElement("button", {
+      type: "button",
+      onClick: onOpenSettings,
+      style: actionButtonStyle
+    }, routePath === "/admin/settings" ? "Open Admin Settings" : "Open Service Status"))));
+  }
+  function WorkspaceHeader({
+    isAdmin,
+    navItems,
+    onNavigate,
+    onAdminOpen,
+    onLogout,
+    summaryChips = [],
+    sessionLabel = ""
+  }) {
+    return React.createElement("div", {
+      style: {
+        position: "sticky",
+        top: 0,
+        zIndex: 30,
+        backdropFilter: "blur(14px)",
+        background: "linear-gradient(180deg, rgba(11,13,18,0.92), rgba(11,13,18,0.76))",
+        borderBottom: "1px solid rgba(255,255,255,0.06)"
+      }
+    }, React.createElement("div", {
+      style: {
+        maxWidth: 1120,
+        margin: "0 auto",
+        padding: "18px 20px 14px"
+      }
+    }, React.createElement("div", {
+      className: "app-header-row",
+      style: {
+        display: "flex",
+        gap: 14,
+        alignItems: "center",
+        justifyContent: "space-between"
+      }
+    }, React.createElement("div", {
+      style: {
+        display: "flex",
+        alignItems: "center",
+        gap: 13,
+        minWidth: 0
+      }
+    }, React.createElement("div", {
+      style: {
+        width: 48,
+        height: 48,
+        borderRadius: 15,
+        background: "linear-gradient(135deg,#FFDC64,#FF9B40)",
+        display: "grid",
+        placeItems: "center",
+        color: "#11151d",
+        fontWeight: 800,
+        boxShadow: "0 10px 30px rgba(255,155,64,0.22)",
+        flexShrink: 0
+      }
+    }, isAdmin ? "AD" : "EM"), React.createElement("div", {
+      style: {
+        minWidth: 0
+      }
+    }, React.createElement("div", {
+      style: {
+        fontSize: 10,
+        letterSpacing: "0.22em",
+        color: "rgba(255,220,100,0.58)",
+        textTransform: "uppercase",
+        fontFamily: "'DM Mono',monospace",
+        marginBottom: 4
+      }
+    }, isAdmin ? "Admin workspace" : "Seller workspace"), React.createElement("h1", {
+      style: {
+        fontSize: 21,
+        fontFamily: "'Playfair Display',serif",
+        fontWeight: 700,
+        background: "linear-gradient(90deg,#fff 22%,rgba(255,220,100,0.85) 100%)",
+        WebkitBackgroundClip: "text",
+        WebkitTextFillColor: "transparent",
+        lineHeight: 1.15
+      }
+    }, isAdmin ? "Service Control" : "Etsy Mockup Studio"), sessionLabel && React.createElement("div", {
+      style: {
+        fontSize: 12,
+        color: "rgba(255,255,255,0.48)",
+        marginTop: 4
+      }
+    }, sessionLabel))), React.createElement("nav", {
+      className: "app-nav"
+    }, navItems.map(item => React.createElement("button", {
+      key: item.id,
+      "data-active": !!item.active,
+      onClick: () => item.route ? onNavigate(item.id, item.route) : onNavigate(item.id)
+    }, item.label)), isAdmin && React.createElement("button", {
+      onClick: onAdminOpen
+    }, "Admin"), React.createElement("button", {
+      onClick: onLogout
+    }, "Logout"))), summaryChips.length ? React.createElement("div", {
+      style: {
+        display: "flex",
+        gap: 8,
+        flexWrap: "wrap",
+        marginTop: 12
+      }
+    }, summaryChips.map(chip => React.createElement("div", {
+      key: `${chip.label}:${chip.value}`,
+      style: {
+        display: "inline-flex",
+        alignItems: "center",
+        gap: 8,
+        padding: "8px 11px",
+        borderRadius: 999,
+        background: "rgba(255,255,255,0.045)",
+        border: "1px solid rgba(255,255,255,0.08)",
+        color: "rgba(255,255,255,0.72)",
+        fontSize: 12
+      }
+    }, React.createElement("span", {
+      style: {
+        color: "rgba(255,220,100,0.72)",
+        fontFamily: "'DM Mono',monospace",
+        letterSpacing: "0.08em",
+        textTransform: "uppercase",
+        fontSize: 10
+      }
+    }, chip.label), React.createElement("strong", {
+      style: {
+        color: "#fff",
+        fontWeight: 700
+      }
+    }, chip.value)))) : null));
+  }
+  function WorkspaceIntro({
+    isAdmin,
+    analysisReady,
+    learningEnabled,
+    doneCount,
+    total,
+    mockupMode,
+    onPrimaryAction,
+    onSecondaryAction
+  }) {
+    const stageItems = isAdmin ? [{
+      label: "Platform",
+      value: "Control center"
+    }, {
+      label: "Analytics",
+      value: "Live"
+    }, {
+      label: "Agents",
+      value: "Logged"
+    }] : [{
+      label: "Stage",
+      value: analysisReady ? "Ready to generate" : "Needs analysis"
+    }, {
+      label: "Mode",
+      value: mockupMode
+    }, {
+      label: "Coverage",
+      value: `${doneCount}/${total} slots`
+    }];
+    return React.createElement("section", {
+      className: "workspace-intro",
+      style: {
+        maxWidth: 1120,
+        margin: "0 auto",
+        padding: "18px 20px 0"
+      }
+    }, React.createElement("div", {
+      style: {
+        borderRadius: 22,
+        border: "1px solid rgba(255,255,255,0.08)",
+        background: "linear-gradient(135deg, rgba(255,220,100,0.09), rgba(255,255,255,0.03) 42%, rgba(90,180,255,0.06))",
+        boxShadow: "0 24px 60px rgba(0,0,0,0.22)",
+        overflow: "hidden"
+      }
+    }, React.createElement("div", {
+      className: "workspace-intro-grid",
+      style: {
+        display: "grid",
+        gridTemplateColumns: "minmax(0, 1.45fr) minmax(280px, 0.9fr)",
+        gap: 14,
+        padding: 18
+      }
+    }, React.createElement("div", null, React.createElement("div", {
+      style: {
+        fontSize: 10,
+        color: "rgba(255,220,100,0.72)",
+        fontFamily: "'DM Mono',monospace",
+        letterSpacing: "0.2em",
+        textTransform: "uppercase",
+        marginBottom: 10
+      }
+    }, isAdmin ? "Admin control desk" : "Premium listing studio"), React.createElement("h2", {
+      style: {
+        fontFamily: "'Playfair Display',serif",
+        fontSize: 28,
+        lineHeight: 1.1,
+        marginBottom: 8,
+        letterSpacing: -0.2
+      }
+    }, isAdmin ? "Service performance, quality, and agent activity in one place." : analysisReady ? "Your listing workspace is ready to generate polished mockups." : "Guide sellers from product analysis to a finished listing set."), React.createElement("p", {
+      style: {
+        color: "rgba(255,255,255,0.60)",
+        fontSize: 14,
+        lineHeight: 1.65,
+        maxWidth: 640,
+        marginBottom: 16
+      }
+    }, isAdmin ? "Keep platform operations visible without leaving the product shell. Audit users, generation health, analytics, and agent runs from the same workspace." : "The interface now groups the main workflow into one clear path: upload a design, confirm the concept, generate the set, and review outputs."), React.createElement("div", {
+      className: "workspace-intro-actions",
+      style: {
+        display: "flex",
+        gap: 10,
+        flexWrap: "wrap"
+      }
+    }, React.createElement("button", {
+      onClick: onPrimaryAction,
+      style: {
+        border: "none",
+        borderRadius: 999,
+        padding: "11px 16px",
+        background: "linear-gradient(135deg,#FFDC64,#FF9B40)",
+        color: "#11151d",
+        fontWeight: 800,
+        cursor: "pointer"
+      }
+    }, isAdmin ? "Open admin settings" : "Start composing"), React.createElement("button", {
+      onClick: onSecondaryAction,
+      style: {
+        borderRadius: 999,
+        padding: "11px 16px",
+        border: "1px solid rgba(255,255,255,0.10)",
+        background: "rgba(255,255,255,0.03)",
+        color: "#fff",
+        fontWeight: 700,
+        cursor: "pointer"
+      }
+    }, isAdmin ? "Review agents" : "Jump to results"))), React.createElement("div", {
+      style: {
+        display: "grid",
+        gap: 10,
+        alignContent: "start"
+      }
+    }, stageItems.map(item => React.createElement("div", {
+      key: `${item.label}:${item.value}`,
+      style: {
+        borderRadius: 16,
+        padding: "12px 13px",
+        border: "1px solid rgba(255,255,255,0.08)",
+        background: "rgba(0,0,0,0.16)"
+      }
+    }, React.createElement("div", {
+      style: {
+        fontSize: 10,
+        color: "rgba(255,220,100,0.58)",
+        fontFamily: "'DM Mono',monospace",
+        letterSpacing: "0.16em",
+        textTransform: "uppercase",
+        marginBottom: 5
+      }
+    }, item.label), React.createElement("div", {
+      style: {
+        color: "#fff",
+        fontWeight: 700,
+        fontSize: 14
+      }
+    }, item.value))), React.createElement("div", {
+      style: {
+        borderRadius: 16,
+        padding: "12px 13px",
+        border: "1px solid rgba(255,255,255,0.08)",
+        background: "rgba(0,0,0,0.16)"
+      }
+    }, React.createElement("div", {
+      style: {
+        fontSize: 10,
+        color: "rgba(255,220,100,0.58)",
+        fontFamily: "'DM Mono',monospace",
+        letterSpacing: "0.16em",
+        textTransform: "uppercase",
+        marginBottom: 5
+      }
+    }, "Workflow"), React.createElement("div", {
+      style: {
+        color: "rgba(255,255,255,0.62)",
+        fontSize: 13,
+        lineHeight: 1.55
+      }
+    }, isAdmin ? "Inspect platform health, review failed generations, and keep agent behavior visible." : learningEnabled ? "Learning is active, so prompt history and output patterns can reinforce the next run." : "Learning is off, so generation stays deterministic and easier to audit."))))));
+  }
+  function AppShellSidebar({
+    isAdmin,
+    items,
+    onNavigate,
+    onAdminOpen,
+    onLogout,
+    statusCards = []
+  }) {
+    const brand = React.createElement("div", {
+      style: {
+        display: "flex",
+        alignItems: "center",
+        justifyContent: "space-between",
+        gap: 10
+      }
+    }, React.createElement("div", {
+      style: { minWidth: 0 }
+    }, React.createElement("div", {
+      style: {
+        fontSize: 10,
+        letterSpacing: "0.22em",
+        color: "rgba(255,220,100,0.58)",
+        textTransform: "uppercase",
+        fontFamily: "'DM Mono',monospace",
+        marginBottom: 5
+      }
+    }, "App shell"), React.createElement("div", {
+      style: {
+        fontFamily: "'Playfair Display',serif",
+        fontSize: 20,
+        color: "#fff",
+        lineHeight: 1.1
+      }
+    }, isAdmin ? "Admin dashboard" : "Etsy Mockup Studio"), React.createElement("div", {
+      style: {
+        fontSize: 12,
+        color: "rgba(255,255,255,0.46)",
+        marginTop: 6,
+        lineHeight: 1.45
+      }
+    }, isAdmin ? "Control center for users, analytics, agents, and platform health." : "Generate listings, review mockups, and manage your store assets from one place.")), React.createElement("div", {
+      style: {
+        display: "grid",
+        gap: 8
+      }
+    }, React.createElement("div", {
+      style: {
+        width: 42,
+        height: 42,
+        borderRadius: 14,
+        background: "linear-gradient(135deg,#FFDC64,#FF9B40)",
+        display: "grid",
+        placeItems: "center",
+        color: "#11151d",
+        fontWeight: 800,
+        flexShrink: 0,
+        boxShadow: "0 10px 24px rgba(255,155,64,0.18)"
+      }
+    }, isAdmin ? "AD" : "EM"), React.createElement("div", {
+      style: {
+        fontSize: 10,
+        color: "rgba(255,255,255,0.42)",
+        fontFamily: "'DM Mono',monospace",
+        textTransform: "uppercase",
+        letterSpacing: "0.12em"
+      }
+    }, isAdmin ? "Online" : "Ready")));
+    const navigation = React.createElement("div", {
+      style: {
+        display: "grid",
+        gap: 8,
+        paddingTop: 4
+      }
+    }, React.createElement("div", {
+      style: {
+        fontSize: 10,
+        color: "rgba(255,220,100,0.62)",
+        fontFamily: "'DM Mono',monospace",
+        letterSpacing: "0.18em",
+        textTransform: "uppercase"
+      }
+    }, "Navigation"), React.createElement("div", {
+      className: "app-shell-sidebar-nav"
+    }, items.map(item => item.type === "label" ? React.createElement("div", {
+      key: item.id,
+      style: {
+        padding: "8px 4px 2px",
+        color: "rgba(255,220,100,0.52)",
+        fontFamily: "'DM Mono',monospace",
+        fontSize: 9,
+        letterSpacing: "0.16em",
+        textTransform: "uppercase"
+      }
+    }, item.label) : React.createElement("button", {
+      key: item.route || `${item.id}:${item.label}`,
+      type: "button",
+      "data-active": !!item.active,
+      onClick: item.action || (() => onNavigate(item.id, item.route)),
+      disabled: item.disabled
+    }, React.createElement("span", null, item.label), React.createElement("span", {
+      style: {
+        color: "rgba(255,255,255,0.32)",
+        fontSize: 11
+      }
+    }, item.meta || "→")))));
+    const cards = React.createElement("div", {
+      style: {
+        display: "grid",
+        gridTemplateColumns: "repeat(2,minmax(0,1fr))",
+        gap: 8
+      }
+    }, statusCards.map(card => React.createElement("div", {
+      key: `${card.label}:${card.value}`,
+      style: {
+        borderRadius: 14,
+        border: "1px solid rgba(255,255,255,0.08)",
+        background: "rgba(255,255,255,0.03)",
+        padding: "10px 11px"
+      }
+    }, React.createElement("div", {
+      style: {
+        fontSize: 9,
+        color: "rgba(255,220,100,0.58)",
+        fontFamily: "'DM Mono',monospace",
+        textTransform: "uppercase",
+        letterSpacing: "0.12em",
+        marginBottom: 4
+      }
+    }, card.label), React.createElement("div", {
+      style: {
+        color: "#fff",
+        fontWeight: 700,
+        fontSize: 13,
+        lineHeight: 1.35
+      }
+    }, card.value))));
+    const footer = React.createElement("div", {
+      style: {
+        marginTop: "auto",
+        display: "grid",
+        gap: 8
+      }
+    }, isAdmin && React.createElement("button", {
+      type: "button",
+      onClick: onAdminOpen,
+      style: {
+        border: "1px solid rgba(255,220,100,0.24)",
+        background: "rgba(255,220,100,0.08)",
+        color: "var(--accent-gold)",
+        borderRadius: 14,
+        padding: "11px 12px",
+        fontWeight: 700,
+        cursor: "pointer"
+      }
+    }, "Open admin settings"), React.createElement("button", {
+      type: "button",
+      onClick: onLogout,
+      style: {
+        border: "1px solid rgba(255,255,255,0.10)",
+        background: "rgba(255,255,255,0.03)",
+        color: "rgba(255,255,255,0.78)",
+        borderRadius: 14,
+        padding: "11px 12px",
+        fontWeight: 700,
+        cursor: "pointer"
+      }
+    }, "Logout"));
+    return React.createElement("aside", {
+      className: "app-shell-sidebar"
+    }, React.createElement("div", {
+      className: "app-shell-sidebar-panel"
+    }, brand, navigation, cards, footer));
+  }
   async function requestJson(path, body, method = "POST") {
     const res = await fetch(path, {
       method,
@@ -2543,6 +3687,7 @@ try {
       label: "Success",
       value: summary.average_generation_success_rate != null ? `${summary.average_generation_success_rate}%` : "New"
     }];
+    const dashboardWarnings = Array.isArray(data?.warnings) ? data.warnings : [];
     return React.createElement("section", {
       id: "dashboard-section",
       style: {
@@ -2573,6 +3718,18 @@ try {
     }, `Welcome${session?.username ? `, ${session.username}` : ""}`)), React.createElement("div", {
       style: { color: "rgba(255,255,255,0.48)", fontSize: 13 }
     }, "Manage mockups, history, credits, and account details.")),
+      dashboardWarnings.length > 0 && React.createElement("div", {
+        style: {
+          marginBottom: 12,
+          padding: "10px 12px",
+          borderRadius: 12,
+          border: "1px solid rgba(255,155,64,0.22)",
+          background: "rgba(255,155,64,0.08)",
+          color: "#FFCD9A",
+          fontSize: 12,
+          lineHeight: 1.5
+        }
+      }, `Dashboard loaded with warnings: ${dashboardWarnings.join(", ")}`),
       loading ? React.createElement("div", { style: { color: "rgba(255,255,255,0.5)", fontSize: 13, padding: "10px 0" } }, "Loading dashboard...") : error ? React.createElement("div", {
         style: { color: "#FF9B9B", background: "rgba(255,80,80,0.08)", border: "1px solid rgba(255,80,80,0.18)", borderRadius: 12, padding: 12, fontSize: 13 }
       }, error) : React.createElement(React.Fragment, null, React.createElement("div", {
@@ -2653,6 +3810,12 @@ try {
     const [researchLoading, setResearchLoading] = useState(false);
     const [researchError, setResearchError] = useState("");
     const [selectedResearchRow, setSelectedResearchRow] = useState(null);
+    const [qualityData, setQualityData] = useState({
+      cards: null,
+      rows: []
+    });
+    const [qualityLoading, setQualityLoading] = useState(false);
+    const [qualityError, setQualityError] = useState("");
     const [agentData, setAgentData] = useState({
       summary: null,
       sections: [],
@@ -2772,9 +3935,31 @@ try {
         setAgentsLoading(false);
       }
     };
+    const loadQuality = async () => {
+      setQualityLoading(true);
+      setQualityError("");
+      try {
+        const res = await authedFetch("/api/admin/quality");
+        const d = await res.json();
+        if (!res.ok) throw new Error(d.error || `Server error ${res.status}`);
+        setQualityData({
+          cards: d.cards || null,
+          rows: d.rows || []
+        });
+      } catch (e) {
+        setQualityError(e.message || "Quality summary unavailable.");
+      } finally {
+        setQualityLoading(false);
+      }
+    };
     useEffect(() => {
       if (adminSession.authenticated && info && !info.authRequired && !agentData.summary && !agentsLoading) {
         loadAgents();
+      }
+    }, [adminSession.authenticated, info?.authRequired]);
+    useEffect(() => {
+      if (adminSession.authenticated && info && !info.authRequired && !qualityData.cards && !qualityLoading) {
+        loadQuality();
       }
     }, [adminSession.authenticated, info?.authRequired]);
     const downloadResearchExport = async format => {
@@ -3180,6 +4365,95 @@ try {
         marginTop: 2
       }
     }, info[k].masked)))), info && !info.authRequired && React.createElement("div", {
+      style: {
+        background: "rgba(255,255,255,0.035)",
+        border: "1px solid rgba(255,255,255,0.08)",
+        borderRadius: 16,
+        padding: "16px",
+        marginBottom: 14
+      }
+    }, React.createElement("div", {
+      style: {
+        display: "flex",
+        justifyContent: "space-between",
+        alignItems: "center",
+        gap: 10,
+        marginBottom: 14
+      }
+    }, React.createElement("div", null, React.createElement("div", {
+      style: {
+        fontSize: 13,
+        fontWeight: 600,
+        color: "#fff"
+      }
+    }, "Quality Engine"), React.createElement("div", {
+      style: {
+        fontSize: 11,
+        color: "rgba(255,255,255,0.40)",
+        marginTop: 4,
+        lineHeight: 1.45
+      }
+    }, "Post-generation scoring, issue detection, and style performance.")), React.createElement("button", {
+      onClick: loadQuality,
+      disabled: qualityLoading,
+      style: {
+        ...touchButton("1px solid rgba(255,220,100,0.32)", "rgba(255,220,100,0.09)", "var(--accent-gold)", {
+          cursor: qualityLoading ? "wait" : "pointer"
+        })
+      }
+    }, qualityLoading ? "Nalagam..." : "Osveži")), qualityError && React.createElement("div", {
+      style: {
+        border: "1px solid rgba(255,80,80,0.22)",
+        background: "rgba(255,80,80,0.08)",
+        color: "#FFAAAA",
+        borderRadius: 10,
+        padding: "8px 10px",
+        fontSize: 11,
+        marginBottom: 12
+      }
+    }, qualityError), qualityData.cards && React.createElement(React.Fragment, null, React.createElement("div", {
+      style: {
+        display: "grid",
+        gridTemplateColumns: "repeat(4,1fr)",
+        gap: 8,
+        marginBottom: 12
+      }
+    }, React.createElement(KpiCard, {
+      label: "Avg score",
+      value: qualityData.cards.average_score != null ? `${Math.round(Number(qualityData.cards.average_score))}/100` : "—"
+    }), React.createElement(KpiCard, {
+      label: "Top prompt",
+      value: qualityData.cards.top_prompts?.[0]?.average_score != null ? `${Math.round(Number(qualityData.cards.top_prompts[0].average_score))}/100` : "—"
+    }), React.createElement(KpiCard, {
+      label: "Top failure",
+      value: qualityData.cards.common_failures?.[0]?.issue || "—"
+    }), React.createElement(KpiCard, {
+      label: "Best style",
+      value: qualityData.cards.best_styles?.[0]?.style_key || "—"
+    })), React.createElement("div", {
+      style: {
+        display: "grid",
+        gridTemplateColumns: "repeat(auto-fit,minmax(220px,1fr))",
+        gap: 10
+      }
+    }, React.createElement(BarList, {
+      title: "Most common failures",
+      rows: qualityData.cards.common_failures || [],
+      labelKey: "issue",
+      valueKey: "count"
+    }), React.createElement(BarList, {
+      title: "Best styles",
+      rows: qualityData.cards.best_styles || [],
+      labelKey: "style_key",
+      valueKey: "average_score",
+      suffix: "/100"
+    }), React.createElement(BarList, {
+      title: "Worst styles",
+      rows: qualityData.cards.worst_styles || [],
+      labelKey: "style_key",
+      valueKey: "average_score",
+      suffix: "/100"
+    })))), info && !info.authRequired && React.createElement("div", {
       style: {
         background: "rgba(255,255,255,0.035)",
         border: "1px solid rgba(255,255,255,0.08)",
@@ -4125,6 +5399,7 @@ try {
     result,
     catInfo,
     index,
+    rankLabel,
     isOpen,
     onToggle,
     imgState,
@@ -4143,6 +5418,7 @@ try {
     const [detailsOpen, setDetailsOpen] = useState(false);
     const [hovered, setHovered] = useState(false);
     const downloadName = mockupFileName(result, catInfo, index);
+    const qualityScore = Number(imgState?.qualityReport?.score || 0);
     return React.createElement("div", {
       style: {
         position: "relative",
@@ -4242,7 +5518,33 @@ try {
       style: {
         color: "var(--accent-gold)"
       }
-    }, roleLabel(result.listingRole)), result.listingRolePhase ? React.createElement(React.Fragment, null, " · ", result.listingRolePhase) : null, result.promptWordCount ? React.createElement(React.Fragment, null, " · ", result.promptWordCount, " words") : null))), done && React.createElement("span", {
+    }, roleLabel(result.listingRole)), result.listingRolePhase ? React.createElement(React.Fragment, null, " · ", result.listingRolePhase) : null, result.promptWordCount ? React.createElement(React.Fragment, null, " · ", result.promptWordCount, " words") : null))), rankLabel && React.createElement("div", {
+      style: {
+        marginTop: 5,
+        display: "flex",
+        gap: 6,
+        flexWrap: "wrap",
+        alignItems: "center"
+      }
+    }, React.createElement("span", {
+      style: {
+        borderRadius: 999,
+        padding: "3px 8px",
+        fontSize: 9,
+        fontFamily: "'DM Mono',monospace",
+        letterSpacing: "0.08em",
+        textTransform: "uppercase",
+        color: rankLabel === "Winner" ? "var(--accent-green)" : rankLabel === "Lowest score" ? "#FF9B9B" : "var(--accent-gold)",
+        background: rankLabel === "Winner" ? "rgba(126,232,162,0.10)" : rankLabel === "Lowest score" ? "rgba(255,80,80,0.10)" : "rgba(255,220,100,0.10)",
+        border: `1px solid ${rankLabel === "Winner" ? "rgba(126,232,162,0.24)" : rankLabel === "Lowest score" ? "rgba(255,80,80,0.24)" : "rgba(255,220,100,0.24)"}`
+      }
+    }, rankLabel), done && React.createElement("span", {
+      style: {
+        fontSize: 10,
+        color: "rgba(255,255,255,0.55)",
+        fontFamily: "'DM Mono',monospace"
+      }
+    }, qualityScore, "/100")), done && React.createElement("span", {
       style: {
         fontSize: 13,
         flexShrink: 0
@@ -4671,6 +5973,7 @@ try {
     const [authChecked, setAuthChecked] = useState(false);
     const [userSession, setUserSession] = useState(null);
     const [adminSession, setAdminSession] = useState(null);
+    const [activeRoute, setActiveRoute] = useState(getCurrentRoutePath());
     const [form, setForm] = useState({
       brandStyle: "",
       niche: "",
@@ -4991,6 +6294,15 @@ try {
       getAnalyticsConsent();
     }, []);
     useEffect(() => {
+      const syncRoute = () => setActiveRoute(getCurrentRoutePath());
+      window.addEventListener("hashchange", syncRoute);
+      window.addEventListener("popstate", syncRoute);
+      return () => {
+        window.removeEventListener("hashchange", syncRoute);
+        window.removeEventListener("popstate", syncRoute);
+      };
+    }, []);
+    useEffect(() => {
       let live = true;
       Promise.all([
         fetch("/api/auth/session", { credentials: "same-origin" }).then(r => r.json()).catch(() => ({ authenticated: false })),
@@ -5004,6 +6316,16 @@ try {
       });
       return () => { live = false; };
     }, []);
+    useEffect(() => {
+      if (!authChecked) return;
+      const userAuthed = !!userSession?.authenticated;
+      const adminAuthed = !!adminSession?.authenticated;
+      if (adminAuthed && !userAuthed && !isAdminRoute(activeRoute)) {
+        setHashRoute("/admin");
+      } else if (userAuthed && !adminAuthed && isAdminRoute(activeRoute)) {
+        setHashRoute("/dashboard");
+      }
+    }, [authChecked, userSession?.authenticated, adminSession?.authenticated, activeRoute]);
     useEffect(() => {
       if (!adminSession?.authenticated) {
         setKeyInfo(null);
@@ -5160,6 +6482,15 @@ try {
         });
         return next;
       });
+    };
+    const persistQualityFeedback = async (generationId, feedback = {}) => {
+      if (!generationId) return;
+      try {
+        await requestJson("/api/quality-feedback", {
+          generationId,
+          feedback
+        });
+      } catch {}
     };
     const resolveRegenerationPrompt = (id, override = "") => {
       const pieces = [override, customPrompts[id], imgStates[id]?.fixSuggestion].map(v => (v || "").trim()).filter(Boolean);
@@ -5442,12 +6773,13 @@ try {
         error: "",
         lastAction: resolvedCustom ? "regenerate_with_context" : "regenerate"
       });
-      if (target?.promptId) setPromptRating(target.promptId, ratingByPromptId[target.promptId] || 0, {
+      if (target?.promptId) ratePrompt(target.promptId, ratingByPromptId[target.promptId] || 0, {
         regenerated: true,
         categoryName: target.meta?.categoryName,
         audience: target.meta?.audience,
         shirtType: target.meta?.shirtType,
-        sceneDirection: target.meta?.sceneDirection
+        sceneDirection: target.meta?.sceneDirection,
+        generationId: imgStates[id]?.generationId || ""
       });
       try {
         const compressed = await compressImageDataUrl(imagePreview, {
@@ -5488,6 +6820,8 @@ try {
           status: "done",
           url: d.url,
           qualityReport: d.qualityReport || null,
+          generationId: d.generationId || "",
+          qualityRecordId: d.qualityRecordId || "",
           lastAction: resolvedCustom ? "regenerate_with_context" : "regenerate"
         });
       } catch (e) {
@@ -5546,6 +6880,8 @@ try {
             status: "done",
             url: d.url,
             qualityReport: d.qualityReport || null,
+            generationId: d.generationId || "",
+            qualityRecordId: d.qualityRecordId || "",
             lastAction: resolvedCustom ? "bulk_regenerate_with_context" : "bulk_regenerate"
           });
         } catch (e) {
@@ -5607,6 +6943,13 @@ try {
         });
       }
       setPromptRating(promptId, rating, meta);
+      persistQualityFeedback(meta.generationId, {
+        promptId,
+        rating,
+        selected: Boolean(meta.selected),
+        exported: Boolean(meta.exported),
+        regenerated: Boolean(meta.regenerated)
+      });
     };
     const downloadAll = async () => {
       const done = results.map((r, i) => ({
@@ -5636,8 +6979,10 @@ try {
       done.forEach(({
         result
       }) => {
+        const generationId = imgStates[result.catInfo?.id]?.generationId || "";
         ratePrompt(result.promptId, ratingByPromptId[result.promptId] || 0, {
           ...result.meta,
+          generationId,
           exported: true
         });
       });
@@ -5710,30 +7055,488 @@ ${r.data.thumbnailNotes}`;
     }).join("\n\n" + "─".repeat(50) + "\n\n"));
 	    const visibleTabs = TABS.filter(t => t.id === "all" || t.ids && t.ids.some(id => results.some(r => r.catInfo?.id === id)));
 	    const filtered = activeTab === "all" ? results : results.filter(r => TABS.find(t => t.id === activeTab)?.ids?.includes(r.catInfo?.id));
+    const qualitySorted = filtered.map((r, idx) => ({
+      result: r,
+      originalIndex: results.indexOf(r),
+      qualityScore: Number(imgStates[r.catInfo?.id]?.qualityReport?.score || -1),
+      done: imgStates[r.catInfo?.id]?.status === "done",
+      localIndex: idx
+    })).sort((a, b) => {
+      if (a.done !== b.done) return a.done ? -1 : 1;
+      if (a.done && b.done && a.qualityScore !== b.qualityScore) return b.qualityScore - a.qualityScore;
+      return a.originalIndex - b.originalIndex || a.localIndex - b.localIndex;
+    });
+    const rankedDone = qualitySorted.filter(item => item.done && item.qualityScore >= 0);
+    const winnerId = rankedDone[0]?.result?.catInfo?.id || "";
+    const runnerUpId = rankedDone[1]?.result?.catInfo?.id || "";
+    const lowestId = rankedDone.length > 1 ? rankedDone[rankedDone.length - 1]?.result?.catInfo?.id || "" : "";
     const doneCount = Object.values(imgStates).filter(s => s.status === "done").length;
     const gemOk = keyInfo?.gemini?.set;
     const repOk = keyInfo?.replicate?.set;
     const total = form.mockupCount;
+    const qualitySummaryCards = rankedDone.length > 0 ? React.createElement("div", {
+      style: {
+        display: "grid",
+        gridTemplateColumns: "repeat(auto-fit,minmax(150px,1fr))",
+        gap: 8,
+        marginTop: 10
+      }
+    }, React.createElement(KpiCard, {
+      label: "Winner",
+      value: `${rankedDone[0]?.result?.catInfo?.name || "—"} · ${rankedDone[0]?.qualityScore || 0}`
+    }), React.createElement(KpiCard, {
+      label: "Runner-up",
+      value: rankedDone[1] ? `${rankedDone[1].result?.catInfo?.name || "—"} · ${rankedDone[1].qualityScore || 0}` : "—"
+    }), React.createElement(KpiCard, {
+      label: "Lowest score",
+      value: rankedDone.length > 1 ? `${rankedDone[rankedDone.length - 1].result?.catInfo?.name || "—"} · ${rankedDone[rankedDone.length - 1].qualityScore || 0}` : "—"
+    })) : null;
+    const resultsTabs = React.createElement("div", {
+      style: {
+        marginBottom: 13
+      }
+    }, React.createElement("div", {
+      className: "ko-tab-scroll",
+      style: {
+        display: "flex",
+        overflowX: "auto",
+        gap: 4,
+        flexWrap: "nowrap",
+        paddingBottom: 2
+      }
+    }, visibleTabs.map(t => React.createElement("button", {
+      key: t.id,
+      onClick: () => setActiveTab(t.id),
+      className: `ko-pill-tab${activeTab === t.id ? " ko-pill-tab-active" : ""}`,
+      style: {
+        padding: "7px 16px",
+        borderRadius: "var(--radius-pill)",
+        fontSize: 12,
+        fontWeight: 500,
+        whiteSpace: "nowrap",
+        transition: "all 0.15s ease",
+        border: activeTab === t.id ? "1.5px solid rgba(255,220,100,0.35)" : "1.5px solid var(--border-subtle)",
+        background: activeTab === t.id ? "rgba(255,220,100,0.12)" : "transparent",
+        color: activeTab === t.id ? "var(--accent-gold)" : "var(--text-tertiary)",
+        cursor: "pointer"
+      }
+    }, t.label))));
+    const resultCards = qualitySorted.map(item => {
+      const r = item.result;
+      const gi = item.originalIndex;
+      const id = r.catInfo?.id;
+      const rating = ratingByPromptId[r.promptId] || 0;
+      const rankLabel = id === winnerId ? "Winner" : id === runnerUpId ? "Runner-up" : id === lowestId ? "Lowest score" : "";
+      return React.createElement(MockupCard, {
+        key: id || gi,
+        result: r.data,
+        catInfo: r.catInfo,
+        index: gi,
+        rankLabel,
+        isOpen: openCard === gi,
+        onToggle: () => setOpenCard(openCard === gi ? null : gi),
+        imgState: imgStates[id],
+        customPrompt: customPrompts[id],
+        analyticsContext: analyticsContext(r.meta, r.promptId),
+        onCustomPrompt: value => setCustomPrompt(id, value),
+        onGenImage: customPrompt => genImage(id, r.data.fluxPrompt, customPrompt, r.meta),
+        onAiFix: () => aiFixSuggestion(id, r.data),
+        rating: rating,
+        onRate: nextRating => ratePrompt(r.promptId, nextRating, {
+          ...r.meta,
+          generationId: imgStates[id]?.generationId || ""
+        }),
+        onMarkSelected: () => ratePrompt(r.promptId, rating || 0, {
+          ...r.meta,
+          generationId: imgStates[id]?.generationId || "",
+          selected: true
+        })
+      });
+    });
+    const resultActionButtons = [];
+    if (doneCount > 0) {
+      resultActionButtons.push(React.createElement("button", {
+        key: "download-all",
+        onClick: downloadAll,
+        style: {
+          background: "linear-gradient(135deg,#7EE8A2,#38C77E)",
+          border: "none",
+          borderRadius: 8,
+          padding: "7px 12px",
+          color: "#07100B",
+          fontSize: 10,
+          fontFamily: "'DM Mono',monospace",
+          cursor: "pointer",
+          fontWeight: 700
+        }
+      }, "Download All Mockups"));
+    }
+    if (results.length === total) {
+      resultActionButtons.push(React.createElement("button", {
+        key: "copy-all",
+        onClick: copyAll,
+        style: {
+          background: "var(--bg-elevated)",
+          border: "1px solid rgba(255,255,255,0.09)",
+          borderRadius: 8,
+          padding: "5px 11px",
+          color: "rgba(255,255,255,0.45)",
+          fontSize: 10,
+          fontFamily: "'DM Mono',monospace",
+          cursor: "pointer"
+        }
+      }, "Kopiraj vse"));
+      resultActionButtons.push(React.createElement("button", {
+        key: "generate-all-images",
+        onClick: handleGenAll,
+        disabled: genAllBusy,
+        style: {
+          display: "flex",
+          alignItems: "center",
+          gap: 5,
+          background: genAllBusy ? "rgba(255,220,100,0.04)" : "rgba(255,220,100,0.12)",
+          border: "1px solid rgba(255,220,100,0.25)",
+          borderRadius: 8,
+          padding: "5px 12px",
+          color: genAllBusy ? "rgba(255,220,100,0.3)" : "var(--accent-gold)",
+          fontSize: 10,
+          fontFamily: "'DM Mono',monospace",
+          cursor: genAllBusy ? "not-allowed" : "pointer"
+        }
+      }, genAllBusy ? React.createElement(React.Fragment, null, React.createElement(Spinner, {
+        size: 11
+      }), React.createElement("span", null, "Generiram…")) : React.createElement("span", null, "🖼 Generiraj vseh ", total, " slik")));
+    }
+    const resultsHeader = React.createElement("div", {
+      style: {
+        display: "flex",
+        justifyContent: "space-between",
+        alignItems: "center",
+        marginBottom: 13
+      }
+    }, React.createElement("div", {
+      style: {
+        fontSize: 10,
+        color: "rgba(255,220,100,0.6)",
+        fontFamily: "'DM Mono',monospace",
+        letterSpacing: "0.14em",
+        textTransform: "uppercase"
+      }
+    }, "✦ ", results.length, "/", total, " promptov · ", doneCount, " slik"), React.createElement("div", {
+      style: {
+        display: "flex",
+        gap: 7
+      }
+    }, ...resultActionButtons));
+    const resultsProgress = doneCount > 0 ? React.createElement("div", {
+      style: {
+        background: "rgba(255,255,255,0.03)",
+        border: "1px solid rgba(255,255,255,0.06)",
+        borderRadius: 10,
+        padding: "9px 13px",
+        marginBottom: 13
+      }
+    }, React.createElement("div", {
+      style: {
+        display: "flex",
+        justifyContent: "space-between",
+        marginBottom: 5
+      }
+    }, React.createElement("span", {
+      style: {
+        fontSize: 10,
+        color: "rgba(255,255,255,0.3)",
+        fontFamily: "'DM Mono',monospace"
+      }
+    }, "Generirane slike"), React.createElement("span", {
+      style: {
+        fontSize: 10,
+        color: "var(--accent-green)",
+        fontFamily: "'DM Mono',monospace"
+      }
+    }, doneCount, " / ", total)), React.createElement("div", {
+      style: {
+        background: "var(--bg-elevated)",
+        borderRadius: 999,
+        height: 3
+      }
+    }, React.createElement("div", {
+      style: {
+        height: "100%",
+        background: "linear-gradient(90deg,#7EE8A2,#38C77E)",
+        borderRadius: 999,
+        width: `${doneCount / total * 100}%`,
+        transition: "width 0.4s"
+      }
+    })), qualitySummaryCards) : null;
+    const resultsContent = React.createElement(React.Fragment, null, resultsTabs, ...resultCards);
+    const resultsSection = results.length > 0 ? React.createElement("div", {
+      id: "results-section",
+      style: {
+        animation: "fadeUp 0.4s ease"
+      }
+    }, resultsHeader, resultsProgress, resultsContent) : null;
+    const loadingPanel = loading ? React.createElement("div", {
+      style: {
+        background: "rgba(255,255,255,0.022)",
+        border: "1px solid rgba(255,255,255,0.07)",
+        borderRadius: 14,
+        padding: "14px 16px",
+        marginBottom: 16
+      }
+    }, React.createElement("div", {
+      style: {
+        display: "flex",
+        justifyContent: "space-between",
+        marginBottom: 6
+      }
+    }, React.createElement("span", {
+      style: {
+        fontSize: 11,
+        color: "var(--text-secondary)",
+        fontFamily: "'DM Mono',monospace"
+      }
+    }, "Generating mockups"), React.createElement("span", {
+      style: {
+        fontSize: 11,
+        color: "var(--accent-gold)",
+        fontFamily: "'DM Mono',monospace"
+      }
+    }, doneCount, " of ", total)), React.createElement("div", {
+      style: {
+        background: "var(--border-subtle)",
+        borderRadius: 999,
+        height: 5,
+        overflow: "hidden"
+      }
+    }, React.createElement("div", {
+      style: {
+        height: "100%",
+        background: "linear-gradient(90deg, #7EE8A2, #38C77E)",
+        borderRadius: 999,
+        width: `${progress}%`,
+        transition: "width 0.5s ease"
+      }
+    })), React.createElement("div", {
+      style: {
+        display: "grid",
+        gridTemplateColumns: `repeat(${batches.length},1fr)`,
+        gap: 6
+      }
+    }, batches.map((b, bi) => {
+      const done = results.some(r => r.catInfo?.id === b[0].id);
+      return React.createElement("div", {
+        key: bi,
+        style: {
+          background: done ? "rgba(255,220,100,0.07)" : "rgba(255,255,255,0.02)",
+          border: `1px solid ${done ? "rgba(255,220,100,0.18)" : "rgba(255,255,255,0.05)"}`,
+          borderRadius: 8,
+          padding: "7px 10px"
+        }
+      }, React.createElement("div", {
+        style: {
+          fontSize: 10,
+          color: done ? "var(--accent-gold)" : "rgba(255,255,255,0.22)",
+          fontFamily: "'DM Mono',monospace"
+        }
+      }, done ? "✓ " : "· ", "Serija ", bi + 1), React.createElement("div", {
+        style: {
+          fontSize: 9,
+          color: "rgba(255,255,255,0.18)",
+          marginTop: 2
+        }
+      }, b.map(c => c.emoji).join(" ")));
+    }))) : null;
+    const generationErrorBanner = error ? React.createElement("div", {
+      style: {
+        background: "rgba(255,80,80,0.07)",
+        border: "1px solid rgba(255,80,80,0.18)",
+        borderRadius: 9,
+        padding: "10px 14px",
+        color: "#FF8080",
+        fontSize: 12,
+        marginBottom: 12
+      }
+    }, "⚠️ ", error) : null;
+    const generateButton = React.createElement("button", {
+      onClick: handleGenerate,
+      disabled: loading || !analysisReady,
+      style: {
+        width: "100%",
+        padding: "13px",
+        background: loading || !analysisReady ? "rgba(255,220,100,0.05)" : "linear-gradient(135deg,#FFDC64 0%,#FF9B40 100%)",
+        border: "none",
+        borderRadius: 12,
+        color: loading || !analysisReady ? "rgba(255,220,100,0.35)" : "var(--bg-base)",
+        fontSize: 14,
+        fontWeight: 600,
+        cursor: loading || !analysisReady ? "not-allowed" : "pointer",
+        display: "flex",
+        alignItems: "center",
+        justifyContent: "center",
+        gap: 9,
+        transition: "all 0.2s",
+        marginBottom: 11
+      }
+    }, loading ? React.createElement(React.Fragment, null, React.createElement(Spinner, {
+      size: 17,
+      color: "rgba(255,220,100,0.5)"
+    }), React.createElement("span", null, "Generiram…")) : React.createElement("span", null, analysisReady ? "⚡ Generiraj " + total + " Mockup Promptov" : "Confirm analysis first"));
+    const composeFooter = React.createElement(React.Fragment, null, generationErrorBanner, generateButton, loadingPanel, resultsSection);
     const scrollToSection = id => {
       const el = document.getElementById(id);
       if (el) el.scrollIntoView({ behavior: "smooth", block: "start" });
     };
+    const navigateToSection = (id, route) => {
+      if (route) setHashRoute(route);
+      const target = route ? getRouteConfig(route).sectionId || id : id;
+      scrollToSection(target || id);
+    };
     const navItems = [{
       id: "dashboard-section",
-      label: "Dashboard"
+      label: "Dashboard",
+      route: "/dashboard",
+      active: activeRoute === "/dashboard"
     }, {
       id: "compose-section",
       label: "Generate Mockups"
     }, {
       id: "history-section",
-      label: "History"
+      label: "History",
+      route: "/generations",
+      active: activeRoute === "/generations"
     }, {
       id: "credits-section",
-      label: "Credits"
+      label: "Credits",
+      route: "/credits",
+      active: activeRoute === "/credits"
     }, {
       id: "account-section",
-      label: "Account"
+      label: "Account",
+      route: "/account",
+      active: activeRoute === "/account" || activeRoute === "/settings"
     }];
+    const userShellNavItems = [{
+      id: "nav-group-workspace",
+      type: "label",
+      label: "Workspace"
+    }, {
+      id: "dashboard-section",
+      label: "Overview",
+      meta: "Home",
+      route: "/dashboard",
+      active: activeRoute === "/dashboard"
+    }, {
+      id: "results-section",
+      label: "Generations",
+      meta: "Gallery",
+      route: "/generations",
+      active: activeRoute === "/generations"
+    }, {
+      id: "credits-section",
+      label: "Billing",
+      meta: "Usage",
+      route: "/credits",
+      active: activeRoute === "/credits"
+    }, {
+      id: "nav-group-account",
+      type: "label",
+      label: "Account"
+    }, {
+      id: "account-section",
+      label: "Profile",
+      meta: "User",
+      route: "/account",
+      active: activeRoute === "/account"
+    }, {
+      id: "account-section",
+      label: "Settings",
+      meta: "Prefs",
+      route: "/settings",
+      active: activeRoute === "/settings"
+    }];
+    const adminShellNavItems = isAdmin ? [{
+      id: "nav-group-admin",
+      type: "label",
+      label: "Admin"
+    }, {
+      id: "dashboard-section",
+      label: "Admin Overview",
+      meta: "Home",
+      route: "/admin",
+      active: activeRoute === "/admin"
+    }, {
+      id: "dashboard-section",
+      label: "Users",
+      meta: "People",
+      route: "/admin/users",
+      active: activeRoute === "/admin/users"
+    }, {
+      id: "credits-section",
+      label: "Credits",
+      meta: "Rules",
+      route: "/admin/credits",
+      active: activeRoute === "/admin/credits"
+    }, {
+      id: "credits-section",
+      label: "Transactions",
+      meta: "Ledger",
+      route: "/admin/transactions",
+      active: activeRoute === "/admin/transactions"
+    }, {
+      id: "results-section",
+      label: "Generations",
+      meta: "All",
+      route: "/admin/generations",
+      active: activeRoute === "/admin/generations"
+    }, {
+      id: "learning-section",
+      label: "Analytics",
+      meta: "Usage",
+      route: "/admin/analytics",
+      active: activeRoute === "/admin/analytics"
+    }, {
+      id: "compose-section",
+      label: "Prompts",
+      meta: "Text",
+      route: "/admin/prompts",
+      active: activeRoute === "/admin/prompts"
+    }, {
+      id: "compose-section",
+      label: "AI Models",
+      meta: "Stack",
+      route: "/admin/models",
+      active: activeRoute === "/admin/models"
+    }, {
+      id: "learning-section",
+      label: "Quality",
+      meta: "QA",
+      route: "/admin/quality",
+      active: activeRoute === "/admin/quality"
+    }, {
+      id: "learning-section",
+      label: "Learning",
+      meta: "Signals",
+      route: "/admin/learning",
+      active: activeRoute === "/admin/learning"
+    }, {
+      id: "learning-section",
+      label: "Research",
+      meta: "Data",
+      route: "/admin/research",
+      active: activeRoute === "/admin/research"
+    }, {
+      id: "admin-settings",
+      label: "Admin Settings",
+      meta: "Config",
+      route: "/admin/settings",
+      active: activeRoute === "/admin/settings",
+      action: () => {
+        setHashRoute("/admin/settings");
+        setShowSettings(true);
+      }
+    }] : [];
+    const shellNavItems = isUser ? [...userShellNavItems, ...adminShellNavItems] : adminShellNavItems;
     const sectionItems = [...(isUser ? [{
       id: "dashboard-section",
       kicker: "00",
@@ -5755,8 +7558,36 @@ ${r.data.thumbnailNotes}`;
       label: "Results",
       description: "Generated concepts, images, and exports."
     }];
+    const summaryChips = isAdmin ? [{
+      label: "Mode",
+      value: "Admin"
+    }, {
+      label: "Auth",
+      value: adminSession?.authenticated ? "Connected" : "Locked"
+    }] : [{
+      label: "Images",
+      value: `${doneCount}/${total}`
+    }, {
+      label: "Learning",
+      value: learningEnabled ? "On" : "Off"
+    }, {
+      label: "Mode",
+      value: resolvedMockupStyleMode()
+    }, {
+      label: "Analysis",
+      value: analysisReady ? "Locked" : "Draft"
+    }];
+    const activeRouteConfig = getRouteConfig(activeRoute);
+    const imageStatusCounts = Object.values(imgStates).reduce((acc, state) => {
+      const status = state?.status || "pending";
+      if (status === "done") acc.done += 1;
+      else if (status === "error" || status === "failed") acc.failed += 1;
+      else acc.pending += 1;
+      return acc;
+    }, { done: 0, failed: 0, pending: 0 });
     const batches = selectedBatches();
     return React.createElement("div", {
+      className: "app-root-shell",
       style: {
         minHeight: "100vh",
         paddingBottom: 70,
@@ -5778,67 +7609,73 @@ ${r.data.thumbnailNotes}`;
         setKeyInfo(d);
       },
       onAdminSessionChange: setAdminSession
-    }), React.createElement("div", {
-      style: {
-        background: "linear-gradient(180deg,rgba(255,220,100,0.05) 0%,transparent 100%)",
-        borderBottom: "1px solid rgba(255,255,255,0.06)",
-        padding: "30px 22px 20px"
-      }
-    }, React.createElement("div", {
-      className: "app-header-row",
-      style: {
-        maxWidth: 1120,
-        margin: "0 auto",
-        display: "flex",
-        gap: 14,
-        alignItems: "center"
-      }
-    }, React.createElement("div", {
-      style: {
-        width: 46,
-        height: 46,
-        borderRadius: 13,
-        background: "linear-gradient(135deg,#FFDC64,#FF9B40)",
-        display: "flex",
-        alignItems: "center",
-        justifyContent: "center",
-        fontSize: 21,
-        flexShrink: 0
-      }
-    }, "\uD83D\uDECD\uFE0F"), React.createElement("div", {
-      style: {
-        flex: 1,
-        minWidth: 0
-      }
-    }, React.createElement("div", {
-      style: {
-        fontSize: 10,
-        letterSpacing: "0.2em",
-        color: "rgba(255,220,100,0.6)",
-        textTransform: "uppercase",
-        fontFamily: "'DM Mono',monospace",
-        marginBottom: 3
-      }
-    }, isAdmin ? "Admin workspace" : "Seller workspace"), React.createElement("h1", {
-      style: {
-        fontSize: 20,
-        fontFamily: "'Playfair Display',serif",
-        fontWeight: 700,
-        background: "linear-gradient(90deg,#fff 20%,rgba(255,220,100,0.85) 100%)",
-        WebkitBackgroundClip: "text",
-        WebkitTextFillColor: "transparent",
-        lineHeight: 1.2
-      }
-    }, "Etsy Mockup Studio")), React.createElement("nav", {
-      className: "app-nav"
-    }, isUser && navItems.map(item => React.createElement("button", {
-      key: item.id,
-      onClick: () => scrollToSection(item.id)
-    }, item.label)), isAdmin && React.createElement("button", {
-      onClick: () => setShowSettings(true),
-    }, "Admin"), React.createElement("button", {
-      onClick: logout
-    }, "Logout")))), isUser && React.createElement(UserOverview, {
+    }), React.createElement(AppShellSidebar, {
+      isAdmin,
+      items: shellNavItems,
+      onNavigate: navigateToSection,
+      onAdminOpen: () => setShowSettings(true),
+      onLogout: logout,
+      statusCards: isAdmin ? [{
+        label: "Auth",
+        value: adminSession?.authenticated ? "Connected" : "Locked"
+      }, {
+        label: "Keys",
+        value: keyInfo?.gemini?.set && keyInfo?.replicate?.set ? "Ready" : "Missing"
+      }] : [{
+        label: "Images",
+        value: `${doneCount}/${total}`
+      }, {
+        label: "Mode",
+        value: resolvedMockupStyleMode()
+      }, {
+        label: "Learning",
+        value: learningEnabled ? "On" : "Off"
+      }, {
+        label: "Analysis",
+        value: analysisReady ? "Ready" : "Draft"
+      }]
+    }), React.createElement(WorkspaceHeader, {
+      isAdmin,
+      navItems: isUser ? navItems : [],
+      onNavigate: navigateToSection,
+      onAdminOpen: () => setShowSettings(true),
+      onLogout: logout,
+      summaryChips,
+      sessionLabel: isAdmin ? "Service status, analytics, and platform controls." : "Build your listing flow from analysis to export."
+    }), React.createElement(WorkspaceIntro, {
+      isAdmin,
+      analysisReady,
+      learningEnabled,
+      doneCount,
+      total,
+      mockupMode: resolvedMockupStyleMode(),
+      onPrimaryAction: isAdmin ? () => setShowSettings(true) : () => navigateToSection("compose-section"),
+      onSecondaryAction: isAdmin ? () => navigateToSection("history-section", "/admin/generations") : () => navigateToSection("results-section", "/generations")
+    }), React.createElement(RoutePageHeader, {
+      route: activeRouteConfig
+    }), React.createElement(RoutePlaceholderPanel, {
+      route: activeRouteConfig
+    }), isAdmin && React.createElement(AdminRouteContent, {
+      routePath: activeRoute,
+      isAdmin,
+      adminSession,
+      keyInfo,
+      resultsCount: results.length,
+      generatedImages: doneCount,
+      imageStatusCounts,
+      ratingCount: promptRatings.length,
+      onNavigate: navigateToSection,
+      onOpenSettings: () => setShowSettings(true)
+    }), isUser && React.createElement(UserRouteContent, {
+      routePath: activeRoute,
+      session: userSession,
+      resultsCount: results.length,
+      generatedImages: doneCount,
+      imageStatusCounts,
+      ratingCount: promptRatings.length,
+      onNavigate: navigateToSection,
+      onOpenSettings: () => setShowSettings(true)
+    }), isUser && React.createElement(UserOverview, {
       session: userSession
     }), React.createElement("div", {
       style: {
@@ -7124,271 +8961,7 @@ ${r.data.thumbnailNotes}`;
         color: "rgba(255,255,255,0.38)",
         lineHeight: 1.5
       }
-    }, "Rate a few prompts first. The app will then show your best-performing categories, audiences, and shirt types here."))), error && React.createElement("div", {
-      style: {
-        background: "rgba(255,80,80,0.07)",
-        border: "1px solid rgba(255,80,80,0.18)",
-        borderRadius: 9,
-        padding: "10px 14px",
-        color: "#FF8080",
-        fontSize: 12,
-        marginBottom: 12
-      }
-    }, "\u26A0\uFE0F ", error), React.createElement("button", {
-      onClick: handleGenerate,
-      disabled: loading || !analysisReady,
-      style: {
-        width: "100%",
-        padding: "13px",
-        background: loading || !analysisReady ? "rgba(255,220,100,0.05)" : "linear-gradient(135deg,#FFDC64 0%,#FF9B40 100%)",
-        border: "none",
-        borderRadius: 12,
-        color: loading || !analysisReady ? "rgba(255,220,100,0.35)" : "var(--bg-base)",
-        fontSize: 14,
-        fontWeight: 600,
-        cursor: loading || !analysisReady ? "not-allowed" : "pointer",
-        display: "flex",
-        alignItems: "center",
-        justifyContent: "center",
-        gap: 9,
-        transition: "all 0.2s",
-        marginBottom: 11
-      }
-    }, loading ? React.createElement(React.Fragment, null, React.createElement(Spinner, {
-      size: 17,
-      color: "rgba(255,220,100,0.5)"
-    }), React.createElement("span", null, "Generiram\u2026")) : React.createElement("span", null, analysisReady ? "\u26A1 Generiraj " + total + " Mockup Promptov" : "Confirm analysis first")), loading && React.createElement("div", {
-      style: {
-        background: "rgba(255,255,255,0.022)",
-        border: "1px solid rgba(255,255,255,0.07)",
-        borderRadius: 14,
-        padding: "14px 16px",
-        marginBottom: 16
-      }
-    }, React.createElement("div", {
-      style: {
-        display: "flex",
-        justifyContent: "space-between",
-        marginBottom: 6
-      }
-    }, React.createElement("span", {
-      style: {
-        fontSize: 11,
-        color: "var(--text-secondary)",
-        fontFamily: "'DM Mono',monospace"
-      }
-    }, "Generating mockups"), React.createElement("span", {
-      style: {
-        fontSize: 11,
-        color: "var(--accent-gold)",
-        fontFamily: "'DM Mono',monospace"
-      }
-    }, doneCount, " of ", total)), React.createElement("div", {
-      style: {
-        background: "var(--border-subtle)",
-        borderRadius: 999,
-        height: 5,
-        overflow: "hidden"
-      }
-    }, React.createElement("div", {
-      style: {
-        height: "100%",
-        background: "linear-gradient(90deg, #7EE8A2, #38C77E)",
-        borderRadius: 999,
-        width: `${progress}%`,
-        transition: "width 0.5s ease"
-      }
-    })), React.createElement("div", {
-      style: {
-        display: "grid",
-        gridTemplateColumns: `repeat(${batches.length},1fr)`,
-        gap: 6
-      }
-    }, batches.map((b, bi) => {
-      const done = results.some(r => r.catInfo?.id === b[0].id);
-      return React.createElement("div", {
-        key: bi,
-        style: {
-          background: done ? "rgba(255,220,100,0.07)" : "rgba(255,255,255,0.02)",
-          border: `1px solid ${done ? "rgba(255,220,100,0.18)" : "rgba(255,255,255,0.05)"}`,
-          borderRadius: 8,
-          padding: "7px 10px"
-        }
-      }, React.createElement("div", {
-        style: {
-          fontSize: 10,
-          color: done ? "var(--accent-gold)" : "rgba(255,255,255,0.22)",
-          fontFamily: "'DM Mono',monospace"
-        }
-      }, done ? "✓ " : "· ", "Serija ", bi + 1), React.createElement("div", {
-        style: {
-          fontSize: 9,
-          color: "rgba(255,255,255,0.18)",
-          marginTop: 2
-        }
-      }, b.map(c => c.emoji).join(" ")));
-    }))), results.length > 0 && React.createElement("div", {
-      id: "results-section",
-      style: {
-        animation: "fadeUp 0.4s ease"
-      }
-    }, React.createElement("div", {
-      style: {
-        display: "flex",
-        justifyContent: "space-between",
-        alignItems: "center",
-        marginBottom: 13
-      }
-    }, React.createElement("div", {
-      style: {
-        fontSize: 10,
-        color: "rgba(255,220,100,0.6)",
-        fontFamily: "'DM Mono',monospace",
-        letterSpacing: "0.14em",
-        textTransform: "uppercase"
-      }
-    }, "\u2726 ", results.length, "/", total, " promptov \xB7 ", doneCount, " slik"), React.createElement("div", {
-      style: {
-        display: "flex",
-        gap: 7
-      }
-    }, doneCount > 0 && React.createElement("button", {
-      onClick: downloadAll,
-      style: {
-        background: "linear-gradient(135deg,#7EE8A2,#38C77E)",
-        border: "none",
-        borderRadius: 8,
-        padding: "7px 12px",
-        color: "#07100B",
-        fontSize: 10,
-        fontFamily: "'DM Mono',monospace",
-        cursor: "pointer",
-        fontWeight: 700
-      }
-    }, "Download All Mockups"), results.length === total && React.createElement("button", {
-      onClick: copyAll,
-      style: {
-        background: "var(--bg-elevated)",
-        border: "1px solid rgba(255,255,255,0.09)",
-        borderRadius: 8,
-        padding: "5px 11px",
-        color: "rgba(255,255,255,0.45)",
-        fontSize: 10,
-        fontFamily: "'DM Mono',monospace",
-        cursor: "pointer"
-      }
-    }, "Kopiraj vse"), results.length === total && React.createElement("button", {
-      onClick: handleGenAll,
-      disabled: genAllBusy,
-      style: {
-        display: "flex",
-        alignItems: "center",
-        gap: 5,
-        background: genAllBusy ? "rgba(255,220,100,0.04)" : "rgba(255,220,100,0.12)",
-        border: "1px solid rgba(255,220,100,0.25)",
-        borderRadius: 8,
-        padding: "5px 12px",
-        color: genAllBusy ? "rgba(255,220,100,0.3)" : "var(--accent-gold)",
-        fontSize: 10,
-        fontFamily: "'DM Mono',monospace",
-        cursor: genAllBusy ? "not-allowed" : "pointer"
-      }
-    }, genAllBusy ? React.createElement(React.Fragment, null, React.createElement(Spinner, {
-      size: 11
-    }), React.createElement("span", null, "Generiram\u2026")) : React.createElement("span", null, "\uD83D\uDDBC Generiraj vseh ", total, " slik")))), doneCount > 0 && React.createElement("div", {
-      style: {
-        background: "rgba(255,255,255,0.03)",
-        border: "1px solid rgba(255,255,255,0.06)",
-        borderRadius: 10,
-        padding: "9px 13px",
-        marginBottom: 13
-      }
-    }, React.createElement("div", {
-      style: {
-        display: "flex",
-        justifyContent: "space-between",
-        marginBottom: 5
-      }
-    }, React.createElement("span", {
-      style: {
-        fontSize: 10,
-        color: "rgba(255,255,255,0.3)",
-        fontFamily: "'DM Mono',monospace"
-      }
-    }, "Generirane slike"), React.createElement("span", {
-      style: {
-        fontSize: 10,
-        color: "var(--accent-green)",
-        fontFamily: "'DM Mono',monospace"
-      }
-    }, doneCount, " / ", total)), React.createElement("div", {
-      style: {
-        background: "var(--bg-elevated)",
-        borderRadius: 999,
-        height: 3
-      }
-    }, React.createElement("div", {
-      style: {
-        height: "100%",
-        background: "linear-gradient(90deg,#7EE8A2,#38C77E)",
-        borderRadius: 999,
-        width: `${doneCount / total * 100}%`,
-        transition: "width 0.4s"
-      }
-    }))), React.createElement("div", {
-	      style: {
-	        marginBottom: 13
-	      }
-	    }, React.createElement("div", {
-	      className: "ko-tab-scroll",
-	      style: {
-	        display: "flex",
-	        overflowX: "auto",
-	        gap: 4,
-	        flexWrap: "nowrap",
-	        paddingBottom: 2
-	      }
-	    }, visibleTabs.map(t => React.createElement("button", {
-	      key: t.id,
-	      onClick: () => setActiveTab(t.id),
-	      className: `ko-pill-tab${activeTab === t.id ? " ko-pill-tab-active" : ""}`,
-	      style: {
-	        padding: "7px 16px",
-	        borderRadius: "var(--radius-pill)",
-	        fontSize: 12,
-	        fontWeight: 500,
-	        whiteSpace: "nowrap",
-	        transition: "all 0.15s ease",
-	        border: activeTab === t.id ? "1.5px solid rgba(255,220,100,0.35)" : "1.5px solid var(--border-subtle)",
-	        background: activeTab === t.id ? "rgba(255,220,100,0.12)" : "transparent",
-	        color: activeTab === t.id ? "var(--accent-gold)" : "var(--text-tertiary)",
-	        cursor: "pointer"
-	      }
-	    }, t.label)))), filtered.map(r => {
-      const gi = results.indexOf(r);
-      const id = r.catInfo?.id;
-      const rating = ratingByPromptId[r.promptId] || 0;
-      return React.createElement(MockupCard, {
-        key: id || gi,
-        result: r.data,
-        catInfo: r.catInfo,
-        index: gi,
-        isOpen: openCard === gi,
-        onToggle: () => setOpenCard(openCard === gi ? null : gi),
-        imgState: imgStates[id],
-        customPrompt: customPrompts[id],
-        analyticsContext: analyticsContext(r.meta, r.promptId),
-        onCustomPrompt: value => setCustomPrompt(id, value),
-        onGenImage: customPrompt => genImage(id, r.data.fluxPrompt, customPrompt, r.meta),
-        onAiFix: () => aiFixSuggestion(id, r.data),
-        rating: rating,
-        onRate: nextRating => ratePrompt(r.promptId, nextRating, r.meta),
-        onMarkSelected: () => ratePrompt(r.promptId, rating || 0, {
-          ...r.meta,
-          selected: true
-        })
-      });
-    })))))));
+    }, "Rate a few prompts first. The app will then show your best-performing categories, audiences, and shirt types here."))), composeFooter)))));
   }
   ReactDOM.createRoot(document.getElementById("root")).render(React.createElement(App, null));
 } catch (err) {
