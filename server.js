@@ -606,30 +606,6 @@ function parseIsoDay(value) {
 
 // Read-only reporting helpers moved to services/reports.js
 
-async function loadAdminGenerationsSummary() {
-  const generations = await supabaseRestQuerySchema("public", "ko_generation_records", {
-    order: "created_at.desc",
-    limit: 500,
-  });
-  return {
-    rows: generations.slice(0, 100).map(row => ({
-      id: row.id,
-      user_id: row.user_id,
-      generation_type: row.generation_type,
-      prompt: row.prompt,
-      prompt_hash: row.prompt_hash,
-      model_name: row.model_name,
-      category: row.category,
-      status: row.status,
-      score: row.score,
-      credits_used: row.credits_used,
-      image_url: row.image_url,
-      created_at: row.created_at,
-      meta: row.meta || {},
-    })),
-  };
-}
-
 function keySource(type) {
   if (type === "gemini") return process.env.GEMINI_API_KEY || process.env.GOOGLE_API_KEY ? "env" : "file";
   return process.env.REPLICATE_API_KEY ? "env" : "file";
@@ -1088,6 +1064,8 @@ const reports = createReportsService({
   supabaseRestSelect,
   supabaseRestQuery,
   supabaseRestRpc,
+  analyticsFiltersFromQuery,
+  loadAdminResearchBundle,
   LEARNING_MIN_SAMPLES,
   RESEARCH_EXPORT_MAX_ROWS,
   LEARNING_DIMENSIONS,
@@ -1114,6 +1092,7 @@ const {
   loadAdminUsers,
   loadAdminTransactions,
   loadAdminGenerations,
+  loadAdminGenerationsSummary,
   loadAdminReviewCenter,
   loadTopConcepts,
   loadDimensionLeaderboard,
@@ -1121,6 +1100,7 @@ const {
   loadDimensionHeatmap,
   loadLearningSummary,
   loadLearningBundle,
+  loadResearchExportDataset,
 } = reports;
 
 let learningRefreshInFlight = null;
@@ -3829,16 +3809,6 @@ app.get("/api/admin/research/dimension-heatmap", async (req, res) => {
     sendAdminError(res, "admin research dimension heatmap", e);
   }
 });
-
-async function loadResearchExportDataset(query = {}) {
-  const dataset = safeText(query.dataset, 80) || "breakdown";
-  if (dataset === "top-concepts") return { dataset, ...(await loadTopConcepts(query)) };
-  if (dataset === "dimension-leaderboard") return { dataset, ...(await loadDimensionLeaderboard(query)) };
-  if (dataset === "prompt-versions") return { dataset, ...(await loadPromptVersions(query)) };
-  if (dataset === "dimension-heatmap") return { dataset, ...(await loadDimensionHeatmap(query)) };
-  const filters = analyticsFiltersFromQuery(query);
-  return { dataset: "breakdown", ...(await loadAdminResearchBundle(filters)) };
-}
 
 app.get("/api/admin/research/export.json", async (req, res) => {
   if (!requireAdmin(req, res)) return;

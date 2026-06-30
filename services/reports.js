@@ -6,6 +6,8 @@ function createReportsService({
   supabaseRestSelect,
   supabaseRestQuery,
   supabaseRestRpc,
+  analyticsFiltersFromQuery = () => ({}),
+  loadAdminResearchBundle = async () => ({ rows: [], breakdown: [] }),
   LEARNING_MIN_SAMPLES = 5,
   RESEARCH_EXPORT_MAX_ROWS = 5000,
   LEARNING_DIMENSIONS = new Set([
@@ -600,6 +602,30 @@ function createReportsService({
     };
   }
 
+  async function loadAdminGenerationsSummary() {
+    const generations = await supabaseRestQuerySchema("public", "ko_generation_records", {
+      order: "created_at.desc",
+      limit: 500,
+    });
+    return {
+      rows: generations.slice(0, 100).map(row => ({
+        id: row.id,
+        user_id: row.user_id,
+        generation_type: row.generation_type,
+        prompt: row.prompt,
+        prompt_hash: row.prompt_hash,
+        model_name: row.model_name,
+        category: row.category,
+        status: row.status,
+        score: row.score,
+        credits_used: row.credits_used,
+        image_url: row.image_url,
+        created_at: row.created_at,
+        meta: row.meta || {},
+      })),
+    };
+  }
+
   async function loadAdminReviewCenter(query = {}) {
     const base = await loadAdminGenerations({ ...query, limit: safeLimit(query.limit, 50, 100) });
     const generationIds = base.rows.map(row => row.id).filter(Boolean);
@@ -978,6 +1004,16 @@ function createReportsService({
     };
   }
 
+  async function loadResearchExportDataset(query = {}) {
+    const dataset = safeText(query.dataset, 80) || "breakdown";
+    if (dataset === "top-concepts") return { dataset, ...(await loadTopConcepts(query)) };
+    if (dataset === "dimension-leaderboard") return { dataset, ...(await loadDimensionLeaderboard(query)) };
+    if (dataset === "prompt-versions") return { dataset, ...(await loadPromptVersions(query)) };
+    if (dataset === "dimension-heatmap") return { dataset, ...(await loadDimensionHeatmap(query)) };
+    const filters = analyticsFiltersFromQuery(query);
+    return { dataset: "breakdown", ...(await loadAdminResearchBundle(filters)) };
+  }
+
   return {
     summarizeDailyRows,
     summarizeGenerationRecords,
@@ -999,6 +1035,7 @@ function createReportsService({
     loadAdminUsers,
     loadAdminTransactions,
     loadAdminGenerations,
+    loadAdminGenerationsSummary,
     loadAdminReviewCenter,
     loadTopConcepts,
     loadDimensionLeaderboard,
@@ -1006,6 +1043,7 @@ function createReportsService({
     loadDimensionHeatmap,
     loadLearningSummary,
     loadLearningBundle,
+    loadResearchExportDataset,
   };
 }
 
