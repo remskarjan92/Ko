@@ -1257,6 +1257,25 @@ app.patch("/api/admin/users/:id", async (req, res) => {
   }
 });
 
+app.post("/api/admin/users/:id/password", async (req, res) => {
+  if (!requireAdmin(req, res)) return;
+  try {
+    const password = String(req.body?.password || "");
+    if (password.length < 8) {
+      return res.status(400).json({ error: "Password must be at least 8 characters" });
+    }
+    const user = await loadUserById(req.params.id);
+    if (!user) return res.status(404).json({ error: "User not found" });
+    await supabaseRestPatchSchema("public", "ko_users", "id", user.id, {
+      password_hash: createPasswordHash(password),
+      updated_at: new Date().toISOString(),
+    });
+    res.json({ ok: true, message: "Password updated" });
+  } catch (e) {
+    sendAdminError(res, "admin user password update", e);
+  }
+});
+
 app.post("/api/admin/users/:id/credits", async (req, res) => {
   if (!requireAdmin(req, res)) return;
   try {

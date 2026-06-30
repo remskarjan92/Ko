@@ -561,6 +561,7 @@ function createReportsService({
         id: row.id,
         email: row.email,
         username: row.username,
+        role: row.role || "user",
         plan_type: row.plan_type,
         account_status: row.account_status,
         credits_balance: Number(row.credits_balance) || 0,

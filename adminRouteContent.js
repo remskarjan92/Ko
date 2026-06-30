@@ -11,6 +11,38 @@
     onNavigate,
     onOpenSettings
   }) {
+    const [usersState, setUsersState] = React.useState({ rows: [], loading: false, error: "", message: "" });
+    const [passwordTarget, setPasswordTarget] = React.useState(null);
+    const [newPassword, setNewPassword] = React.useState("");
+    const [passwordBusy, setPasswordBusy] = React.useState(false);
+    const [passwordError, setPasswordError] = React.useState("");
+    const [passwordMessage, setPasswordMessage] = React.useState("");
+
+    React.useEffect(() => {
+      let cancelled = false;
+      async function loadAdminUsers() {
+        if (routePath !== "/admin/users" || !isAdmin) return;
+        setUsersState(prev => ({ ...prev, loading: true, error: "", message: "" }));
+        try {
+          const res = await fetch("/api/admin/users", {
+            method: "GET",
+            credentials: "same-origin",
+            headers: { "Accept": "application/json" }
+          });
+          const text = await res.text();
+          const data = text ? JSON.parse(text) : {};
+          if (!res.ok) throw new Error(data?.error || `Request failed (${res.status})`);
+          if (!cancelled) setUsersState({ rows: Array.isArray(data.rows) ? data.rows : [], loading: false, error: "", message: "" });
+        } catch (error) {
+          if (!cancelled) setUsersState({ rows: [], loading: false, error: error.message || "Could not load users", message: "" });
+        }
+      }
+      loadAdminUsers();
+      return () => {
+        cancelled = true;
+      };
+    }, [routePath, isAdmin]);
+
     const routeHelpers = window.KOFrontendRoutes || {};
     if (!routeHelpers.isAdminRoute?.(routePath)) return null;
     if (!isAdmin) return null;
@@ -59,6 +91,26 @@
       fontWeight: 700,
       cursor: "pointer"
     };
+    const secondaryButtonStyle = {
+      ...actionButtonStyle,
+      borderColor: "rgba(255,255,255,0.13)",
+      background: "rgba(255,255,255,0.05)",
+      color: "rgba(255,255,255,0.78)"
+    };
+    const inputStyle = {
+      width: "100%",
+      border: "1px solid rgba(255,255,255,0.13)",
+      background: "rgba(0,0,0,0.22)",
+      color: "rgba(255,255,255,0.88)",
+      borderRadius: 10,
+      padding: "10px 11px",
+      outline: "none"
+    };
+    const mutedStyle = {
+      color: "rgba(255,255,255,0.54)",
+      fontSize: 12,
+      lineHeight: 1.45
+    };
     const card = (label, value) => React.createElement("div", {
       key: label,
       style: {
@@ -77,6 +129,198 @@
         marginTop: 5
       }
     }, value));
+    const formatDate = value => {
+      if (!value) return "Never";
+      const date = new Date(value);
+      if (Number.isNaN(date.getTime())) return "Unknown";
+      return date.toLocaleDateString(undefined, { year: "numeric", month: "short", day: "numeric" });
+    };
+    const refreshAdminUsers = async () => {
+      setUsersState(prev => ({ ...prev, loading: true, error: "", message: "" }));
+      try {
+        const res = await fetch("/api/admin/users", {
+          method: "GET",
+          credentials: "same-origin",
+          headers: { "Accept": "application/json" }
+        });
+        const text = await res.text();
+        const data = text ? JSON.parse(text) : {};
+        if (!res.ok) throw new Error(data?.error || `Request failed (${res.status})`);
+        setUsersState({ rows: Array.isArray(data.rows) ? data.rows : [], loading: false, error: "", message: "Users refreshed" });
+      } catch (error) {
+        setUsersState(prev => ({ ...prev, loading: false, error: error.message || "Could not refresh users", message: "" }));
+      }
+    };
+    const submitPassword = async event => {
+      event.preventDefault();
+      setPasswordError("");
+      setPasswordMessage("");
+      if (!passwordTarget?.id) return;
+      if (newPassword.length < 8) {
+        setPasswordError("Password must be at least 8 characters.");
+        return;
+      }
+      setPasswordBusy(true);
+      try {
+        const res = await fetch(`/api/admin/users/${encodeURIComponent(passwordTarget.id)}/password`, {
+          method: "POST",
+          credentials: "same-origin",
+          headers: {
+            "Content-Type": "application/json",
+            "Accept": "application/json"
+          },
+          body: JSON.stringify({ password: newPassword })
+        });
+        const text = await res.text();
+        const data = text ? JSON.parse(text) : {};
+        if (!res.ok) throw new Error(data?.error || `Request failed (${res.status})`);
+        setPasswordMessage(data?.message || "Password updated");
+        setNewPassword("");
+        setPasswordTarget(null);
+      } catch (error) {
+        setPasswordError(error.message || "Password update failed");
+      } finally {
+        setPasswordBusy(false);
+      }
+    };
+    const renderAdminUsers = () => {
+      const rows = usersState.rows || [];
+      return React.createElement("div", {
+        style: {
+          borderTop: "1px solid rgba(255,255,255,0.08)",
+          marginTop: 14,
+          paddingTop: 14
+        }
+      }, React.createElement("div", {
+        style: {
+          display: "flex",
+          justifyContent: "space-between",
+          gap: 12,
+          flexWrap: "wrap",
+          marginBottom: 10
+        }
+      }, React.createElement("div", null, React.createElement("div", {
+        style: {
+          color: "rgba(255,255,255,0.86)",
+          fontWeight: 800,
+          fontSize: 15
+        }
+      }, "Registered users"), React.createElement("div", {
+        style: mutedStyle
+      }, "Password hashes are not returned or displayed.")), React.createElement("button", {
+        type: "button",
+        onClick: refreshAdminUsers,
+        disabled: usersState.loading,
+        style: secondaryButtonStyle
+      }, usersState.loading ? "Loading..." : "Refresh")), usersState.error && React.createElement("div", {
+        style: {
+          color: "#ffb4a8",
+          fontSize: 13,
+          marginBottom: 10
+        }
+      }, usersState.error), usersState.message && React.createElement("div", {
+        style: {
+          color: "rgba(143,255,196,0.9)",
+          fontSize: 13,
+          marginBottom: 10
+        }
+      }, usersState.message), React.createElement("div", {
+        style: {
+          overflowX: "auto",
+          border: "1px solid rgba(255,255,255,0.08)",
+          borderRadius: 12
+        }
+      }, React.createElement("table", {
+        style: {
+          width: "100%",
+          borderCollapse: "collapse",
+          minWidth: 760
+        }
+      }, React.createElement("thead", null, React.createElement("tr", null, ["User", "Role", "Status", "Credits", "Created", "Last login", "Action"].map(label => React.createElement("th", {
+        key: label,
+        style: {
+          ...labelStyle,
+          textAlign: "left",
+          padding: "10px 12px",
+          borderBottom: "1px solid rgba(255,255,255,0.08)",
+          background: "rgba(0,0,0,0.16)"
+        }
+      }, label)))), React.createElement("tbody", null, rows.length ? rows.map(user => React.createElement("tr", {
+        key: user.id,
+        style: {
+          borderBottom: "1px solid rgba(255,255,255,0.06)"
+        }
+      }, React.createElement("td", {
+        style: { padding: "11px 12px" }
+      }, React.createElement("div", {
+        style: { color: "rgba(255,255,255,0.86)", fontWeight: 800 }
+      }, user.username || user.email || "Unnamed user"), React.createElement("div", {
+        style: mutedStyle
+      }, user.email || user.id)), React.createElement("td", {
+        style: { padding: "11px 12px", color: "rgba(255,255,255,0.7)" }
+      }, user.role || "user"), React.createElement("td", {
+        style: { padding: "11px 12px", color: "rgba(255,255,255,0.7)" }
+      }, user.account_status || "unknown"), React.createElement("td", {
+        style: { padding: "11px 12px", color: "rgba(255,255,255,0.7)" }
+      }, Number(user.credits_balance || 0)), React.createElement("td", {
+        style: { padding: "11px 12px", color: "rgba(255,255,255,0.7)" }
+      }, formatDate(user.created_at)), React.createElement("td", {
+        style: { padding: "11px 12px", color: "rgba(255,255,255,0.7)" }
+      }, formatDate(user.last_login_at)), React.createElement("td", {
+        style: { padding: "11px 12px" }
+      }, React.createElement("button", {
+        type: "button",
+        onClick: () => {
+          setPasswordTarget(user);
+          setNewPassword("");
+          setPasswordError("");
+          setPasswordMessage("");
+        },
+        style: actionButtonStyle
+      }, "Set password")))) : React.createElement("tr", null, React.createElement("td", {
+        colSpan: 7,
+        style: {
+          padding: "18px 12px",
+          color: "rgba(255,255,255,0.56)"
+        }
+      }, usersState.loading ? "Loading users..." : "No registered users found."))))), passwordTarget && React.createElement("form", {
+        onSubmit: submitPassword,
+        style: {
+          marginTop: 12,
+          display: "grid",
+          gap: 9,
+          gridTemplateColumns: "minmax(220px,1fr) auto auto",
+          alignItems: "end"
+        }
+      }, React.createElement("label", {
+        style: { display: "grid", gap: 5 }
+      }, React.createElement("span", {
+        style: labelStyle
+      }, `New password for ${passwordTarget.username || passwordTarget.email || "user"}`), React.createElement("input", {
+        type: "password",
+        value: newPassword,
+        onChange: event => setNewPassword(event.target.value),
+        minLength: 8,
+        autoComplete: "new-password",
+        style: inputStyle
+      })), React.createElement("button", {
+        type: "submit",
+        disabled: passwordBusy,
+        style: actionButtonStyle
+      }, passwordBusy ? "Saving..." : "Save password"), React.createElement("button", {
+        type: "button",
+        onClick: () => {
+          setPasswordTarget(null);
+          setNewPassword("");
+          setPasswordError("");
+        },
+        style: secondaryButtonStyle
+      }, "Cancel")), passwordError && React.createElement("div", {
+        style: { color: "#ffb4a8", fontSize: 13, marginTop: 8 }
+      }, passwordError), passwordMessage && React.createElement("div", {
+        style: { color: "rgba(143,255,196,0.9)", fontSize: 13, marginTop: 8 }
+      }, passwordMessage));
+    };
     const statusCards = [{
       label: "Admin Session",
       value: adminSession?.authenticated ? "Authenticated" : "Locked"
@@ -210,7 +454,7 @@
       type: "button",
       onClick: onOpenSettings,
       style: actionButtonStyle
-    }, routePath === "/admin/settings" ? "Open Admin Settings" : "Open Service Status"))));
+    }, routePath === "/admin/settings" ? "Open Admin Settings" : "Open Service Status")), routePath === "/admin/users" && renderAdminUsers()));
   }
 
   window.AdminRouteContent = AdminRouteContent;
