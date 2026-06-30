@@ -911,27 +911,6 @@ async function supabaseRestPatch(table, matchColumn, matchValue, row) {
   }
 }
 
-function analyticsFiltersFromQuery(query = {}) {
-  const filters = {};
-  const map = {
-    mode: "mode",
-    printVisibility: "print_visibility",
-    listingRole: "listing_role",
-    category: "category",
-    provider: "provider",
-    modelName: "model_name",
-  };
-  for (const [inputKey, column] of Object.entries(map)) {
-    const value = safeText(query[inputKey], 180);
-    if (value) filters[column] = value;
-  }
-  const dateFrom = safeText(query.dateFrom, 20);
-  const dateTo = safeText(query.dateTo, 20);
-  if (dateFrom) filters.dateFrom = dateFrom;
-  if (dateTo) filters.dateTo = dateTo;
-  return filters;
-}
-
 function cacheKeyForAdminAnalytics(scope, filters = {}) {
   return `${scope}:${JSON.stringify(Object.keys(filters).sort().reduce((acc, key) => {
     acc[key] = filters[key];
@@ -1064,8 +1043,6 @@ const reports = createReportsService({
   supabaseRestSelect,
   supabaseRestQuery,
   supabaseRestRpc,
-  analyticsFiltersFromQuery,
-  loadAdminResearchBundle,
   LEARNING_MIN_SAMPLES,
   RESEARCH_EXPORT_MAX_ROWS,
   LEARNING_DIMENSIONS,
@@ -1080,6 +1057,7 @@ const {
   summarizeQualityRows,
   summarizeRatingRows,
   summarizeGenerationDashboardRows,
+  analyticsFiltersFromQuery,
   aggregateMetrics,
   aggregateByDay,
   aggregateConceptRows,
@@ -1093,6 +1071,7 @@ const {
   loadAdminTransactions,
   loadAdminGenerations,
   loadAdminGenerationsSummary,
+  loadAdminResearchBundle,
   loadAdminReviewCenter,
   loadTopConcepts,
   loadDimensionLeaderboard,
@@ -1138,8 +1117,6 @@ async function ensureLearningFresh({ force = false } = {}) {
   return true;
 }
 
-// Remaining learning/reporting helpers moved to services/reports.js
-
 function addProxyMetrics(row = {}) {
   const generations = Number(row.generations_total) || 0;
   const succeeded = Number(row.generations_succeeded) || 0;
@@ -1169,8 +1146,6 @@ function addProxyMetrics(row = {}) {
     risk_proxy: riskProxy === null ? null : Number(riskProxy.toFixed(2)),
   };
 }
-
-// Remaining aggregate helpers moved to services/reports.js
 
 function csvEscape(value) {
   if (value === null || value === undefined) return "";
@@ -1210,18 +1185,6 @@ function validateAnalyticsBulkBody(body) {
     if (event.installId == null) event.installId = installHash;
   }
   return null;
-}
-
-async function loadAdminResearchBundle(filters) {
-  const dailyRows = await supabaseRestSelect("v_daily_metrics", { filters, order: "day.asc", limit: 5000 });
-  const timeseries = aggregateByDay(dailyRows);
-  const breakdown = aggregateConceptRows(dailyRows).slice(0, 250);
-  return {
-    filters,
-    summary: aggregateMetrics(dailyRows),
-    timeseries,
-    breakdown,
-  };
 }
 
 function normalizeAnalyticsEvent(event, clientInstallHash, userSession = null) {

@@ -79,6 +79,27 @@ function createReportsService({
     };
   }
 
+  function analyticsFiltersFromQuery(query = {}) {
+    const filters = {};
+    const map = {
+      mode: "mode",
+      printVisibility: "print_visibility",
+      listingRole: "listing_role",
+      category: "category",
+      provider: "provider",
+      modelName: "model_name",
+    };
+    for (const [inputKey, column] of Object.entries(map)) {
+      const value = safeText(query[inputKey], 180);
+      if (value) filters[column] = value;
+    }
+    const dateFrom = safeText(query.dateFrom, 20);
+    const dateTo = safeText(query.dateTo, 20);
+    if (dateFrom) filters.dateFrom = dateFrom;
+    if (dateTo) filters.dateTo = dateTo;
+    return filters;
+  }
+
   function summarizeDailyRows(rows = [], dateKey = "created_at") {
     const grouped = new Map();
     for (const row of rows) {
@@ -602,6 +623,18 @@ function createReportsService({
     };
   }
 
+  async function loadAdminResearchBundle(filters) {
+    const dailyRows = await supabaseRestSelect("v_daily_metrics", { filters, order: "day.asc", limit: 5000 });
+    const timeseries = aggregateByDay(dailyRows);
+    const breakdown = aggregateConceptRows(dailyRows).slice(0, 250);
+    return {
+      filters,
+      summary: aggregateMetrics(dailyRows),
+      timeseries,
+      breakdown,
+    };
+  }
+
   async function loadAdminGenerationsSummary() {
     const generations = await supabaseRestQuerySchema("public", "ko_generation_records", {
       order: "created_at.desc",
@@ -1023,6 +1056,7 @@ function createReportsService({
     summarizeQualityRows,
     summarizeRatingRows,
     summarizeGenerationDashboardRows,
+    analyticsFiltersFromQuery,
     aggregateMetrics,
     aggregateByDay,
     aggregateConceptRows,
@@ -1036,6 +1070,7 @@ function createReportsService({
     loadAdminTransactions,
     loadAdminGenerations,
     loadAdminGenerationsSummary,
+    loadAdminResearchBundle,
     loadAdminReviewCenter,
     loadTopConcepts,
     loadDimensionLeaderboard,
