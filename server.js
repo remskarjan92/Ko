@@ -447,14 +447,20 @@ function sanitizeUserRow(row = {}) {
   return {
     id: row.id,
     email: row.email,
+    login: row.email || row.username || row.id,
     username: row.username,
+    role: row.role || "user",
     plan_type: row.plan_type,
+    status: row.account_status,
     account_status: row.account_status,
+    disabled: row.account_status !== "active",
+    is_active: row.account_status === "active",
     credits_balance: Number(row.credits_balance) || 0,
     avatar_url: row.avatar_url || null,
     created_at: row.created_at || null,
     updated_at: row.updated_at || null,
     last_login_at: row.last_login_at || null,
+    last_login: row.last_login_at || null,
   };
 }
 
@@ -1276,18 +1282,48 @@ app.post("/api/admin/users/:id/password", async (req, res) => {
   }
 });
 
+app.post("/api/admin/users/:id/status", async (req, res) => {
+  if (!requireAdmin(req, res)) return;
+  try {
+    const user = await loadUserById(req.params.id);
+    if (!user) return res.status(404).json({ error: "User not found" });
+    const disabled = req.body?.disabled === true || req.body?.disabled === "true";
+    const nextStatus = disabled ? "disabled" : "active";
+    const actor = String(adminActor(req) || "").trim().toLowerCase();
+    const targetIdentifiers = [user.username, user.email, user.id].filter(Boolean).map(value => String(value).toLowerCase());
+    if (disabled && actor && targetIdentifiers.includes(actor)) {
+      return res.status(409).json({ error: "Cannot disable the current admin account" });
+    }
+    await supabaseRestPatchSchema("public", "ko_users", "id", user.id, {
+      account_status: nextStatus,
+      updated_at: new Date().toISOString(),
+    });
+    res.json({ ok: true, user: sanitizeUserRow({ ...user, account_status: nextStatus, updated_at: new Date().toISOString() }) });
+  } catch (e) {
+    sendAdminError(res, "admin user status update", e);
+  }
+});
+
 app.post("/api/admin/users/:id/credits", async (req, res) => {
   if (!requireAdmin(req, res)) return;
   try {
-    const delta = safeInteger(req.body?.delta, -100000, 100000);
-    const action = safeText(req.body?.action, 80) || (delta >= 0 ? "admin_adjustment_add" : "admin_adjustment_remove");
+    const rawAmount = req.body?.amount ?? req.body?.delta;
+    const amount = safeInteger(rawAmount, -100000, 100000);
+    if (!Number.isInteger(amount) || amount === 0) {
+      return res.status(400).json({ error: "Amount must be a non-zero integer" });
+    }
+    const reason = safeText(req.body?.reason || req.body?.note, 200);
+    if (!reason) return res.status(400).json({ error: "Reason is required" });
+    const action = safeText(req.body?.action, 80) || (amount >= 0 ? "admin_adjustment_add" : "admin_adjustment_remove");
     const metadata = typeof req.body?.metadata === "object" && req.body.metadata ? req.body.metadata : {};
-    const balance = await addCreditTransaction(req.params.id, action, delta, {
+    const balance = await addCreditTransaction(req.params.id, action, amount, {
       ...metadata,
       source: "admin",
-      note: safeText(req.body?.note, 200),
+      reason,
+      note: reason,
+      admin: adminActor(req),
     });
-    res.json({ ok: true, balance });
+    res.json({ ok: true, balance, amount });
   } catch (e) {
     const code = creditStorageErrorCode(e);
     if (code === "insufficient_credits") {

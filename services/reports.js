@@ -549,26 +549,39 @@ function createReportsService({
       order: "created_at.desc",
       limit: 500,
     });
-    const search = safeText(query.search, 120).toLowerCase();
+    const search = safeText(query.q || query.search, 120).toLowerCase();
     const status = safeText(query.status, 80).toLowerCase();
+    const role = safeText(query.role, 80).toLowerCase();
+    const limit = safeLimit(query.limit, 50, 250);
+    const offset = safeInteger(query.offset, 0, 1000000) || 0;
     const filtered = rows.filter(row => {
-      if (search && !`${row.email || ""} ${row.username || ""}`.toLowerCase().includes(search)) return false;
-      if (status && !String(row.account_status || "").toLowerCase().includes(status)) return false;
+      const rowRole = String(row.role || "user").toLowerCase();
+      const rowStatus = String(row.account_status || "").toLowerCase();
+      if (search && !`${row.email || ""} ${row.username || ""} ${row.id || ""}`.toLowerCase().includes(search)) return false;
+      if (status && !rowStatus.includes(status)) return false;
+      if (role && rowRole !== role) return false;
       return true;
     });
     return {
-      rows: filtered.slice(0, safeLimit(query.limit, 50, 250)).map(row => ({
+      filters: { q: search, status, role, limit, offset },
+      total: filtered.length,
+      rows: filtered.slice(offset, offset + limit).map(row => ({
         id: row.id,
         email: row.email,
+        login: row.email || row.username || row.id,
         username: row.username,
         role: row.role || "user",
         plan_type: row.plan_type,
+        status: row.account_status,
         account_status: row.account_status,
+        disabled: row.account_status !== "active",
+        is_active: row.account_status === "active",
         credits_balance: Number(row.credits_balance) || 0,
         avatar_url: row.avatar_url || null,
         created_at: row.created_at || null,
         updated_at: row.updated_at || null,
         last_login_at: row.last_login_at || null,
+        last_login: row.last_login_at || null,
       })),
     };
   }

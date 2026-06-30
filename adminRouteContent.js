@@ -17,6 +17,19 @@
     const [passwordBusy, setPasswordBusy] = React.useState(false);
     const [passwordError, setPasswordError] = React.useState("");
     const [passwordMessage, setPasswordMessage] = React.useState("");
+    const [userSearch, setUserSearch] = React.useState("");
+    const [statusFilter, setStatusFilter] = React.useState("");
+    const [roleFilter, setRoleFilter] = React.useState("");
+    const [selectedUser, setSelectedUser] = React.useState(null);
+    const [userDetail, setUserDetail] = React.useState(null);
+    const [detailLoading, setDetailLoading] = React.useState(false);
+    const [detailError, setDetailError] = React.useState("");
+    const [statusBusy, setStatusBusy] = React.useState(false);
+    const [creditAmount, setCreditAmount] = React.useState("");
+    const [creditReason, setCreditReason] = React.useState("");
+    const [creditBusy, setCreditBusy] = React.useState(false);
+    const [creditError, setCreditError] = React.useState("");
+    const [creditMessage, setCreditMessage] = React.useState("");
 
     React.useEffect(() => {
       let cancelled = false;
@@ -24,7 +37,11 @@
         if (routePath !== "/admin/users" || !isAdmin) return;
         setUsersState(prev => ({ ...prev, loading: true, error: "", message: "" }));
         try {
-          const res = await fetch("/api/admin/users", {
+          const params = new URLSearchParams({ limit: "100" });
+          if (userSearch.trim()) params.set("q", userSearch.trim());
+          if (statusFilter) params.set("status", statusFilter);
+          if (roleFilter) params.set("role", roleFilter);
+          const res = await fetch(`/api/admin/users?${params.toString()}`, {
             method: "GET",
             credentials: "same-origin",
             headers: { "Accept": "application/json" }
@@ -41,7 +58,7 @@
       return () => {
         cancelled = true;
       };
-    }, [routePath, isAdmin]);
+    }, [routePath, isAdmin, userSearch, statusFilter, roleFilter]);
 
     const routeHelpers = window.KOFrontendRoutes || {};
     if (!routeHelpers.isAdminRoute?.(routePath)) return null;
@@ -135,10 +152,17 @@
       if (Number.isNaN(date.getTime())) return "Unknown";
       return date.toLocaleDateString(undefined, { year: "numeric", month: "short", day: "numeric" });
     };
+    const buildUsersPath = () => {
+      const params = new URLSearchParams({ limit: "100" });
+      if (userSearch.trim()) params.set("q", userSearch.trim());
+      if (statusFilter) params.set("status", statusFilter);
+      if (roleFilter) params.set("role", roleFilter);
+      return `/api/admin/users?${params.toString()}`;
+    };
     const refreshAdminUsers = async () => {
       setUsersState(prev => ({ ...prev, loading: true, error: "", message: "" }));
       try {
-        const res = await fetch("/api/admin/users", {
+        const res = await fetch(buildUsersPath(), {
           method: "GET",
           credentials: "same-origin",
           headers: { "Accept": "application/json" }
@@ -149,6 +173,93 @@
         setUsersState({ rows: Array.isArray(data.rows) ? data.rows : [], loading: false, error: "", message: "Users refreshed" });
       } catch (error) {
         setUsersState(prev => ({ ...prev, loading: false, error: error.message || "Could not refresh users", message: "" }));
+      }
+    };
+    const loadUserDetail = async user => {
+      setSelectedUser(user);
+      setUserDetail(null);
+      setDetailError("");
+      setCreditError("");
+      setCreditMessage("");
+      setDetailLoading(true);
+      try {
+        const res = await fetch(`/api/admin/users/${encodeURIComponent(user.id)}`, {
+          method: "GET",
+          credentials: "same-origin",
+          headers: { "Accept": "application/json" }
+        });
+        const text = await res.text();
+        const data = text ? JSON.parse(text) : {};
+        if (!res.ok) throw new Error(data?.error || `Request failed (${res.status})`);
+        setUserDetail(data);
+      } catch (error) {
+        setDetailError(error.message || "Could not load user detail");
+      } finally {
+        setDetailLoading(false);
+      }
+    };
+    const toggleUserStatus = async user => {
+      setStatusBusy(true);
+      setDetailError("");
+      try {
+        const disabled = !(user.disabled || user.account_status !== "active");
+        const res = await fetch(`/api/admin/users/${encodeURIComponent(user.id)}/status`, {
+          method: "POST",
+          credentials: "same-origin",
+          headers: {
+            "Content-Type": "application/json",
+            "Accept": "application/json"
+          },
+          body: JSON.stringify({ disabled })
+        });
+        const text = await res.text();
+        const data = text ? JSON.parse(text) : {};
+        if (!res.ok) throw new Error(data?.error || `Request failed (${res.status})`);
+        await refreshAdminUsers();
+        await loadUserDetail(data.user || { ...user, disabled, account_status: disabled ? "disabled" : "active" });
+      } catch (error) {
+        setDetailError(error.message || "Could not update user status");
+      } finally {
+        setStatusBusy(false);
+      }
+    };
+    const submitCreditAdjustment = async event => {
+      event.preventDefault();
+      setCreditError("");
+      setCreditMessage("");
+      if (!selectedUser?.id) return;
+      const amount = Number(creditAmount);
+      if (!Number.isInteger(amount) || amount === 0) {
+        setCreditError("Amount must be a non-zero integer.");
+        return;
+      }
+      if (!creditReason.trim()) {
+        setCreditError("Reason is required.");
+        return;
+      }
+      setCreditBusy(true);
+      try {
+        const res = await fetch(`/api/admin/users/${encodeURIComponent(selectedUser.id)}/credits`, {
+          method: "POST",
+          credentials: "same-origin",
+          headers: {
+            "Content-Type": "application/json",
+            "Accept": "application/json"
+          },
+          body: JSON.stringify({ amount, reason: creditReason.trim() })
+        });
+        const text = await res.text();
+        const data = text ? JSON.parse(text) : {};
+        if (!res.ok) throw new Error(data?.error || `Request failed (${res.status})`);
+        setCreditMessage(`Balance updated to ${data.balance}`);
+        setCreditAmount("");
+        setCreditReason("");
+        await refreshAdminUsers();
+        await loadUserDetail(selectedUser);
+      } catch (error) {
+        setCreditError(error.message || "Credit adjustment failed");
+      } finally {
+        setCreditBusy(false);
       }
     };
     const submitPassword = async event => {
@@ -212,7 +323,40 @@
         onClick: refreshAdminUsers,
         disabled: usersState.loading,
         style: secondaryButtonStyle
-      }, usersState.loading ? "Loading..." : "Refresh")), usersState.error && React.createElement("div", {
+      }, usersState.loading ? "Loading..." : "Refresh")), React.createElement("div", {
+        style: {
+          display: "grid",
+          gridTemplateColumns: "minmax(180px,1fr) minmax(130px,0.35fr) minmax(130px,0.35fr)",
+          gap: 9,
+          marginBottom: 10
+        }
+      }, React.createElement("input", {
+        type: "search",
+        value: userSearch,
+        onChange: event => setUserSearch(event.target.value),
+        placeholder: "Search username, email, or id",
+        style: inputStyle
+      }), React.createElement("select", {
+        value: statusFilter,
+        onChange: event => setStatusFilter(event.target.value),
+        style: inputStyle
+      }, React.createElement("option", {
+        value: ""
+      }, "Any status"), React.createElement("option", {
+        value: "active"
+      }, "Active"), React.createElement("option", {
+        value: "disabled"
+      }, "Disabled")), React.createElement("select", {
+        value: roleFilter,
+        onChange: event => setRoleFilter(event.target.value),
+        style: inputStyle
+      }, React.createElement("option", {
+        value: ""
+      }, "Any role"), React.createElement("option", {
+        value: "user"
+      }, "User"), React.createElement("option", {
+        value: "admin"
+      }, "Admin"))), usersState.error && React.createElement("div", {
         style: {
           color: "#ffb4a8",
           fontSize: 13,
@@ -268,7 +412,22 @@
         style: { padding: "11px 12px", color: "rgba(255,255,255,0.7)" }
       }, formatDate(user.last_login_at)), React.createElement("td", {
         style: { padding: "11px 12px" }
+      }, React.createElement("div", {
+        style: {
+          display: "flex",
+          gap: 7,
+          flexWrap: "wrap"
+        }
       }, React.createElement("button", {
+        type: "button",
+        onClick: () => loadUserDetail(user),
+        style: secondaryButtonStyle
+      }, "Details"), React.createElement("button", {
+        type: "button",
+        onClick: () => toggleUserStatus(user),
+        disabled: statusBusy,
+        style: secondaryButtonStyle
+      }, user.account_status === "active" ? "Disable" : "Enable"), React.createElement("button", {
         type: "button",
         onClick: () => {
           setPasswordTarget(user);
@@ -277,13 +436,103 @@
           setPasswordMessage("");
         },
         style: actionButtonStyle
-      }, "Set password")))) : React.createElement("tr", null, React.createElement("td", {
+      }, "Set password"))))) : React.createElement("tr", null, React.createElement("td", {
         colSpan: 7,
         style: {
           padding: "18px 12px",
           color: "rgba(255,255,255,0.56)"
         }
-      }, usersState.loading ? "Loading users..." : "No registered users found."))))), passwordTarget && React.createElement("form", {
+      }, usersState.loading ? "Loading users..." : "No registered users found."))))), selectedUser && React.createElement("div", {
+        style: {
+          border: "1px solid rgba(255,255,255,0.08)",
+          borderRadius: 12,
+          background: "rgba(0,0,0,0.14)",
+          padding: 12,
+          marginTop: 12
+        }
+      }, React.createElement("div", {
+        style: {
+          display: "flex",
+          justifyContent: "space-between",
+          gap: 10,
+          flexWrap: "wrap",
+          marginBottom: 10
+        }
+      }, React.createElement("div", null, React.createElement("div", {
+        style: { color: "rgba(255,255,255,0.88)", fontWeight: 800 }
+      }, selectedUser.username || selectedUser.email || "Selected user"), React.createElement("div", {
+        style: mutedStyle
+      }, selectedUser.email || selectedUser.id)), React.createElement("div", {
+        style: {
+          display: "flex",
+          gap: 8,
+          flexWrap: "wrap"
+        }
+      }, React.createElement("button", {
+        type: "button",
+        onClick: () => toggleUserStatus(userDetail?.user || selectedUser),
+        disabled: statusBusy,
+        style: secondaryButtonStyle
+      }, (userDetail?.user?.account_status || selectedUser.account_status) === "active" ? "Disable login" : "Enable login"), React.createElement("button", {
+        type: "button",
+        onClick: () => {
+          setSelectedUser(null);
+          setUserDetail(null);
+          setDetailError("");
+        },
+        style: secondaryButtonStyle
+      }, "Close"))), detailLoading && React.createElement("div", {
+        style: mutedStyle
+      }, "Loading user detail..."), detailError && React.createElement("div", {
+        style: { color: "#ffb4a8", fontSize: 13, marginBottom: 10 }
+      }, detailError), userDetail && React.createElement("div", {
+        style: {
+          display: "grid",
+          gridTemplateColumns: "repeat(auto-fit,minmax(180px,1fr))",
+          gap: 9,
+          marginBottom: 12
+        }
+      }, card("Credit balance", userDetail.credits?.balance ?? userDetail.user?.credits_balance ?? 0), card("Recent transactions", Array.isArray(userDetail.credits?.transactions) ? userDetail.credits.transactions.length : 0), card("Recent generations", Array.isArray(userDetail.generations) ? userDetail.generations.length : 0), card("Status", userDetail.user?.account_status || selectedUser.account_status || "unknown")), React.createElement("form", {
+        onSubmit: submitCreditAdjustment,
+        style: {
+          display: "grid",
+          gap: 9,
+          gridTemplateColumns: "minmax(110px,0.25fr) minmax(220px,1fr) auto",
+          alignItems: "end",
+          marginBottom: 10
+        }
+      }, React.createElement("label", {
+        style: { display: "grid", gap: 5 }
+      }, React.createElement("span", {
+        style: labelStyle
+      }, "Credits"), React.createElement("input", {
+        type: "number",
+        step: "1",
+        value: creditAmount,
+        onChange: event => setCreditAmount(event.target.value),
+        placeholder: "10 or -10",
+        style: inputStyle
+      })), React.createElement("label", {
+        style: { display: "grid", gap: 5 }
+      }, React.createElement("span", {
+        style: labelStyle
+      }, "Reason"), React.createElement("input", {
+        type: "text",
+        value: creditReason,
+        onChange: event => setCreditReason(event.target.value),
+        placeholder: "Manual admin adjustment",
+        style: inputStyle
+      })), React.createElement("button", {
+        type: "submit",
+        disabled: creditBusy,
+        style: actionButtonStyle
+      }, creditBusy ? "Saving..." : "Adjust credits")), creditError && React.createElement("div", {
+        style: { color: "#ffb4a8", fontSize: 13, marginBottom: 8 }
+      }, creditError), creditMessage && React.createElement("div", {
+        style: { color: "rgba(143,255,196,0.9)", fontSize: 13, marginBottom: 8 }
+      }, creditMessage), userDetail?.credits?.transactions?.length ? React.createElement("div", {
+        style: mutedStyle
+      }, `Latest transaction: ${userDetail.credits.transactions[0].action || "adjustment"} on ${formatDate(userDetail.credits.transactions[0].created_at)}`) : null), passwordTarget && React.createElement("form", {
         onSubmit: submitPassword,
         style: {
           marginTop: 12,
