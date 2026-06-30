@@ -5,6 +5,7 @@ const fs      = require("fs");
 const crypto  = require("crypto");
 const pkg     = require("./package.json");
 const { runAgent } = require("./lib/agentOrchestrator");
+const { toCsv } = require("./services/csvUtils");
 const { createAnalyticsEventHelpers } = require("./services/analyticsEvents");
 const { createReportsService } = require("./services/reports");
 const { registerAuthRoutes } = require("./routes/auth");
@@ -1023,21 +1024,6 @@ function addProxyMetrics(row = {}) {
     trust_proxy: trustProxy,
     risk_proxy: riskProxy === null ? null : Number(riskProxy.toFixed(2)),
   };
-}
-
-function csvEscape(value) {
-  if (value === null || value === undefined) return "";
-  const text = String(value);
-  return /[",\n]/.test(text) ? `"${text.replace(/"/g, '""')}"` : text;
-}
-
-function toCsv(rows = []) {
-  if (!rows.length) return "";
-  const columns = Object.keys(rows[0]);
-  return [
-    columns.join(","),
-    ...rows.map(row => columns.map(column => csvEscape(row[column])).join(",")),
-  ].join("\n");
 }
 
 app.post("/api/analytics/events/bulk", async (req, res) => {
