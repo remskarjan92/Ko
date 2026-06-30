@@ -5,6 +5,11 @@ const fs      = require("fs");
 const crypto  = require("crypto");
 const pkg     = require("./package.json");
 const { runAgent } = require("./lib/agentOrchestrator");
+const { createReportsService } = require("./services/reports");
+const { registerAuthRoutes } = require("./routes/auth");
+const { registerKeyRoutes } = require("./routes/keys");
+const { registerAnalyticsRoutes } = require("./routes/analytics");
+const aiProviders = require("./services/aiProviders");
 
 const app      = express();
 const PORT     = process.env.PORT || 3000;
@@ -36,6 +41,7 @@ const LEARNING_MIN_SAMPLES = Number(process.env.LEARNING_MIN_SAMPLES || 5);
 const LEARNING_REFRESH_TTL_MS = Number(process.env.LEARNING_REFRESH_TTL_MS || 15 * 60 * 1000);
 const RESEARCH_EXPORT_MAX_ROWS = Number(process.env.RESEARCH_EXPORT_MAX_ROWS || 5000);
 const DEFAULT_STARTING_CREDITS = Number(process.env.DEFAULT_STARTING_CREDITS || 100);
+const CHARGE_FAILED_GENERATIONS = /^(1|true|yes|on)$/i.test(String(process.env.CHARGE_FAILED_GENERATIONS || ""));
 const USER_LOGIN_RATE_WINDOW_MS = 60 * 1000;
 const USER_LOGIN_RATE_MAX = 10;
 const ANALYTICS_GENERATION_TYPES = new Set(["generation_started", "generation_succeeded", "generation_failed"]);
@@ -98,6 +104,15 @@ app.use((req, res, next) => {
   next();
 });
 app.use(express.static(__dirname));
+registerAnalyticsRoutes(app, { supabaseRestInsertSchema });
+registerAuthRoutes(app);
+registerKeyRoutes(app, {
+  loadKeys,
+  saveKeys,
+  maskKey,
+  keySource,
+  fetchJsonWithRetry: aiProviders.fetchJsonWithRetry,
+});
 
 // ─── Key storage ──────────────────────────────────────────────────────────────
 // Priority: environment variables > keys.json (fallback for local dev)
@@ -323,6 +338,14 @@ function verifyPasswordHash(password, hash) {
   }
 }
 
+function creditStorageErrorCode(error) {
+  const message = String(error?.message || error || "").toLowerCase();
+  if (message.includes("insufficient credits")) return "insufficient_credits";
+  if (message.includes("user not found")) return "user_not_found";
+  if (message.includes("supabase is not configured")) return "auth_storage_not_configured";
+  return null;
+}
+
 function rateLimitUserLogin(req, res) {
   const key = hashRateLimitKey(req);
   const now = Date.now();
@@ -546,33 +569,33 @@ async function getUserBalance(userId) {
 }
 
 async function addCreditTransaction(userId, action, delta, metadata = {}) {
-  const user = await loadUserById(userId);
-  if (!user) throw new Error("User not found");
-  const nextBalance = Math.max(0, (Number(user.credits_balance) || 0) + delta);
-  await supabaseRestPatchSchema("public", "ko_users", "id", userId, {
-    credits_balance: nextBalance,
-    updated_at: new Date().toISOString(),
+  const rows = await supabaseRestRpcSchema("public", "ko_adjust_user_credits", {
+    p_user_id: userId,
+    p_delta: delta,
+    p_action: action,
+    p_metadata: metadata,
+    p_credit_type: "standard",
   });
-  await supabaseRestInsertSchema("public", "ko_credit_transactions", [{
-    user_id: userId,
-    action,
-    credit_type: "standard",
-    credits_added: Math.max(0, delta),
-    credits_removed: Math.max(0, -delta),
-    balance_after: nextBalance,
-    metadata,
-  }]);
-  return nextBalance;
+  const row = Array.isArray(rows) ? rows[0] : rows;
+  return Number(row?.balance_after) || 0;
 }
 
 async function enforceUserCredits(userId, featureKey, metadata = {}) {
   const costs = await loadFeatureCosts();
   const cost = costs[featureKey]?.enabled === false ? 0 : Number(costs[featureKey]?.credits || 0);
   if (!cost) return { allowed: true, cost: 0, balance: await getUserBalance(userId) };
-  const balance = await getUserBalance(userId);
-  if (balance < cost) return { allowed: false, cost, balance };
-  const nextBalance = await addCreditTransaction(userId, `consume:${featureKey}`, -cost, metadata);
-  return { allowed: true, cost, balance: nextBalance };
+  try {
+    const balance = await addCreditTransaction(userId, `consume:${featureKey}`, -cost, {
+      ...metadata,
+      feature_key: featureKey,
+    });
+    return { allowed: true, cost, balance };
+  } catch (error) {
+    if (creditStorageErrorCode(error) === "insufficient_credits") {
+      return { allowed: false, cost, balance: await getUserBalance(userId) };
+    }
+    throw error;
+  }
 }
 
 function parseIsoDay(value) {
@@ -581,711 +604,7 @@ function parseIsoDay(value) {
   return date.toISOString().slice(0, 10);
 }
 
-function summarizeDailyRows(rows = [], dateKey = "created_at") {
-  const grouped = new Map();
-  for (const row of rows) {
-    const day = parseIsoDay(row[dateKey]) || parseIsoDay(new Date()) || "";
-    const item = grouped.get(day) || {
-      day,
-      count: 0,
-      credits_used: 0,
-      credits_added: 0,
-      score_weighted: 0,
-      score_count: 0,
-    };
-    item.count += 1;
-    item.credits_used += Number(row.credits_used || row.credits_removed || 0);
-    item.credits_added += Number(row.credits_added || 0);
-    const score = Number(row.score);
-    if (Number.isFinite(score)) {
-      item.score_weighted += score;
-      item.score_count += 1;
-    }
-    grouped.set(day, item);
-  }
-  return Array.from(grouped.values()).sort((a, b) => a.day.localeCompare(b.day)).map(item => ({
-    day: item.day,
-    count: item.count,
-    credits_used: item.credits_used,
-    credits_added: item.credits_added,
-    avg_score: item.score_count ? Number((item.score_weighted / item.score_count).toFixed(2)) : null,
-  }));
-}
-
-function summarizeGenerationRecords(rows = []) {
-  const totals = {
-    total_images: rows.length,
-    this_month: 0,
-    credits_used: 0,
-    avg_score: null,
-    success_rate: null,
-    status_counts: {},
-  };
-  const now = new Date();
-  const monthKey = `${now.getUTCFullYear()}-${String(now.getUTCMonth() + 1).padStart(2, "0")}`;
-  let scoreSum = 0;
-  let scoreCount = 0;
-  let successCount = 0;
-  rows.forEach(row => {
-    const created = row.created_at ? new Date(row.created_at) : null;
-    if (created && !Number.isNaN(created.getTime())) {
-      const rowMonth = `${created.getUTCFullYear()}-${String(created.getUTCMonth() + 1).padStart(2, "0")}`;
-      if (rowMonth === monthKey) totals.this_month += 1;
-    }
-    totals.credits_used += Number(row.credits_used) || 0;
-    const score = Number(row.score);
-    if (Number.isFinite(score)) {
-      scoreSum += score;
-      scoreCount += 1;
-    }
-    const status = safeText(row.status, 40) || "unknown";
-    totals.status_counts[status] = (totals.status_counts[status] || 0) + 1;
-    if (status === "succeeded") successCount += 1;
-  });
-  totals.avg_score = scoreCount ? Number((scoreSum / scoreCount).toFixed(2)) : null;
-  totals.success_rate = rows.length ? Number(((successCount / rows.length) * 100).toFixed(2)) : null;
-  return totals;
-}
-
-function summarizeUsers(rows = []) {
-  let activeUsers = 0;
-  for (const row of rows) {
-    if (row.account_status === "active") activeUsers += 1;
-  }
-  return { total_users: rows.length, active_users: activeUsers };
-}
-
-function summarizeTransactions(rows = []) {
-  let totalCreditsConsumed = 0;
-  for (const row of rows) totalCreditsConsumed += Number(row.credits_removed || 0);
-  return { total_credits_consumed: totalCreditsConsumed };
-}
-
-function summarizeFailureRows(rows = []) {
-  const counts = {};
-  for (const row of rows) {
-    const category = row.category || "other";
-    counts[category] = (counts[category] || 0) + 1;
-  }
-  return counts;
-}
-
-function summarizeRatingRows(rows = []) {
-  const keys = ["overall_score", "etsy_readiness", "realism"];
-  const totals = Object.fromEntries(keys.map(key => [key, { sum: 0, count: 0 }]));
-  for (const row of rows) {
-    for (const key of keys) {
-      const value = Number(row[key]);
-      if (Number.isFinite(value)) {
-        totals[key].sum += value;
-        totals[key].count += 1;
-      }
-    }
-  }
-  return Object.fromEntries(keys.map(key => [
-    key,
-    totals[key].count ? Number((totals[key].sum / totals[key].count).toFixed(2)) : null,
-  ]));
-}
-
-function summarizeGenerationDashboardRows(rows = []) {
-  const todayIso = parseIsoDay(new Date());
-  const weekMs = 7 * 24 * 60 * 60 * 1000;
-  const now = Date.now();
-  const stats = {
-    total_generations: rows.length,
-    generations_today: 0,
-    generations_this_week: 0,
-    approved_generations: 0,
-    rejected_generations: 0,
-    needs_fix_generations: 0,
-    pending_reviews: 0,
-    reviewed_generations: 0,
-    total_images_stored: 0,
-    estimated_api_cost: 0,
-    total_credits_used: 0,
-    success_count: 0,
-  };
-  for (const row of rows) {
-    const created = row.created_at ? new Date(row.created_at) : null;
-    if (parseIsoDay(row.created_at) === todayIso) stats.generations_today += 1;
-    if (created && !Number.isNaN(created.getTime()) && now - created.getTime() <= weekMs) stats.generations_this_week += 1;
-    if (row.review_status === "approved") stats.approved_generations += 1;
-    else if (row.review_status === "rejected") stats.rejected_generations += 1;
-    else if (row.review_status === "needs_fix") stats.needs_fix_generations += 1;
-    else if (!row.review_status || row.review_status === "pending") stats.pending_reviews += 1;
-    if (row.review_status === "archived" || row.review_status === "flagged") stats.reviewed_generations += 1;
-    if (row.status === "succeeded") stats.success_count += 1;
-    if (row.image_url) stats.total_images_stored += 1;
-    stats.total_credits_used += Number(row.credits_used || 0);
-  }
-  stats.estimated_api_cost = Number((stats.total_credits_used * 0.02).toFixed(2));
-  stats.reviewed_generations += stats.approved_generations + stats.rejected_generations + stats.needs_fix_generations;
-  return stats;
-}
-
-function generationRatingScore(input = {}) {
-  const weights = {
-    print_visibility: 0.20,
-    design_accuracy: 0.20,
-    realism: 0.15,
-    product_authenticity: 0.15,
-    composition: 0.10,
-    marketing_appeal: 0.10,
-    etsy_readiness: 0.05,
-    ctr_potential: 0.05,
-  };
-  let total = 0;
-  for (const [key, weight] of Object.entries(weights)) {
-    const value = safeInteger(input[key], 1, 10);
-    if (value === null) throw new Error(`Missing rating field: ${key}`);
-    total += value * weight;
-  }
-  return Number(total.toFixed(2));
-}
-
-function normalizeGenerationRating(input = {}, adminUsername = "") {
-  return {
-    print_visibility: safeInteger(input.print_visibility, 1, 10),
-    design_accuracy: safeInteger(input.design_accuracy, 1, 10),
-    realism: safeInteger(input.realism, 1, 10),
-    product_authenticity: safeInteger(input.product_authenticity, 1, 10),
-    composition: safeInteger(input.composition, 1, 10),
-    marketing_appeal: safeInteger(input.marketing_appeal, 1, 10),
-    etsy_readiness: safeInteger(input.etsy_readiness, 1, 10),
-    ctr_potential: safeInteger(input.ctr_potential, 1, 10),
-    comment: safeText(input.comment, 1000),
-    admin_username: safeText(adminUsername, 120),
-    metadata: typeof input.metadata === "object" && input.metadata ? input.metadata : {},
-  };
-}
-
-function reviewStatusForAction(action) {
-  return {
-    approve: "approved",
-    reject: "rejected",
-    needs_fix: "needs_fix",
-    archive: "archived",
-    flag_for_review: "flagged",
-    favorite: "pending",
-    duplicate_test: "pending",
-  }[action] || "pending";
-}
-
-async function writeSystemLog(eventType, message, { severity = "info", generationId = null, userId = null, metadata = {} } = {}) {
-  try {
-    await supabaseRestInsertSchema("public", "ko_system_logs", [{
-      event_type: safeText(eventType, 120),
-      severity: FAILURE_SEVERITIES.has(severity) ? severity : "info",
-      message: safeText(message, 1000),
-      generation_id: generationId && isUuid(generationId) ? generationId : null,
-      user_id: userId && isUuid(userId) ? userId : null,
-      metadata,
-    }]);
-  } catch (e) {
-    console.warn("[system-log] skipped:", e.message);
-  }
-}
-
-async function persistAgentLog(entry = {}) {
-  if (!SUPABASE_URL || !SUPABASE_SERVICE_ROLE_KEY) return;
-  try {
-    await supabaseRestInsertSchema("public", "agent_logs", [{
-      agent_name: safeText(entry.agent_name, 120),
-      input_summary: safeText(entry.input_summary, 2000),
-      output: entry.output || entry.result?.data || {},
-      result: entry.result || {},
-      status: safeText(entry.status, 60),
-      execution_time: Number(entry.execution_time) || 0,
-      error: entry.error ? safeText(entry.error, 1000) : null,
-      created_at: entry.created_at || new Date().toISOString(),
-    }]);
-  } catch (e) {
-    await writeSystemLog("agent_log", `${entry.agent_name || "agent"} ${entry.status || "unknown"}`, {
-      severity: entry.status === "success" ? "low" : "medium",
-      metadata: {
-        agent_name: entry.agent_name,
-        status: entry.status,
-        execution_time: entry.execution_time,
-        error: entry.error,
-      },
-    });
-  }
-}
-
-async function recordGenerationRecord(row = {}) {
-  if (!SUPABASE_URL || !SUPABASE_SERVICE_ROLE_KEY) return null;
-  try {
-    await supabaseRestInsertSchema("public", "ko_generation_records", [{
-      user_id: row.user_id || null,
-      client_generation_id: row.client_generation_id || null,
-      batch_id: row.batch_id || null,
-      generation_type: row.generation_type || "mockup",
-      prompt: row.prompt || null,
-      prompt_hash: row.prompt_hash || null,
-      model_name: row.model_name || null,
-      category: row.category || null,
-      status: row.status || "succeeded",
-      score: row.score ?? null,
-      credits_used: Number(row.credits_used) || 0,
-      image_url: row.image_url || null,
-      original_design_url: row.original_design_url || null,
-      negative_prompt: row.negative_prompt || null,
-      scene_type: row.scene_type || null,
-      target_audience: row.target_audience || null,
-      duration_ms: Number(row.duration_ms) || null,
-      estimated_cost: Number(row.estimated_cost) || 0,
-      review_status: row.review_status || "pending",
-      meta: row.meta || {},
-    }]);
-  } catch (e) {
-    console.warn("[generation-record] skipped:", e.message);
-  }
-}
-
-async function loadUserSettings(userId) {
-  const rows = await supabaseRestQuerySchema("public", "ko_user_settings", {
-    params: { user_id: `eq.${userId}` },
-    limit: 1,
-  });
-  return rows[0] || null;
-}
-
-async function loadUserGenerations(userId, query = {}) {
-  const rows = await supabaseRestQuerySchema("public", "ko_generation_records", {
-    params: { user_id: `eq.${userId}` },
-    order: "created_at.desc",
-    limit: 500,
-  });
-  const search = safeText(query.search, 120).toLowerCase();
-  const filters = {
-    model: safeText(query.model, 120).toLowerCase(),
-    category: safeText(query.category, 120).toLowerCase(),
-    score: safeText(query.score, 40),
-    status: safeText(query.status, 80).toLowerCase(),
-    dateFrom: safeText(query.dateFrom, 20),
-    dateTo: safeText(query.dateTo, 20),
-  };
-  const filtered = rows.filter(row => {
-    if (filters.model && !String(row.model_name || "").toLowerCase().includes(filters.model)) return false;
-    if (filters.category && !String(row.category || "").toLowerCase().includes(filters.category)) return false;
-    if (filters.status && !String(row.status || "").toLowerCase().includes(filters.status)) return false;
-    if (filters.score) {
-      const n = Number(filters.score);
-      if (Number.isFinite(n) && Number(row.score) < n) return false;
-    }
-    const created = row.created_at ? new Date(row.created_at) : null;
-    if (filters.dateFrom && created && created < new Date(filters.dateFrom)) return false;
-    if (filters.dateTo && created && created > new Date(`${filters.dateTo}T23:59:59.999Z`)) return false;
-    const haystack = `${row.prompt || ""} ${row.model_name || ""} ${row.category || ""} ${row.generation_type || ""}`.toLowerCase();
-    if (search && !haystack.includes(search)) return false;
-    return true;
-  });
-  return {
-    filters,
-    rows: filtered.slice(0, safeLimit(query.limit, 50, 250)),
-    summary: summarizeGenerationRecords(rows),
-    charts: {
-      generationsPerDay: summarizeDailyRows(rows),
-      creditsUsedPerDay: summarizeDailyRows(rows).map(item => ({ day: item.day, credits_used: item.credits_used })),
-    },
-  };
-}
-
-async function loadUserCredits(userId) {
-  const user = await loadUserById(userId);
-  const transactions = await supabaseRestQuerySchema("public", "ko_credit_transactions", {
-    params: { user_id: `eq.${userId}` },
-    order: "created_at.desc",
-    limit: 250,
-  });
-  return {
-    balance: Number(user?.credits_balance) || 0,
-    transactions: transactions.map(row => ({
-      id: row.id,
-      action: row.action,
-      credits_added: Number(row.credits_added) || 0,
-      credits_removed: Number(row.credits_removed) || 0,
-      balance_after: Number(row.balance_after) || 0,
-      credit_type: row.credit_type || "standard",
-      metadata: row.metadata || {},
-      created_at: row.created_at || null,
-    })),
-  };
-}
-
-async function loadUserDashboard(userId) {
-  const [user, settings, generations, credits, downloads] = await Promise.all([
-    loadUserById(userId),
-    loadUserSettings(userId),
-    loadUserGenerations(userId, {}),
-    loadUserCredits(userId),
-    supabaseRestQuerySchema(ANALYTICS_SCHEMA, "interaction_events", {
-      params: { user_id: `eq.${userId}`, event_type: `in.(download_png,download_zip)` },
-      order: "created_at.desc",
-      limit: 50,
-    }).catch(() => []),
-  ]);
-  const genRows = generations.rows;
-  const monthlyGenerations = generations.summary.this_month;
-  const latestGenerations = genRows.slice(0, 8);
-  const recentDownloads = downloads.slice(0, 8).map(row => ({
-    id: row.event_id,
-    event_type: row.event_type,
-    prompt_hash: row.prompt_hash || null,
-    created_at: row.created_at || null,
-  }));
-  return {
-    user: sanitizeUserRow(user),
-    settings: settings?.default_settings || {},
-    summary: {
-      credits_balance: credits.balance,
-      total_images_generated: generations.summary.total_images,
-      total_generations_this_month: monthlyGenerations,
-      total_credits_used: generations.summary.credits_used,
-      average_generation_score: generations.summary.avg_score,
-      average_generation_success_rate: generations.summary.success_rate,
-    },
-    latest_generations: latestGenerations,
-    recent_downloads: recentDownloads,
-    charts: generations.charts,
-  };
-}
-
-async function loadAdminUsers(query = {}) {
-  const rows = await supabaseRestQuerySchema("public", "ko_users", {
-    order: "created_at.desc",
-    limit: 500,
-  });
-  const search = safeText(query.search, 120).toLowerCase();
-  const status = safeText(query.status, 80).toLowerCase();
-  const filtered = rows.filter(row => {
-    if (search && !`${row.email || ""} ${row.username || ""}`.toLowerCase().includes(search)) return false;
-    if (status && !String(row.account_status || "").toLowerCase().includes(status)) return false;
-    return true;
-  });
-  return {
-    rows: filtered.slice(0, safeLimit(query.limit, 50, 250)).map(sanitizeUserRow),
-  };
-}
-
-async function loadAdminTransactions(query = {}) {
-  const rows = await supabaseRestQuerySchema("public", "ko_credit_transactions", {
-    order: "created_at.desc",
-    limit: 500,
-  });
-  const user = safeText(query.user, 120).toLowerCase();
-  const action = safeText(query.action, 120).toLowerCase();
-  const filtered = rows.filter(row => {
-    if (user && !String(row.user_id || "").toLowerCase().includes(user)) return false;
-    if (action && !String(row.action || "").toLowerCase().includes(action)) return false;
-    return true;
-  });
-  return {
-    rows: filtered.slice(0, safeLimit(query.limit, 100, 250)).map(row => ({
-      id: row.id,
-      user_id: row.user_id,
-      action: row.action,
-      credits_added: Number(row.credits_added) || 0,
-      credits_removed: Number(row.credits_removed) || 0,
-      balance_after: Number(row.balance_after) || 0,
-      credit_type: row.credit_type || "standard",
-      metadata: row.metadata || {},
-      created_at: row.created_at || null,
-    })),
-  };
-}
-
-async function loadAdminGenerations(query = {}) {
-  const rows = await supabaseRestQuerySchema("public", "ko_generation_records", {
-    order: "created_at.desc",
-    limit: 500,
-  });
-  const user = safeText(query.user, 120).toLowerCase();
-  const model = safeText(query.model, 120).toLowerCase();
-  const category = safeText(query.category, 120).toLowerCase();
-  const status = safeText(query.status, 80).toLowerCase();
-  const search = safeText(query.search, 120).toLowerCase();
-  const filtered = rows.filter(row => {
-    if (user && !String(row.user_id || "").toLowerCase().includes(user)) return false;
-    if (model && !String(row.model_name || "").toLowerCase().includes(model)) return false;
-    if (category && !String(row.category || "").toLowerCase().includes(category)) return false;
-    if (status && !String(row.status || "").toLowerCase().includes(status)) return false;
-    if (search && !`${row.prompt || ""} ${row.category || ""} ${row.model_name || ""}`.toLowerCase().includes(search)) return false;
-    return true;
-  });
-  return {
-    rows: filtered.slice(0, safeLimit(query.limit, 100, 250)),
-    summary: summarizeGenerationRecords(rows),
-  };
-}
-
-async function loadAdminReviewCenter(query = {}) {
-  const base = await loadAdminGenerations({ ...query, limit: safeLimit(query.limit, 50, 100) });
-  const generationIds = base.rows.map(row => row.id).filter(Boolean);
-  let ratings = [];
-  let failures = [];
-  if (generationIds.length) {
-    const inList = `in.(${generationIds.join(",")})`;
-    [ratings, failures] = await Promise.all([
-      supabaseRestQuerySchema("public", "ko_generation_ratings", {
-        params: { generation_id: inList },
-        order: "created_at.desc",
-        limit: 1000,
-      }).catch(() => []),
-      supabaseRestQuerySchema("public", "ko_generation_failures", {
-        params: { generation_id: inList },
-        order: "created_at.desc",
-        limit: 1000,
-      }).catch(() => []),
-    ]);
-  }
-  const ratingsByGeneration = new Map();
-  for (const rating of ratings) {
-    const list = ratingsByGeneration.get(rating.generation_id) || [];
-    list.push(rating);
-    ratingsByGeneration.set(rating.generation_id, list);
-  }
-  const failuresByGeneration = new Map();
-  for (const failure of failures) {
-    const list = failuresByGeneration.get(failure.generation_id) || [];
-    list.push(failure);
-    failuresByGeneration.set(failure.generation_id, list);
-  }
-  const rows = base.rows.map(row => {
-    const rowRatings = ratingsByGeneration.get(row.id) || [];
-    const rowFailures = failuresByGeneration.get(row.id) || [];
-    const latestRating = rowRatings[0] || null;
-    return {
-      ...row,
-      review_status: row.review_status || "pending",
-      latest_rating: latestRating,
-      rating_count: rowRatings.length,
-      failure_count: rowFailures.length,
-      failures: rowFailures.slice(0, 6),
-    };
-  });
-  const ratingStats = summarizeRatingRows(ratings);
-  const failureCounts = summarizeFailureRows(failures);
-  return {
-    ...base,
-    rows,
-    review_summary: {
-      pending: rows.filter(row => (row.review_status || "pending") === "pending").length,
-      approved: rows.filter(row => row.review_status === "approved").length,
-      rejected: rows.filter(row => row.review_status === "rejected").length,
-      needs_fix: rows.filter(row => row.review_status === "needs_fix").length,
-      average_rating: ratingStats.overall_score,
-      most_common_failure: Object.entries(failureCounts).sort((a, b) => b[1] - a[1])[0]?.[0] || null,
-    },
-    failure_categories: Array.from(FAILURE_CATEGORIES),
-  };
-}
-
-const ADMIN_AGENT_SECTIONS = [
-  { key: "quality_inspector", label: "Quality Inspector" },
-  { key: "prompt_architect", label: "Prompt Architect" },
-  { key: "auto_fix", label: "Auto Fix" },
-  { key: "etsy_research", label: "Etsy Research" },
-  { key: "learning", label: "Learning" },
-];
-
-function normalizeAgentLogResult(row = {}) {
-  const result = row.result && typeof row.result === "object" ? row.result : null;
-  const output = row.output && typeof row.output === "object" ? row.output : {};
-  const data = result?.data && typeof result.data === "object" ? result.data : output;
-  const agent = result?.agent || row.agent_name || "unknown_agent";
-  const status = result?.status || row.status || "unknown";
-  const success = typeof result?.success === "boolean" ? result.success : status === "success";
-  return {
-    id: row.id,
-    agent,
-    agent_name: agent,
-    success,
-    status,
-    executionTime: Number(result?.executionTime ?? row.execution_time ?? 0) || 0,
-    inputSummary: result?.inputSummary || row.input_summary || {},
-    model: result?.model || null,
-    costEstimate: result?.costEstimate ?? null,
-    data,
-    error: result?.error || row.error || null,
-    createdAt: result?.createdAt || row.created_at || null,
-  };
-}
-
-function agentScoreFromData(data = {}) {
-  const direct = Number(data.score ?? data.overall_score ?? data.quality_score);
-  if (Number.isFinite(direct)) return direct;
-  const nested = Number(data.qualityReport?.score ?? data.report?.score);
-  return Number.isFinite(nested) ? nested : null;
-}
-
-async function loadAdminAgents() {
-  const rows = await supabaseRestQuerySchema("public", "agent_logs", {
-    order: "created_at.desc",
-    limit: 500,
-    select: "*",
-  }).catch(() => []);
-  const logs = rows.map(normalizeAgentLogResult);
-  const today = new Date().toISOString().slice(0, 10);
-  const sectionState = new Map(ADMIN_AGENT_SECTIONS.map(section => [section.key, {
-    agent: section.key,
-    label: section.label,
-    last_run: null,
-    success: null,
-    status: "not_run",
-    execution_time: null,
-    recent_score: null,
-    error: null,
-    runs_today: 0,
-    success_count: 0,
-    total_count: 0,
-    total_runtime: 0,
-    recent_results: [],
-  }]));
-  let totalRunsToday = 0;
-  let totalSuccessCount = 0;
-  let totalRuntime = 0;
-
-  for (const log of logs) {
-    const state = sectionState.get(log.agent) || sectionState.get(log.agent_name);
-    if (!state) continue;
-    state.total_count += 1;
-    const runtime = Number(log.executionTime || 0);
-    state.total_runtime += runtime;
-    totalRuntime += runtime;
-    if (log.success) {
-      state.success_count += 1;
-      totalSuccessCount += 1;
-    }
-    if (String(log.createdAt || "").slice(0, 10) === today) {
-      state.runs_today += 1;
-      totalRunsToday += 1;
-    }
-    if (!state.last_run) {
-      state.last_run = log.createdAt || null;
-      state.success = log.success ?? null;
-      state.status = log.status || "not_run";
-      state.execution_time = log.executionTime ?? null;
-      state.recent_score = agentScoreFromData(log.data);
-      state.error = log.error || null;
-    }
-    if (state.recent_results.length < 5) state.recent_results.push(log);
-  }
-
-  const sections = ADMIN_AGENT_SECTIONS.map(section => {
-    const state = sectionState.get(section.key);
-    return {
-      ...state,
-      success_rate: state.total_count ? Number(((state.success_count / state.total_count) * 100).toFixed(2)) : null,
-    };
-  });
-  return {
-    sections,
-    rows: logs.slice(0, 100),
-    summary: {
-      total_runs: logs.length,
-      runs_today: totalRunsToday,
-      success_rate: logs.length ? Number(((totalSuccessCount / logs.length) * 100).toFixed(2)) : null,
-      average_runtime: logs.length ? Number((totalRuntime / logs.length).toFixed(0)) : null,
-    },
-  };
-}
-
-async function loadAdminDashboard() {
-  const [users, generations, transactions, dailyRows, promptVersions, modelRows, promptRows, qualityRows, researchRows, ratingRows, failureRows, systemLogs] = await Promise.all([
-    supabaseRestQuerySchema("public", "ko_users", { order: "created_at.desc", limit: 500 }),
-    supabaseRestQuerySchema("public", "ko_generation_records", { order: "created_at.desc", limit: 500 }),
-    supabaseRestQuerySchema("public", "ko_credit_transactions", { order: "created_at.desc", limit: 500 }),
-    supabaseRestSelect("v_daily_metrics", { filters: {}, order: "day.asc", limit: 5000 }).catch(() => []),
-    loadPromptVersions({ min_samples: LEARNING_MIN_SAMPLES }).catch(() => ({ rows: [] })),
-    supabaseRestQuerySchema("public", "ko_ai_models", { order: "priority.asc", limit: 100 }).catch(() => []),
-    supabaseRestQuerySchema("public", "ko_prompt_templates", { order: "updated_at.desc", limit: 100 }).catch(() => []),
-    supabaseRestQuerySchema("public", "ko_quality_records", { order: "created_at.desc", limit: 100 }).catch(() => []),
-    supabaseRestQuerySchema("public", "ko_research_items", { order: "created_at.desc", limit: 100 }).catch(() => []),
-    supabaseRestQuerySchema("public", "ko_generation_ratings", { order: "created_at.desc", limit: 500 }).catch(() => []),
-    supabaseRestQuerySchema("public", "ko_generation_failures", { order: "created_at.desc", limit: 500 }).catch(() => []),
-    supabaseRestQuerySchema("public", "ko_system_logs", { order: "created_at.desc", limit: 100 }).catch(() => []),
-  ]);
-  const generationSummary = summarizeGenerationRecords(generations);
-  const metrics = dailyRows.length ? aggregateMetrics(dailyRows) : generationSummary;
-  const generationStats = summarizeGenerationDashboardRows(generations);
-  const userStats = summarizeUsers(users);
-  const transactionStats = summarizeTransactions(transactions);
-  const failureCounts = summarizeFailureRows(failureRows);
-  const ratingStats = summarizeRatingRows(ratingRows);
-  const overallScore = ratingStats.overall_score;
-  const mostCommonFailure = Object.entries(failureCounts).sort((a, b) => b[1] - a[1])[0]?.[0] || null;
-  const failureRate = generations.length ? Number((((failureRows.length + generationStats.rejected_generations + generationStats.needs_fix_generations) / generations.length) * 100).toFixed(2)) : null;
-  const successRate = generations.length ? Number(((generationStats.approved_generations || generationStats.success_count) / generations.length * 100).toFixed(2)) : generationSummary.success_rate;
-  const health = {
-    quality: Math.min(100, Math.round((Number(overallScore || metrics.avg_rating || 0)) * 10)),
-    reliability: Math.min(100, Math.round((Number(successRate || metrics.success_rate) || 0))),
-    speed: Math.max(0, Math.min(100, 100 - Math.round((Number(metrics.avg_latency_ms) || 0) / 20))),
-    cost_efficiency: Math.max(0, Math.min(100, 100 - Math.round((Number(metrics.avg_latency_ms) || 0) / 25))),
-  };
-  const healthScore = Math.round((health.quality * 0.35) + (health.reliability * 0.3) + (health.speed * 0.15) + (health.cost_efficiency * 0.2));
-  return {
-    summary: {
-      total_users: userStats.total_users,
-      active_users: userStats.active_users,
-      total_generations: generationSummary.total_images,
-      generations_today: generationStats.generations_today,
-      generations_this_week: generationStats.generations_this_week,
-      success_rate: successRate,
-      failure_rate: failureRate,
-      average_score: overallScore || generationSummary.avg_score,
-      average_rating: overallScore,
-      average_etsy_readiness_score: ratingStats.etsy_readiness,
-      average_realism_score: ratingStats.realism,
-      approved_generations: generationStats.approved_generations,
-      rejected_generations: generationStats.rejected_generations,
-      needs_fix_generations: generationStats.needs_fix_generations,
-      reviewed_generations: generationStats.reviewed_generations,
-      pending_reviews: generationStats.pending_reviews,
-      most_common_failure: mostCommonFailure,
-      prompt_version_leader: promptVersions.rows?.[0]?.prompt_version || promptRows[0]?.version || null,
-      best_performing_scene: null,
-      total_credits_consumed: transactionStats.total_credits_consumed,
-      estimated_api_cost: generationStats.estimated_api_cost,
-      total_images_stored: generationStats.total_images_stored,
-      storage_usage: null,
-      queue_length: 0,
-      health_score: healthScore,
-      health_breakdown: health,
-    },
-    charts: {
-      generations_per_day: summarizeDailyRows(generations),
-      credits_used_per_day: summarizeDailyRows(transactions),
-      user_growth: summarizeDailyRows(users, "created_at"),
-      score_trends: summarizeDailyRows(generations),
-      ratings_over_time: summarizeDailyRows(ratingRows),
-      failures_over_time: summarizeDailyRows(failureRows),
-      approval_trend: summarizeDailyRows(generations.filter(row => row.review_status === "approved")),
-    },
-    recent_activity: [
-      ...generations.slice(0, 10).map(row => ({ type: "generation", ...row })),
-      ...transactions.slice(0, 10).map(row => ({ type: "credit", ...row })),
-      ...ratingRows.slice(0, 10).map(row => ({ type: "rating", ...row })),
-      ...failureRows.slice(0, 10).map(row => ({ type: "failure", ...row })),
-      ...systemLogs.slice(0, 10).map(row => ({ type: "system", ...row })),
-    ].sort((a, b) => String(b.created_at || "").localeCompare(String(a.created_at || ""))).slice(0, 20),
-    recent_failed_generations: generations.filter(row => row.status !== "succeeded").slice(0, 10),
-    recent_credit_transactions: transactions.slice(0, 10),
-    users: users.slice(0, 20).map(sanitizeUserRow),
-    generations: generations.slice(0, 20),
-    transactions: transactions.slice(0, 20),
-    analytics: dailyRows,
-    prompt_versions: promptVersions.rows || [],
-    ai_models: modelRows,
-    prompts: promptRows,
-    quality_records: qualityRows,
-    research_items: researchRows,
-    generation_ratings: ratingRows.slice(0, 50),
-    generation_failures: failureRows.slice(0, 50),
-    system_logs: systemLogs,
-  };
-}
+// Read-only reporting helpers moved to services/reports.js
 
 async function loadAdminGenerationsSummary() {
   const generations = await supabaseRestQuerySchema("public", "ko_generation_records", {
@@ -1548,11 +867,11 @@ async function supabaseRestQuerySchema(schema, resource, { params = {}, order = 
   return await res.json();
 }
 
-async function supabaseRestInsertSchema(schema, resource, rows, { onConflict, merge = false } = {}) {
+async function supabaseRestInsertSchema(schema, resource, rows, { onConflict, merge = false, returning = false } = {}) {
   if (!rows.length) return;
   const url = new URL(`${SUPABASE_URL}/rest/v1/${resource}`);
   if (onConflict) url.searchParams.set("on_conflict", onConflict);
-  const prefer = ["return=minimal"];
+  const prefer = [returning ? "return=representation" : "return=minimal"];
   if (onConflict) prefer.push(`resolution=${merge ? "merge-duplicates" : "ignore-duplicates"}`);
   const res = await fetch(url, {
     method: "POST",
@@ -1569,6 +888,7 @@ async function supabaseRestInsertSchema(schema, resource, rows, { onConflict, me
     const text = await res.text().catch(() => "");
     throw new Error(`Supabase ${schema}.${resource} insert failed (${res.status}): ${text.slice(0, 240)}`);
   }
+  if (returning) return await res.json();
 }
 
 async function supabaseRestPatchSchema(schema, resource, matchColumn, matchValue, row) {
@@ -1706,23 +1026,38 @@ async function supabaseRestQuery(resource, { params = {}, order = "", limit = 10
   return await res.json();
 }
 
-async function supabaseRestRpc(functionName) {
-  if (!analyticsConfigReady()) throw new Error("Analytics ingest is not configured");
+async function supabaseRestRpcSchema(schema, functionName, payload = {}) {
+  if (!authStorageConfigured()) throw new Error("Supabase is not configured");
   const res = await fetch(`${SUPABASE_URL}/rest/v1/rpc/${functionName}`, {
     method: "POST",
     headers: {
       apikey: SUPABASE_SERVICE_ROLE_KEY,
       Authorization: `Bearer ${SUPABASE_SERVICE_ROLE_KEY}`,
       "Content-Type": "application/json",
-      "Content-Profile": ANALYTICS_SCHEMA,
-      Prefer: "return=minimal",
+      "Content-Profile": schema,
+      "Accept-Profile": schema,
+      Accept: "application/json",
+      Prefer: "return=representation",
     },
-    body: JSON.stringify({}),
+    body: JSON.stringify(payload),
   });
   if (!res.ok) {
     const text = await res.text().catch(() => "");
-    throw new Error(`Supabase RPC ${functionName} failed (${res.status}): ${text.slice(0, 240)}`);
+    throw new Error(`Supabase RPC ${schema}.${functionName} failed (${res.status}): ${text.slice(0, 240)}`);
   }
+  if (res.status === 204) return null;
+  const text = await res.text().catch(() => "");
+  if (!text) return null;
+  try {
+    return JSON.parse(text);
+  } catch {
+    return text;
+  }
+}
+
+async function supabaseRestRpc(functionName) {
+  if (!analyticsConfigReady()) throw new Error("Analytics ingest is not configured");
+  return supabaseRestRpcSchema(ANALYTICS_SCHEMA, functionName, {});
 }
 
 function safeLimit(value, fallback = 20, max = 100) {
@@ -1746,6 +1081,47 @@ const LEARNING_DIMENSIONS = new Set([
   "category",
   "product_type",
 ]);
+
+const reports = createReportsService({
+  analyticsConfigReady,
+  supabaseRestQuerySchema,
+  supabaseRestSelect,
+  supabaseRestQuery,
+  supabaseRestRpc,
+  LEARNING_MIN_SAMPLES,
+  RESEARCH_EXPORT_MAX_ROWS,
+  LEARNING_DIMENSIONS,
+});
+
+const {
+  summarizeDailyRows,
+  summarizeGenerationRecords,
+  summarizeUsers,
+  summarizeTransactions,
+  summarizeFailureRows,
+  summarizeQualityRows,
+  summarizeRatingRows,
+  summarizeGenerationDashboardRows,
+  aggregateMetrics,
+  aggregateByDay,
+  aggregateConceptRows,
+  aggregatePromptVersions,
+  buildLearningSummaryFromRows,
+  loadUserDashboard,
+  loadUserCredits,
+  loadUserGenerations,
+  loadAdminDashboard,
+  loadAdminUsers,
+  loadAdminTransactions,
+  loadAdminGenerations,
+  loadAdminReviewCenter,
+  loadTopConcepts,
+  loadDimensionLeaderboard,
+  loadPromptVersions,
+  loadDimensionHeatmap,
+  loadLearningSummary,
+  loadLearningBundle,
+} = reports;
 
 let learningRefreshInFlight = null;
 
@@ -1782,224 +1158,7 @@ async function ensureLearningFresh({ force = false } = {}) {
   return true;
 }
 
-async function loadTopConcepts(options = {}) {
-  const { mode, limit, minSamples, productType } = learningParams(options);
-  const params = { sample_count: `gte.${minSamples}` };
-  if (productType && productType !== "all") params.product_type = `eq.${productType}`;
-  const rows = await supabaseRestQuery("concept_scores", {
-    params,
-    order: mode === "bottom" ? "success_score.asc,sample_count.desc" : "success_score.desc,sample_count.desc",
-    limit,
-  });
-  return { mode, limit, min_samples: minSamples, product_type: productType, rows };
-}
-
-async function loadDimensionLeaderboard(options = {}) {
-  const base = learningParams(options);
-  const dimensionType = LEARNING_DIMENSIONS.has(options.dimension_type) ? options.dimension_type : "listing_role";
-  const params = {
-    dimension_type: `eq.${dimensionType}`,
-    sample_count: `gte.${base.minSamples}`,
-  };
-  if (base.productType) params.product_type = `eq.${base.productType}`;
-  const rows = await supabaseRestQuery("dimension_scores", {
-    params,
-    order: base.mode === "bottom" ? "success_score.asc,sample_count.desc" : "success_score.desc,sample_count.desc",
-    limit: base.limit,
-  });
-  return { ...base, dimension_type: dimensionType, rows };
-}
-
-function aggregatePromptVersions(rows = []) {
-  const grouped = new Map();
-  for (const row of rows) {
-    const key = row.prompt_version || "unknown";
-    const item = grouped.get(key) || {
-      prompt_version: key,
-      concept_count: 0,
-      sample_count: 0,
-      rating_weighted: 0,
-      rating_weight: 0,
-      score_weighted: 0,
-      downloads: 0,
-      exports: 0,
-      regenerates: 0,
-      promptHashes: new Set(),
-    };
-    const samples = Number(row.sample_count) || 0;
-    const ratings = Number(row.rating_count) || 0;
-    item.concept_count += 1;
-    item.sample_count += samples;
-    item.rating_weighted += (Number(row.avg_rating) || 0) * Math.max(ratings, 1);
-    item.rating_weight += Math.max(ratings, 1);
-    item.score_weighted += (Number(row.success_score) || 0) * Math.max(samples, 1);
-    item.downloads += Number(row.download_count) || 0;
-    item.exports += Number(row.export_count) || 0;
-    item.regenerates += Number(row.regenerate_count) || 0;
-    if (row.prompt_hash) item.promptHashes.add(String(row.prompt_hash));
-    grouped.set(key, item);
-  }
-  return Array.from(grouped.values()).map(item => ({
-    prompt_version: item.prompt_version,
-    concept_count: item.concept_count,
-    sample_count: item.sample_count,
-    prompt_hash_count: item.promptHashes.size,
-    avg_success_score: item.sample_count ? Number((item.score_weighted / Math.max(item.sample_count, 1)).toFixed(2)) : null,
-    avg_rating: item.rating_weight ? Number((item.rating_weighted / item.rating_weight).toFixed(2)) : null,
-    download_rate: item.sample_count ? Number((item.downloads / item.sample_count).toFixed(5)) : 0,
-    export_rate: item.sample_count ? Number((item.exports / item.sample_count).toFixed(5)) : 0,
-    regenerate_rate: item.sample_count ? Number((item.regenerates / item.sample_count).toFixed(5)) : 0,
-  })).sort((a, b) => (b.avg_success_score || 0) - (a.avg_success_score || 0) || (b.sample_count || 0) - (a.sample_count || 0));
-}
-
-function buildLearningSummaryFromRows({ conceptRows = [], dimensionRows = [], promptVersionRows = [], minSamples = 1, productType = "all" } = {}) {
-  return {
-    generated_at: new Date().toISOString(),
-    min_samples: minSamples,
-    product_type: productType,
-    cards: {
-      best_concept: conceptRows[0] || null,
-      best_dimension: dimensionRows[0] || null,
-      worst_dimension: dimensionRows.length ? dimensionRows[dimensionRows.length - 1] : null,
-      best_prompt_version: promptVersionRows[0] || null,
-    },
-  };
-}
-
-async function loadPromptVersions(options = {}) {
-  const { minSamples } = learningParams(options);
-  const rows = await supabaseRestQuery("concept_scores", {
-    params: { sample_count: `gte.${minSamples}` },
-    limit: RESEARCH_EXPORT_MAX_ROWS,
-  });
-  return { min_samples: minSamples, rows: aggregatePromptVersions(rows) };
-}
-
-async function loadDimensionHeatmap(options = {}) {
-  const { minSamples, productType } = learningParams(options);
-  const x = LEARNING_DIMENSIONS.has(options.x) ? options.x : "audience";
-  const y = LEARNING_DIMENSIONS.has(options.y) ? options.y : "mockup_style_mode";
-  const params = { sample_count: `gte.${minSamples}` };
-  if (productType && productType !== "all") params.product_type = `eq.${productType}`;
-  const sourceRows = await supabaseRestQuery("concept_scores", { params, limit: RESEARCH_EXPORT_MAX_ROWS });
-  const grouped = new Map();
-  for (const row of sourceRows) {
-    const xValue = row[x];
-    const yValue = row[y];
-    if (!xValue || !yValue) continue;
-    const key = `${xValue}\u001f${yValue}`;
-    const item = grouped.get(key) || { product_type: productType, x_value: xValue, y_value: yValue, sample_count: 0, score_weighted: 0 };
-    const samples = Number(row.sample_count) || 0;
-    item.sample_count += samples;
-    item.score_weighted += (Number(row.success_score) || 0) * samples;
-    grouped.set(key, item);
-  }
-  const rows = Array.from(grouped.values()).map(item => ({
-    product_type: item.product_type,
-    x_value: item.x_value,
-    y_value: item.y_value,
-    sample_count: item.sample_count,
-    success_score: item.sample_count ? Number((item.score_weighted / item.sample_count).toFixed(2)) : 0,
-  })).sort((a, b) => b.success_score - a.success_score || b.sample_count - a.sample_count);
-  return { x, y, min_samples: minSamples, product_type: productType, rows };
-}
-
-async function loadLearningSummary(options = {}) {
-  const minSamples = safeMinSamples(options.min_samples || options.minSamples);
-  const productType = safeText(options.product_type || options.productType || "all", 80) || "all";
-  const [topConcepts, bestDimensions, worstDimensions, promptVersions] = await Promise.all([
-    loadTopConcepts({ ...options, mode: "top", limit: 1, min_samples: minSamples }),
-    supabaseRestQuery("dimension_scores", {
-      params: (() => {
-        const params = { sample_count: `gte.${minSamples}` };
-        if (productType && productType !== "all") params.product_type = `eq.${productType}`;
-        return params;
-      })(),
-      order: "success_score.desc,sample_count.desc",
-      limit: 1,
-    }),
-    supabaseRestQuery("dimension_scores", {
-      params: (() => {
-        const params = { sample_count: `gte.${minSamples}` };
-        if (productType && productType !== "all") params.product_type = `eq.${productType}`;
-        return params;
-      })(),
-      order: "success_score.asc,sample_count.desc",
-      limit: 1,
-    }),
-    loadPromptVersions({ ...options, min_samples: minSamples }),
-  ]);
-  return {
-    generated_at: new Date().toISOString(),
-    min_samples: minSamples,
-    product_type: productType,
-    cards: {
-      best_concept: topConcepts.rows[0] || null,
-      best_dimension: bestDimensions[0] || null,
-      worst_dimension: worstDimensions[0] || null,
-      best_prompt_version: promptVersions.rows[0] || null,
-    },
-  };
-}
-
-async function loadLearningBundle(options = {}) {
-  const { minSamples, productType } = learningParams(options);
-  const conceptParams = { sample_count: `gte.${minSamples}` };
-  if (productType && productType !== "all") conceptParams.product_type = `eq.${productType}`;
-  const dimensionParams = { sample_count: `gte.${minSamples}` };
-  if (productType && productType !== "all") dimensionParams.product_type = `eq.${productType}`;
-  const [conceptRows, dimensionRows] = await Promise.all([
-    supabaseRestQuery("concept_scores", {
-      params: conceptParams,
-      order: "success_score.desc,sample_count.desc",
-      limit: RESEARCH_EXPORT_MAX_ROWS,
-    }),
-    supabaseRestQuery("dimension_scores", {
-      params: dimensionParams,
-      order: "success_score.desc,sample_count.desc",
-      limit: RESEARCH_EXPORT_MAX_ROWS,
-    }),
-  ]);
-  const promptVersionRows = aggregatePromptVersions(conceptRows);
-  const topConcepts = conceptRows.slice(0, safeLimit(options.limit, 20, 200));
-  const bottomConcepts = [...conceptRows].sort((a, b) => (a.success_score || 0) - (b.success_score || 0) || (b.sample_count || 0) - (a.sample_count || 0)).slice(0, safeLimit(options.limit, 20, 200));
-  const x = LEARNING_DIMENSIONS.has(options.x) ? options.x : "audience";
-  const y = LEARNING_DIMENSIONS.has(options.y) ? options.y : "mockup_style_mode";
-  const heatmapGrouped = new Map();
-  for (const row of conceptRows) {
-    const xValue = row[x];
-    const yValue = row[y];
-    if (!xValue || !yValue) continue;
-    const key = `${xValue}\u001f${yValue}`;
-    const item = heatmapGrouped.get(key) || { product_type: productType, x_value: xValue, y_value: yValue, sample_count: 0, score_weighted: 0 };
-    const samples = Number(row.sample_count) || 0;
-    item.sample_count += samples;
-    item.score_weighted += (Number(row.success_score) || 0) * samples;
-    heatmapGrouped.set(key, item);
-  }
-  const heatmap = Array.from(heatmapGrouped.values()).map(item => ({
-    product_type: item.product_type,
-    x_value: item.x_value,
-    y_value: item.y_value,
-    sample_count: item.sample_count,
-    success_score: item.sample_count ? Number((item.score_weighted / item.sample_count).toFixed(2)) : 0,
-  })).sort((a, b) => b.success_score - a.success_score || b.sample_count - a.sample_count);
-  const summary = buildLearningSummaryFromRows({
-    conceptRows: topConcepts,
-    dimensionRows,
-    promptVersionRows,
-    minSamples,
-    productType,
-  });
-  return {
-    ...summary,
-    topConcepts,
-    bottomConcepts,
-    dimensionLeaderboard: dimensionRows.slice(0, safeLimit(options.limit, 20, 200)),
-    promptVersions: promptVersionRows,
-    heatmap: heatmap.slice(0, safeLimit(options.limit, 20, 200)),
-  };
-}
+// Remaining learning/reporting helpers moved to services/reports.js
 
 function addProxyMetrics(row = {}) {
   const generations = Number(row.generations_total) || 0;
@@ -2031,123 +1190,7 @@ function addProxyMetrics(row = {}) {
   };
 }
 
-function aggregateMetrics(rows = []) {
-  const totals = rows.reduce((acc, row) => {
-    const generations = Number(row.generations_total) || 0;
-    const succeeded = Number(row.generations_succeeded) || 0;
-    const failed = Number(row.generations_failed) || 0;
-    const ratings = Number(row.ratings_count) || 0;
-    const latency = Number(row.avg_latency_ms);
-    acc.generations_total += generations;
-    acc.generations_succeeded += succeeded;
-    acc.generations_failed += failed;
-    acc.ratings_count += ratings;
-    acc.rating_weighted += (Number(row.avg_rating) || 0) * ratings;
-    acc.downloads += Number(row.downloads) || 0;
-    acc.exports += Number(row.exports) || 0;
-    acc.regenerates += Number(row.regenerates) || 0;
-    acc.ai_fixes += Number(row.ai_fixes) || 0;
-    acc.favorites += Number(row.favorites) || 0;
-    if (Number.isFinite(latency) && generations > 0) {
-      acc.latency_weighted += latency * generations;
-      acc.latency_count += generations;
-    }
-    return acc;
-  }, {
-    generations_total: 0,
-    generations_succeeded: 0,
-    generations_failed: 0,
-    ratings_count: 0,
-    rating_weighted: 0,
-    downloads: 0,
-    exports: 0,
-    regenerates: 0,
-    ai_fixes: 0,
-    favorites: 0,
-    latency_weighted: 0,
-    latency_count: 0,
-  });
-
-  return addProxyMetrics({
-    generations_total: totals.generations_total,
-    generations_succeeded: totals.generations_succeeded,
-    generations_failed: totals.generations_failed,
-    success_rate: totals.generations_total ? Number(((totals.generations_succeeded / totals.generations_total) * 100).toFixed(2)) : null,
-    avg_latency_ms: totals.latency_count ? Math.round(totals.latency_weighted / totals.latency_count) : null,
-    ratings_count: totals.ratings_count,
-    avg_rating: totals.ratings_count ? Number((totals.rating_weighted / totals.ratings_count).toFixed(2)) : null,
-    downloads: totals.downloads,
-    exports: totals.exports,
-    regenerates: totals.regenerates,
-    ai_fixes: totals.ai_fixes,
-    favorites: totals.favorites,
-  });
-}
-
-function aggregateByDay(rows = []) {
-  const grouped = new Map();
-  for (const row of rows) {
-    const day = row.day;
-    const list = grouped.get(day) || [];
-    list.push(row);
-    grouped.set(day, list);
-  }
-  return Array.from(grouped.entries())
-    .sort(([a], [b]) => String(a).localeCompare(String(b)))
-    .map(([day, dayRows]) => addProxyMetrics({ day, ...aggregateMetrics(dayRows) }));
-}
-
-function aggregateConceptRows(rows = []) {
-  const grouped = new Map();
-  for (const row of rows) {
-    const key = [
-      row.listing_role || "",
-      row.category || "",
-      row.mode || "",
-      row.print_visibility || "",
-    ].join("\u001f");
-    const list = grouped.get(key) || [];
-    list.push(row);
-    grouped.set(key, list);
-  }
-  return Array.from(grouped.entries()).map(([key, groupRows]) => {
-    const [listing_role, category, mode, print_visibility] = key.split("\u001f");
-    const metrics = aggregateMetrics(groupRows);
-    const recentFailures = groupRows
-      .filter(row => Number(row.generations_failed) > 0)
-      .sort((a, b) => String(b.day).localeCompare(String(a.day)))
-      .slice(0, 5)
-      .map(row => ({
-        day: row.day,
-        generations_failed: Number(row.generations_failed) || 0,
-        provider: row.provider || null,
-        model_name: row.model_name || null,
-      }));
-    return addProxyMetrics({
-      listing_role,
-      category,
-      mode,
-      print_visibility,
-      generations_total: metrics.generations_total,
-      generations_succeeded: metrics.generations_succeeded,
-      generations_failed: metrics.generations_failed,
-      success_rate: metrics.success_rate,
-      avg_rating: metrics.avg_rating,
-      download_count: metrics.downloads,
-      export_count: metrics.exports,
-      regenerate_count: metrics.regenerates,
-      ai_fix_count: metrics.ai_fixes,
-      favorites: metrics.favorites,
-      recent_failures: recentFailures,
-      sanitized_metadata: {
-        listing_role,
-        category,
-        mode,
-        print_visibility,
-      },
-    });
-  }).sort((a, b) => (b.generations_total || 0) - (a.generations_total || 0));
-}
+// Remaining aggregate helpers moved to services/reports.js
 
 function csvEscape(value) {
   if (value === null || value === undefined) return "";
@@ -2333,192 +1376,6 @@ app.post("/api/analytics/events/bulk", async (req, res) => {
   }
 });
 
-// ─── Admin session auth ───────────────────────────────────────────────────────
-app.get("/api/admin/session", (req, res) => {
-  const session = getAdminSession(req);
-  res.json({
-    authenticated: !!session,
-    username: session?.username || null,
-    configured: adminSessionConfigured(),
-    tokenFallbackEnabled: !!ADMIN_TOKEN,
-  });
-});
-
-app.post("/api/admin/login", (req, res) => {
-  if (!adminSessionConfigured()) {
-    return res.status(503).json({ error: "Admin login is not configured" });
-  }
-  if (!rateLimitAdminLogin(req, res)) return;
-
-  const { username, password } = req.body || {};
-  const usernameOk = timingSafeEqualString(username, ADMIN_USERNAME);
-  const passwordOk = verifyAdminPassword(password);
-  if (!usernameOk || !passwordOk) {
-    return res.status(401).json({ error: "Invalid username or password" });
-  }
-
-  setAdminSessionCookie(res, ADMIN_USERNAME);
-  res.json({ ok: true, username: ADMIN_USERNAME });
-});
-
-app.post("/api/admin/logout", (req, res) => {
-  clearAdminSessionCookie(res);
-  res.json({ ok: true });
-});
-
-// ─── User auth ───────────────────────────────────────────────────────────────
-app.get("/api/auth/session", (req, res) => {
-  const session = getUserSession(req);
-  res.json({
-    authenticated: !!session,
-    userId: session?.userId || null,
-    username: session?.username || null,
-    email: session?.email || null,
-    configured: !!USER_SESSION_SECRET,
-    storageConfigured: authStorageConfigured(),
-    storage: supabaseConnectionInfo(),
-    build: process.env.RAILWAY_GIT_COMMIT_SHA || process.env.GIT_COMMIT_SHA || "local",
-  });
-});
-
-app.post("/api/auth/register", async (req, res) => {
-  if (!USER_SESSION_SECRET) return res.status(503).json({ code: "user_auth_not_configured", error: "Account creation is not configured" });
-  if (!authStorageConfigured()) return res.status(503).json({ code: "auth_storage_not_configured", error: "Account storage is not configured" });
-  if (!rateLimitUserLogin(req, res)) return;
-  try {
-    const email = normalizeAuthEmail(req.body?.email);
-    const username = normalizeAuthUsername(req.body?.username);
-    const password = String(req.body?.password || "");
-    if (!email || !email.includes("@") || !username || password.length < 8) {
-      return res.status(400).json({ code: "invalid_registration", error: "Invalid registration details" });
-    }
-    const existingByEmail = await supabaseRestQuerySchema("public", "ko_users", {
-      params: { email: `eq.${email}` },
-      limit: 1,
-    });
-    if (existingByEmail.length) return res.status(409).json({ code: "account_exists", error: "Account already exists" });
-    const existingByUsername = await supabaseRestQuerySchema("public", "ko_users", {
-      params: { username: `eq.${username}` },
-      limit: 1,
-    });
-    if (existingByUsername.length) return res.status(409).json({ code: "account_exists", error: "Account already exists" });
-    const password_hash = createPasswordHash(password);
-    const [user] = await (async () => {
-      const res2 = await fetch(`${SUPABASE_URL}/rest/v1/ko_users`, {
-        method: "POST",
-        headers: {
-          apikey: SUPABASE_SERVICE_ROLE_KEY,
-          Authorization: `Bearer ${SUPABASE_SERVICE_ROLE_KEY}`,
-          "Content-Type": "application/json",
-          "Prefer": "return=representation",
-          "Content-Profile": "public",
-        },
-        body: JSON.stringify([{
-          email,
-          username,
-          password_hash,
-          plan_type: "free",
-          account_status: "active",
-          credits_balance: DEFAULT_STARTING_CREDITS,
-        }]),
-      });
-      if (!res2.ok) {
-        const text = await res2.text().catch(() => "");
-        throw new Error(text || `HTTP ${res2.status}`);
-      }
-      return await res2.json();
-    })();
-    if (!user?.id) throw new Error("Supabase ko_users insert returned no user");
-    await supabaseRestInsertSchema("public", "ko_credit_transactions", [{
-      user_id: user.id,
-      action: "welcome_credit",
-      credit_type: "standard",
-      credits_added: DEFAULT_STARTING_CREDITS,
-      credits_removed: 0,
-      balance_after: DEFAULT_STARTING_CREDITS,
-      metadata: { source: "register" },
-    }]).catch(error => {
-      console.warn("[auth/register] welcome credit transaction skipped:", error.message);
-    });
-    setUserSessionCookie(res, user);
-    res.json({ ok: true, user: sanitizeUserRow(user) });
-  } catch (e) {
-    const code = authStorageErrorCode(e);
-    console.error("[auth/register] failed:", e.message);
-    if (code === "account_exists") return res.status(409).json({ code, error: "Account already exists" });
-    if (code === "auth_storage_not_configured") return res.status(503).json({ code, error: "Account storage is not configured" });
-    if (code === "auth_storage_permission") return res.status(503).json({ code, error: "Account storage permission failed" });
-    if (code === "auth_schema_missing") return res.status(503).json({ code, error: "Account database is not ready" });
-    if (code === "auth_schema_mismatch") return res.status(503).json({ code, error: "Account database schema does not match the app" });
-    res.status(500).json({ code: "server_error", error: "Registration failed", diagnostic: authStorageDiagnostic(e) });
-  }
-});
-
-app.post("/api/auth/login", async (req, res) => {
-  if (!USER_SESSION_SECRET) return res.status(503).json({ code: "user_auth_not_configured", error: "Account sessions are not configured" });
-  if (!authStorageConfigured()) return res.status(503).json({ code: "auth_storage_not_configured", error: "Account storage is not configured" });
-  if (!rateLimitUserLogin(req, res)) return;
-  try {
-    const login = safeText(req.body?.login || req.body?.email || req.body?.username, 180);
-    const password = String(req.body?.password || "");
-    if (!login || !password) return res.status(400).json({ code: "missing_credentials", error: "Email or username and password are required" });
-    const user = await loadUserByLogin(login);
-    if (!user) return res.status(404).json({ code: "user_not_found", error: "User not found" });
-    if (user.account_status !== "active") return res.status(403).json({ code: "account_disabled", error: "Account is not active" });
-    if (!verifyPasswordHash(password, user.password_hash)) return res.status(401).json({ code: "wrong_password", error: "Wrong password" });
-    await supabaseRestPatchSchema("public", "ko_users", "id", user.id, {
-      last_login_at: new Date().toISOString(),
-      updated_at: new Date().toISOString(),
-    });
-    setUserSessionCookie(res, user);
-    res.json({ ok: true, user: sanitizeUserRow(user) });
-  } catch (e) {
-    const code = authStorageErrorCode(e);
-    console.error("[auth/login] failed:", e.message);
-    if (code === "auth_storage_not_configured") return res.status(503).json({ code, error: "Account storage is not configured" });
-    if (code === "auth_storage_permission") return res.status(503).json({ code, error: "Account storage permission failed" });
-    if (code === "auth_schema_missing") return res.status(503).json({ code, error: "Account database is not ready" });
-    if (code === "auth_schema_mismatch") return res.status(503).json({ code, error: "Account database schema does not match the app" });
-    res.status(500).json({ code: "server_error", error: "Login failed", diagnostic: authStorageDiagnostic(e) });
-  }
-});
-
-app.post("/api/auth/logout", (req, res) => {
-  clearUserSessionCookie(res);
-  res.json({ ok: true });
-});
-
-app.post("/api/auth/forgot-password", (req, res) => {
-  res.json({ ok: true, message: "If the account exists, a reset link would be sent." });
-});
-
-app.patch("/api/me/account", async (req, res) => {
-  const session = requireUser(req, res);
-  if (!session) return;
-  try {
-    const patch = {};
-    if (req.body?.username) patch.username = safeText(req.body.username, 80);
-    if (req.body?.password) patch.password_hash = createPasswordHash(String(req.body.password));
-    patch.updated_at = new Date().toISOString();
-    await supabaseRestPatchSchema("public", "ko_users", "id", session.userId, patch);
-    res.json({ ok: true });
-  } catch (e) {
-    res.status(500).json({ error: "Account update failed" });
-  }
-});
-
-app.get("/api/me/account", async (req, res) => {
-  const session = requireUser(req, res);
-  if (!session) return;
-  try {
-    const user = await loadUserById(session.userId);
-    if (!user) return res.status(404).json({ error: "User not found" });
-    res.json({ user: sanitizeUserRow(user) });
-  } catch (e) {
-    res.status(500).json({ error: "Account lookup failed" });
-  }
-});
-
 app.get("/api/me/dashboard", async (req, res) => {
   const session = requireUser(req, res);
   if (!session) return;
@@ -2547,6 +1404,31 @@ app.get("/api/me/generations", async (req, res) => {
     res.json(await loadUserGenerations(session.userId, req.query || {}));
   } catch (e) {
     sendAdminError(res, "user generations", e);
+  }
+});
+
+app.post("/api/quality-feedback", async (req, res) => {
+  const session = requireUser(req, res);
+  if (!session) return;
+  const generationId = safeText(req.body?.generationId, 64);
+  const feedback = sanitizeQualityFeedback(req.body?.feedback || {});
+  if (!generationId) {
+    return res.status(400).json({ code: "missing_generation_id", error: "Generation id is required" });
+  }
+  try {
+    const updated = await updateQualityFeedbackByGeneration({
+      generationId,
+      userId: session.userId,
+      feedback,
+    });
+    res.json({ ok: true, ...updated });
+  } catch (e) {
+    if (e.message === "invalid_generation_id") return res.status(400).json({ code: "invalid_generation_id", error: "Generation id is invalid" });
+    if (e.message === "generation_not_found") return res.status(404).json({ code: "generation_not_found", error: "Generation not found" });
+    if (e.message === "quality_record_not_found") return res.status(404).json({ code: "quality_record_not_found", error: "Quality record not found" });
+    if (e.message === "forbidden_generation") return res.status(403).json({ code: "forbidden_generation", error: "You do not have access to this generation" });
+    console.error("[quality-feedback] failed:", e.message);
+    res.status(500).json({ code: "server_error", error: "Quality feedback update failed" });
   }
 });
 
@@ -2663,6 +1545,13 @@ app.post("/api/admin/users/:id/credits", async (req, res) => {
     });
     res.json({ ok: true, balance });
   } catch (e) {
+    const code = creditStorageErrorCode(e);
+    if (code === "insufficient_credits") {
+      return res.status(409).json({ code, error: "Insufficient credits" });
+    }
+    if (code === "user_not_found") {
+      return res.status(404).json({ code, error: "User not found" });
+    }
     sendAdminError(res, "admin credit adjust", e);
   }
 });
@@ -2916,7 +1805,10 @@ app.get("/api/admin/quality", async (req, res) => {
       order: "created_at.desc",
       limit: 100,
     });
-    res.json({ rows });
+    res.json({
+      cards: summarizeQualityRows(rows),
+      rows,
+    });
   } catch (e) {
     sendAdminError(res, "admin quality", e);
   }
@@ -2955,92 +1847,6 @@ app.get("/api/admin/settings", async (req, res) => {
     res.json({ rows });
   } catch (e) {
     sendAdminError(res, "admin settings", e);
-  }
-});
-
-// ─── Key management ───────────────────────────────────────────────────────────
-app.get("/api/keys", (req, res) => {
-  if (!requireAdmin(req, res)) return;
-  const keys = loadKeys();
-  res.json({
-    gemini: {
-      set: !!keys.gemini,
-      masked: maskKey(keys.gemini),
-      fromEnv: !!(process.env.GEMINI_API_KEY || process.env.GOOGLE_API_KEY),
-    },
-    replicate: {
-      set: !!keys.replicate,
-      masked: maskKey(keys.replicate),
-      fromEnv: !!process.env.REPLICATE_API_KEY,
-    },
-  });
-});
-
-app.post("/api/keys", (req, res) => {
-  if (!requireAdmin(req, res)) return;
-  const { gemini, replicate } = req.body;
-  const current = loadKeys();
-  saveKeys({
-    gemini: gemini !== undefined ? gemini : current.gemini,
-    replicate: replicate !== undefined ? replicate : current.replicate,
-  });
-  res.json({ ok: true, message: "Keys saved." });
-});
-
-app.delete("/api/keys/:type", (req, res) => {
-  if (!requireAdmin(req, res)) return;
-  const { type } = req.params;
-  if (!["gemini", "replicate"].includes(type))
-    return res.status(400).json({ error: "Invalid key type" });
-  if (keySource(type) === "env") {
-    return res.status(409).json({
-      error: `${type} key comes from an environment variable and cannot be deleted from the UI.`,
-    });
-  }
-  const keys = loadKeys();
-  keys[type] = "";
-  saveKeys(keys);
-  res.json({ ok: true, message: `${type} key deleted.` });
-});
-
-// ─── Connection tests ─────────────────────────────────────────────────────────
-app.post("/api/test/gemini", async (req, res) => {
-  if (!requireAdmin(req, res)) return;
-  const { gemini } = loadKeys();
-  if (!gemini) return res.json({ ok: false, message: "Ključ ni nastavljen." });
-  try {
-    const r = await fetchJsonWithRetry("https://generativelanguage.googleapis.com/v1beta/models/gemini-2.5-flash:generateContent", {
-      method: "POST",
-      headers: {
-        "Content-Type": "application/json",
-        "x-goog-api-key": gemini,
-      },
-      body: JSON.stringify({
-        contents: [{ parts: [{ text: "hi" }] }],
-      }),
-    }, { retries: 3, delayMs: 1500, label: "gemini generate-prompts" });
-    const d = await r.json();
-    if (d.error) throw new Error(d.error.message);
-    const text = d.candidates?.[0]?.content?.parts?.map(p => p.text || "").join("") || "";
-    res.json({ ok: true, message: text ? "Povezava uspešna ✓" : "Povezava uspešna ✓" });
-  } catch (e) {
-    res.json({ ok: false, message: e.message });
-  }
-});
-
-app.post("/api/test/replicate", async (req, res) => {
-  if (!requireAdmin(req, res)) return;
-  const { replicate, gemini } = loadKeys();
-  if (!replicate) return res.json({ ok: false, message: "Ključ ni nastavljen." });
-  try {
-    const r = await fetch("https://api.replicate.com/v1/account", {
-      headers: { Authorization: `Bearer ${replicate}` },
-    });
-    if (!r.ok) throw new Error(`HTTP ${r.status}`);
-    const d = await r.json();
-    res.json({ ok: true, message: `Povezan kot ${d.username} ✓` });
-  } catch (e) {
-    res.json({ ok: false, message: e.message });
   }
 });
 
@@ -4625,6 +3431,27 @@ app.post("/api/generate-image", async (req, res) => {
 
   const requestId = `regen-${Date.now().toString(36)}-${Math.random().toString(36).slice(2, 7)}`;
   const startedAt = Date.now();
+  const userSession = getUserSession(req);
+  let creditCharge = { allowed: true, cost: 0, balance: null };
+  if (userSession?.userId) {
+    try {
+      creditCharge = await enforceUserCredits(userSession.userId, "mockup_generation", {
+        requestId,
+        source: "generate-image",
+        model_name: "black-forest-labs/flux-kontext-dev",
+      });
+    } catch (error) {
+      const code = creditStorageErrorCode(error);
+      if (code === "user_not_found") {
+        return res.status(404).json({ code: "user_not_found", error: "User not found" });
+      }
+      console.error(`[generate-image ${requestId}] credit check failed:`, error.message);
+      return res.status(500).json({ code: "server_error", error: "Credit check failed" });
+    }
+    if (!creditCharge.allowed) {
+      return res.status(402).json({ code: "insufficient_credits", error: "Insufficient credits" });
+    }
+  }
   const resolvedListingRole = listingRole || inferListingRole(fluxPrompt || "", 0);
   const resolvedVisiblePrint = typeof visiblePrint === "boolean" ? visiblePrint : visiblePrintForRole(printVisibility, resolvedListingRole);
   console.log(`[generate-image ${requestId}] start`, {
@@ -4738,6 +3565,13 @@ app.post("/api/generate-image", async (req, res) => {
         console.warn(`[generate-image ${requestId}] quality inspection skipped:`, inspectError.message);
       }
     }
+    if (!qualityReport) {
+      qualityReport = fallbackQualityReport({
+        businessScores,
+        riskAnalysis,
+        prompt: finalPrompt,
+      });
+    }
     console.log(`[generate-image ${requestId}] success`, {
       hasOutput: !!url,
       mimeType: "image/png",
@@ -4745,8 +3579,8 @@ app.post("/api/generate-image", async (req, res) => {
       qualityScore: qualityReport?.score ?? null,
       businessScores,
     });
-    await recordGenerationRecord({
-      user_id: getUserSession(req)?.userId || null,
+    const generationRecord = await recordGenerationRecord({
+      user_id: userSession?.userId || null,
       client_generation_id: requestId,
       generation_type: "mockup_image",
       prompt: finalPrompt,
@@ -4755,7 +3589,7 @@ app.post("/api/generate-image", async (req, res) => {
       category: listingRole || categoryResearch || "",
       status: "succeeded",
       score: qualityReport?.score ?? businessScores?.etsy_conversion_score ?? businessScores?.realism_score ?? null,
-      credits_used: 1,
+      credits_used: creditCharge.cost || 0,
       negative_prompt: "",
       scene_type: environment || mockupStyleMode || "",
       target_audience: targetBuyer || "",
@@ -4790,11 +3624,55 @@ app.post("/api/generate-image", async (req, res) => {
         qualityReport,
       },
     });
-    res.json({ url, mimeType: "image/png", qualityReport });
+    const qualityRecord = await recordQualityRecord({
+      user_id: userSession?.userId || null,
+      generation_id: generationRecord?.id || null,
+      prompt: finalPrompt,
+      model_name: "black-forest-labs/flux-kontext-dev",
+      style_key: mockupStyleMode || "",
+      category: listingRole || categoryResearch || "",
+      report: qualityReport,
+      metadata: {
+        requestId,
+        printVisibility,
+        listingRole,
+        listingRolePhase,
+        listingRoleVariant,
+        visiblePrint: resolvedVisiblePrint,
+      },
+    });
+    res.json({
+      url,
+      mimeType: "image/png",
+      qualityReport,
+      generationId: generationRecord?.id || null,
+      qualityRecordId: qualityRecord?.id || null,
+    });
   } catch (e) {
     console.error(`[generate-image ${requestId}] error`, e.message);
+    if (userSession?.userId && creditCharge.cost > 0 && !CHARGE_FAILED_GENERATIONS) {
+      try {
+        await addCreditTransaction(userSession.userId, "refund:mockup_generation", creditCharge.cost, {
+          requestId,
+          source: "generate-image",
+          reason: "generation_failed",
+          model_name: "black-forest-labs/flux-kontext-dev",
+        });
+      } catch (refundError) {
+        console.error(`[generate-image ${requestId}] refund failed:`, refundError.message);
+        await writeSystemLog("credit_refund_failed", "Generation refund failed", {
+          severity: "high",
+          userId: userSession?.userId || null,
+          metadata: {
+            requestId,
+            model: "black-forest-labs/flux-kontext-dev",
+            error: refundError.message,
+          },
+        }).catch(() => {});
+      }
+    }
     await recordGenerationRecord({
-      user_id: getUserSession(req)?.userId || null,
+      user_id: userSession?.userId || null,
       client_generation_id: requestId,
       generation_type: "mockup_image",
       prompt: fluxPrompt || "",
