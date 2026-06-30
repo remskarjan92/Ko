@@ -105,6 +105,7 @@
   <script src="/routeConfig.js" onload="diagLog('Route config loaded', true)" onerror="diagLog('FAILED to load route config script'); showDiagIfNeeded()"></script>
   <script src="/userRouteContent.js" onload="diagLog('User route content loaded', true)" onerror="diagLog('FAILED to load user route content script'); showDiagIfNeeded()"></script>
   <script src="/adminRouteContent.js" onload="diagLog('Admin route content loaded', true)" onerror="diagLog('FAILED to load admin route content script'); showDiagIfNeeded()"></script>
+  <script src="/shellNavigation.js" onload="diagLog('Shell navigation loaded', true)" onerror="diagLog('FAILED to load shell navigation script'); showDiagIfNeeded()"></script>
   <link href="https://fonts.googleapis.com/css2?family=DM+Sans:wght@300;400;500;600&family=DM+Mono:wght@400;500&family=Playfair+Display:wght@700&display=swap" rel="stylesheet"/>
   <style>
     *{box-sizing:border-box;margin:0;padding:0}
@@ -322,6 +323,9 @@ try {
     getShellType,
     isAdminRoute
   } = window.KOFrontendRoutes || {};
+  const {
+    buildShellNavigation
+  } = window.KOShellNavigation || {};
   const getCurrentRoutePath = () => normalizeRoute(typeof window === "undefined" ? "/dashboard" : window.location.hash || window.location.pathname);
   const setHashRoute = route => {
     if (typeof window === "undefined") return;
@@ -6903,191 +6907,27 @@ ${r.data.thumbnailNotes}`;
       const target = route ? getRouteConfig(route).sectionId || id : id;
       scrollToSection(target || id);
     };
-    const navItems = [{
-      id: "dashboard-section",
-      label: "Dashboard",
-      route: "/dashboard",
-      active: activeRoute === "/dashboard"
-    }, {
-      id: "compose-section",
-      label: "Generate Mockups"
-    }, {
-      id: "history-section",
-      label: "History",
-      route: "/generations",
-      active: activeRoute === "/generations"
-    }, {
-      id: "credits-section",
-      label: "Credits",
-      route: "/credits",
-      active: activeRoute === "/credits"
-    }, {
-      id: "account-section",
-      label: "Account",
-      route: "/account",
-      active: activeRoute === "/account" || activeRoute === "/settings"
-    }];
-    const userShellNavItems = [{
-      id: "nav-group-workspace",
-      type: "label",
-      label: "Workspace"
-    }, {
-      id: "dashboard-section",
-      label: "Overview",
-      meta: "Home",
-      route: "/dashboard",
-      active: activeRoute === "/dashboard"
-    }, {
-      id: "results-section",
-      label: "Generations",
-      meta: "Gallery",
-      route: "/generations",
-      active: activeRoute === "/generations"
-    }, {
-      id: "credits-section",
-      label: "Billing",
-      meta: "Usage",
-      route: "/credits",
-      active: activeRoute === "/credits"
-    }, {
-      id: "nav-group-account",
-      type: "label",
-      label: "Account"
-    }, {
-      id: "account-section",
-      label: "Profile",
-      meta: "User",
-      route: "/account",
-      active: activeRoute === "/account"
-    }, {
-      id: "account-section",
-      label: "Settings",
-      meta: "Prefs",
-      route: "/settings",
-      active: activeRoute === "/settings"
-    }];
-    const adminShellNavItems = isAdmin ? [{
-      id: "nav-group-admin",
-      type: "label",
-      label: "Admin"
-    }, {
-      id: "dashboard-section",
-      label: "Admin Overview",
-      meta: "Home",
-      route: "/admin",
-      active: activeRoute === "/admin"
-    }, {
-      id: "dashboard-section",
-      label: "Users",
-      meta: "People",
-      route: "/admin/users",
-      active: activeRoute === "/admin/users"
-    }, {
-      id: "credits-section",
-      label: "Credits",
-      meta: "Rules",
-      route: "/admin/credits",
-      active: activeRoute === "/admin/credits"
-    }, {
-      id: "credits-section",
-      label: "Transactions",
-      meta: "Ledger",
-      route: "/admin/transactions",
-      active: activeRoute === "/admin/transactions"
-    }, {
-      id: "results-section",
-      label: "Generations",
-      meta: "All",
-      route: "/admin/generations",
-      active: activeRoute === "/admin/generations"
-    }, {
-      id: "learning-section",
-      label: "Analytics",
-      meta: "Usage",
-      route: "/admin/analytics",
-      active: activeRoute === "/admin/analytics"
-    }, {
-      id: "compose-section",
-      label: "Prompts",
-      meta: "Text",
-      route: "/admin/prompts",
-      active: activeRoute === "/admin/prompts"
-    }, {
-      id: "compose-section",
-      label: "AI Models",
-      meta: "Stack",
-      route: "/admin/models",
-      active: activeRoute === "/admin/models"
-    }, {
-      id: "learning-section",
-      label: "Quality",
-      meta: "QA",
-      route: "/admin/quality",
-      active: activeRoute === "/admin/quality"
-    }, {
-      id: "learning-section",
-      label: "Learning",
-      meta: "Signals",
-      route: "/admin/learning",
-      active: activeRoute === "/admin/learning"
-    }, {
-      id: "learning-section",
-      label: "Research",
-      meta: "Data",
-      route: "/admin/research",
-      active: activeRoute === "/admin/research"
-    }, {
-      id: "admin-settings",
-      label: "Admin Settings",
-      meta: "Config",
-      route: "/admin/settings",
-      active: activeRoute === "/admin/settings",
-      action: () => {
+    const shellNavigation = buildShellNavigation?.({
+      isAdmin,
+      isUser,
+      activeRoute,
+      adminSession,
+      keyInfo,
+      doneCount,
+      total,
+      learningEnabled,
+      analysisReady,
+      resolvedMockupStyleMode,
+      onAdminOpen: () => {
         setHashRoute("/admin/settings");
         setShowSettings(true);
       }
-    }] : [];
-    const shellNavItems = isUser ? [...userShellNavItems, ...adminShellNavItems] : adminShellNavItems;
-    const sectionItems = [...(isUser ? [{
-      id: "dashboard-section",
-      kicker: "00",
-      label: "Dashboard",
-      description: "Credits, history, and account overview."
-    }] : []), {
-      id: "compose-section",
-      kicker: "01",
-      label: "Composer",
-      description: "Upload, design intent, and prompt controls."
-    }, {
-      id: "learning-section",
-      kicker: "02",
-      label: "Learning",
-      description: "Local ratings and preference signals."
-    }, {
-      id: "results-section",
-      kicker: "03",
-      label: "Results",
-      description: "Generated concepts, images, and exports."
-    }];
-    const summaryChips = isAdmin ? [{
-      label: "Mode",
-      value: "Admin"
-    }, {
-      label: "Auth",
-      value: adminSession?.authenticated ? "Connected" : "Locked"
-    }] : [{
-      label: "Images",
-      value: `${doneCount}/${total}`
-    }, {
-      label: "Learning",
-      value: learningEnabled ? "On" : "Off"
-    }, {
-      label: "Mode",
-      value: resolvedMockupStyleMode()
-    }, {
-      label: "Analysis",
-      value: analysisReady ? "Locked" : "Draft"
-    }];
+    }) || {};
+    const navItems = shellNavigation.navItems || [];
+    const shellNavItems = shellNavigation.shellNavItems || [];
+    const sectionItems = shellNavigation.sectionItems || [];
+    const summaryChips = shellNavigation.summaryChips || [];
+    const statusCards = shellNavigation.statusCards || [];
     const activeRouteConfig = getRouteConfig(activeRoute);
     const imageStatusCounts = Object.values(imgStates).reduce((acc, state) => {
       const status = state?.status || "pending";
@@ -7126,25 +6966,7 @@ ${r.data.thumbnailNotes}`;
       onNavigate: navigateToSection,
       onAdminOpen: () => setShowSettings(true),
       onLogout: logout,
-      statusCards: isAdmin ? [{
-        label: "Auth",
-        value: adminSession?.authenticated ? "Connected" : "Locked"
-      }, {
-        label: "Keys",
-        value: keyInfo?.gemini?.set && keyInfo?.replicate?.set ? "Ready" : "Missing"
-      }] : [{
-        label: "Images",
-        value: `${doneCount}/${total}`
-      }, {
-        label: "Mode",
-        value: resolvedMockupStyleMode()
-      }, {
-        label: "Learning",
-        value: learningEnabled ? "On" : "Off"
-      }, {
-        label: "Analysis",
-        value: analysisReady ? "Ready" : "Draft"
-      }]
+      statusCards
     }), React.createElement(WorkspaceHeader, {
       isAdmin,
       navItems: isUser ? navItems : [],
