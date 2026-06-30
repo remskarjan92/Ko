@@ -106,6 +106,7 @@
   <script src="/userRouteContent.js" onload="diagLog('User route content loaded', true)" onerror="diagLog('FAILED to load user route content script'); showDiagIfNeeded()"></script>
   <script src="/adminRouteContent.js" onload="diagLog('Admin route content loaded', true)" onerror="diagLog('FAILED to load admin route content script'); showDiagIfNeeded()"></script>
   <script src="/shellNavigation.js" onload="diagLog('Shell navigation loaded', true)" onerror="diagLog('FAILED to load shell navigation script'); showDiagIfNeeded()"></script>
+  <script src="/adminShell.js" onload="diagLog('Admin shell loaded', true)" onerror="diagLog('FAILED to load admin shell script'); showDiagIfNeeded()"></script>
   <link href="https://fonts.googleapis.com/css2?family=DM+Sans:wght@300;400;500;600&family=DM+Mono:wght@400;500&family=Playfair+Display:wght@700&display=swap" rel="stylesheet"/>
   <style>
     *{box-sizing:border-box;margin:0;padding:0}
@@ -2488,6 +2489,7 @@ try {
   }
   const UserRouteContent = window.UserRouteContent;
   const AdminRouteContent = window.AdminRouteContent;
+  const AdminShell = window.AdminShell;
   function WorkspaceHeader({
     isAdmin,
     navItems,
@@ -5907,75 +5909,84 @@ try {
     const isAdmin = !!adminSession?.authenticated;
     const isUser = !!userSession?.authenticated;
     if (isAdmin && !isUser) {
+      const adminImageStatusCounts = Object.values(imgStates).reduce((acc, state) => {
+        const status = state?.status || "pending";
+        if (status === "done") acc.done += 1;
+        else if (status === "error" || status === "failed") acc.failed += 1;
+        else acc.pending += 1;
+        return acc;
+      }, { done: 0, failed: 0, pending: 0 });
+      const adminNavigate = (id, route) => {
+        if (route) setHashRoute(route);
+        const target = route ? getRouteConfig(route).sectionId || id : id;
+        const el = document.getElementById(target || id);
+        if (el) el.scrollIntoView({ behavior: "smooth", block: "start" });
+      };
+      const adminRoutePath = isAdminRoute(activeRoute) ? activeRoute : "/admin";
+      const adminShellNavigation = buildShellNavigation?.({
+        isAdmin,
+        isUser,
+        activeRoute: adminRoutePath,
+        adminSession,
+        keyInfo,
+        doneCount: adminImageStatusCounts.done,
+        total: form.mockupCount,
+        learningEnabled,
+        analysisReady,
+        resolvedMockupStyleMode: () => form.mockupStyleMode || "ugc_review",
+        onAdminOpen: () => {
+          setHashRoute("/admin/settings");
+          setShowSettings(true);
+        }
+      }) || {};
+      const adminActiveRouteConfig = getRouteConfig(adminRoutePath);
       return React.createElement("div", {
+        className: "app-root-shell",
         style: {
           minHeight: "100vh",
+          paddingBottom: 0,
           color: "var(--text)",
-          background: "radial-gradient(900px 520px at 18% 0%, rgba(255,220,100,0.12), transparent 52%), linear-gradient(180deg,#0b0d12,#10141b)"
+          position: "relative",
+          overflow: "hidden",
+          background: "radial-gradient(1200px 700px at 10% 0%, rgba(255,220,100,0.10), transparent 48%), radial-gradient(1000px 700px at 92% 10%, rgba(90,180,255,0.10), transparent 46%), radial-gradient(900px 600px at 50% 100%, rgba(126,232,162,0.06), transparent 40%), #0C0C0E"
         }
-      }, showSettings && React.createElement(SettingsModal, {
+      }, React.createElement("div", {
+        style: {
+          position: "absolute",
+          inset: 0,
+          pointerEvents: "none",
+          background: "linear-gradient(180deg, rgba(255,255,255,0.02), transparent 18%, rgba(255,255,255,0.01) 60%, transparent 100%)"
+        }
+      }), showSettings && React.createElement(SettingsModal, {
         onClose: () => setShowSettings(false),
         onKeysUpdated: d => setKeyInfo(d),
         onAdminSessionChange: setAdminSession
-      }), React.createElement("div", {
-        className: "app-header-row",
-        style: {
-          maxWidth: 1120,
-          margin: "0 auto",
-          padding: "30px 22px",
-          display: "flex",
-          gap: 14,
-          alignItems: "center",
-          justifyContent: "space-between"
-        }
-      }, React.createElement("div", {
-        style: { display: "flex", alignItems: "center", gap: 13 }
-      }, React.createElement("div", {
-        style: {
-          width: 46,
-          height: 46,
-          borderRadius: 13,
-          background: "linear-gradient(135deg,#FFDC64,#FF9B40)",
-          display: "grid",
-          placeItems: "center",
-          color: "#11151d",
-          fontWeight: 800
-        }
-      }, "AD"), React.createElement("div", null, React.createElement("div", {
-        style: {
-          fontSize: 10,
-          letterSpacing: "0.2em",
-          color: "rgba(255,220,100,0.6)",
-          textTransform: "uppercase",
-          fontFamily: "'DM Mono',monospace",
-          marginBottom: 3
-        }
-      }, "Admin dashboard"), React.createElement("h1", {
-        style: { fontSize: 22, fontWeight: 800, letterSpacing: 0 }
-      }, "Service Control"))), React.createElement("nav", {
-        className: "app-nav"
-      }, React.createElement("button", {
-        onClick: () => setShowSettings(true)
-      }, "Service status"), React.createElement("button", {
-        onClick: logout
-      }, "Logout"))), React.createElement("main", {
-        style: {
-          maxWidth: 1120,
-          margin: "0 auto",
-          padding: "0 22px 40px"
-        }
-      }, React.createElement("section", {
-        style: {
-          border: "1px solid rgba(255,255,255,0.09)",
-          borderRadius: 18,
-          background: "var(--bg-hover)",
-          padding: 18
-        }
-      }, React.createElement("h2", {
-        style: { fontSize: 18, marginBottom: 8 }
-      }, "Admin area"), React.createElement("p", {
-        style: { color: "rgba(255,255,255,0.56)", fontSize: 14, lineHeight: 1.55 }
-      }, "Provider connection status, analytics, and platform controls are available from Service status. Normal seller navigation is hidden from this admin-only view."))));
+      }), React.createElement(AdminShell, {
+        route: adminActiveRouteConfig,
+        items: adminShellNavigation.shellNavItems || [],
+        adminSession,
+        keyInfo,
+        summaryChips: adminShellNavigation.summaryChips || [],
+        statusCards: adminShellNavigation.statusCards || [],
+        onNavigate: adminNavigate,
+        onOpenSettings: () => setShowSettings(true),
+        onLogout: logout
+      }, React.createElement(RoutePageHeader, {
+        route: adminActiveRouteConfig
+      }), React.createElement(RoutePlaceholderPanel, {
+        route: adminActiveRouteConfig
+      }), React.createElement(AdminRouteContent, {
+        routePath: adminRoutePath,
+        isAdmin,
+        adminSession,
+        keyInfo,
+        resultsCount: results.length,
+        generatedImages: adminImageStatusCounts.done,
+        imageStatusCounts: adminImageStatusCounts,
+        ratingCount: promptRatings.length,
+        onNavigate: adminNavigate,
+        onOpenSettings: () => setShowSettings(true)
+      })));
     }
     const setImg = (id, patch) => setImgStates(s => ({
       ...s,
@@ -6907,9 +6918,10 @@ ${r.data.thumbnailNotes}`;
       const target = route ? getRouteConfig(route).sectionId || id : id;
       scrollToSection(target || id);
     };
+    const shouldRenderAdminShell = isAdmin && isAdminRoute(activeRoute);
     const shellNavigation = buildShellNavigation?.({
-      isAdmin,
-      isUser,
+      isAdmin: shouldRenderAdminShell,
+      isUser: isUser && !shouldRenderAdminShell,
       activeRoute,
       adminSession,
       keyInfo,
@@ -6960,14 +6972,14 @@ ${r.data.thumbnailNotes}`;
         setKeyInfo(d);
       },
       onAdminSessionChange: setAdminSession
-    }), React.createElement(AppShellSidebar, {
+    }), !shouldRenderAdminShell && React.createElement(AppShellSidebar, {
       isAdmin,
       items: shellNavItems,
       onNavigate: navigateToSection,
       onAdminOpen: () => setShowSettings(true),
       onLogout: logout,
       statusCards
-    }), React.createElement(WorkspaceHeader, {
+    }), !shouldRenderAdminShell && React.createElement(WorkspaceHeader, {
       isAdmin,
       navItems: isUser ? navItems : [],
       onNavigate: navigateToSection,
@@ -6975,7 +6987,7 @@ ${r.data.thumbnailNotes}`;
       onLogout: logout,
       summaryChips,
       sessionLabel: isAdmin ? "Service status, analytics, and platform controls." : "Build your listing flow from analysis to export."
-    }), React.createElement(WorkspaceIntro, {
+    }), !shouldRenderAdminShell && React.createElement(WorkspaceIntro, {
       isAdmin,
       analysisReady,
       learningEnabled,
@@ -6984,11 +6996,21 @@ ${r.data.thumbnailNotes}`;
       mockupMode: resolvedMockupStyleMode(),
       onPrimaryAction: isAdmin ? () => setShowSettings(true) : () => navigateToSection("compose-section"),
       onSecondaryAction: isAdmin ? () => navigateToSection("history-section", "/admin/generations") : () => navigateToSection("results-section", "/generations")
-    }), React.createElement(RoutePageHeader, {
+    }), shouldRenderAdminShell && React.createElement(AdminShell, {
+      route: activeRouteConfig,
+      items: shellNavItems,
+      adminSession,
+      keyInfo,
+      summaryChips,
+      statusCards,
+      onNavigate: navigateToSection,
+      onOpenSettings: () => setShowSettings(true),
+      onLogout: logout
+    }, React.createElement(RoutePageHeader, {
       route: activeRouteConfig
     }), React.createElement(RoutePlaceholderPanel, {
       route: activeRouteConfig
-    }), isAdmin && React.createElement(AdminRouteContent, {
+    }), React.createElement(AdminRouteContent, {
       routePath: activeRoute,
       isAdmin,
       adminSession,
@@ -6999,7 +7021,11 @@ ${r.data.thumbnailNotes}`;
       ratingCount: promptRatings.length,
       onNavigate: navigateToSection,
       onOpenSettings: () => setShowSettings(true)
-    }), isUser && React.createElement(UserRouteContent, {
+    })), !shouldRenderAdminShell && React.createElement(RoutePageHeader, {
+      route: activeRouteConfig
+    }), !shouldRenderAdminShell && React.createElement(RoutePlaceholderPanel, {
+      route: activeRouteConfig
+    }), isUser && !shouldRenderAdminShell && React.createElement(UserRouteContent, {
       routePath: activeRoute,
       session: userSession,
       resultsCount: results.length,
@@ -7008,9 +7034,9 @@ ${r.data.thumbnailNotes}`;
       ratingCount: promptRatings.length,
       onNavigate: navigateToSection,
       onOpenSettings: () => setShowSettings(true)
-    }), isUser && React.createElement(UserOverview, {
+    }), isUser && !shouldRenderAdminShell && React.createElement(UserOverview, {
       session: userSession
-    }), React.createElement("div", {
+    }), !shouldRenderAdminShell && React.createElement("div", {
       style: {
         maxWidth: 1120,
         margin: "0 auto",
@@ -7018,7 +7044,7 @@ ${r.data.thumbnailNotes}`;
       }
     }, React.createElement(LayerRail, {
       items: sectionItems
-    })), React.createElement("div", {
+    })), !shouldRenderAdminShell && React.createElement("div", {
       style: {
         maxWidth: 1120,
         margin: "0 auto",
