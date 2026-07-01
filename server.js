@@ -216,7 +216,9 @@ function getAdminSession(req) {
 
 function verifyUserSessionToken(token) {
   if (!USER_SESSION_SECRET || !token || !token.includes(".")) return null;
-  const [body, sig] = token.split(".");
+  const lastDot = token.lastIndexOf(".");
+  const body = token.slice(0, lastDot);
+  const sig = token.slice(lastDot + 1);
   const expected = crypto.createHmac("sha256", USER_SESSION_SECRET).update(body).digest("base64url");
   if (!timingSafeEqualString(sig, expected)) return null;
   try {
@@ -499,7 +501,8 @@ function normalizeAuthEmail(value) {
 }
 
 function normalizeAuthUsername(value) {
-  return String(value || "").trim().replace(/\s+/g, "_").slice(0, 80);
+  // Strip anything that isn't a letter, number, underscore, or hyphen
+  return String(value || "").trim().replace(/[^a-zA-Z0-9_-]/g, "").slice(0, 30);
 }
 
 function stablePromptHash(value = "") {
@@ -515,13 +518,16 @@ async function loadUserById(userId) {
 }
 
 async function loadUserByLogin(login) {
-  const rows = await supabaseRestQuerySchema("public", "ko_users", {
-    params: {
-      or: `(email.eq.${login},username.eq.${login})`,
-    },
-    limit: 1,
-  });
-  return rows[0] || null;
+  // Split into two safe queries — raw or(email.eq.X) breaks when login
+  // contains PostgREST-sensitive chars like +, @, parentheses.
+  const byEmail = await supabaseRestQuerySchema("public", "ko_users", {
+    params: { email: `eq.${login}` }, limit: 1,
+  }).catch(() => []);
+  if (byEmail[0]) return byEmail[0];
+  const byUsername = await supabaseRestQuerySchema("public", "ko_users", {
+    params: { username: `eq.${login}` }, limit: 1,
+  }).catch(() => []);
+  return byUsername[0] || null;
 }
 
 async function loadFeatureCosts() {
@@ -2392,6 +2398,10 @@ app.post("/api/auth/register", async (req, res) => {
     if (!email || !email.includes("@") || !username || password.length < 8) {
       return res.status(400).json({ code: "invalid_registration", error: "Invalid registration details" });
     }
+    // Require at least 3 chars after stripping — normalizeAuthUsername may produce empty string
+    if (username.length < 3) {
+      return res.status(400).json({ code: "invalid_registration", error: "Username must be at least 3 characters (letters, numbers, _ or -)" });
+    }
     const existingByEmail = await supabaseRestQuerySchema("public", "ko_users", {
       params: { email: `eq.${email}` },
       limit: 1,
@@ -3460,6 +3470,7 @@ function buildUserMessage({
   generateFullListing = false,
   additionalInfo = "",
   sizeChartIncluded = false,
+  placementContext = "",
   selectedNiche = [],
   selectedAudience = [],
   selectedStyle = [],
@@ -3506,6 +3517,7 @@ Design Details:
 - Learning Memory: ${learningContext || "None yet"}
 - Prompt Word Target: 120-220 words for the final Flux prompt after reusable modules are injected
 - ${listingMode}
+${placementContext ? `- ${placementContext}` : ""}
 ${selectedContext ? `- ${selectedContext}` : ""}
 
 PREVIOUSLY USED ATTRIBUTES (avoid repeating these combinations by changing environment, pose, camera, age, ethnicity, and clothing color):
@@ -3926,6 +3938,7 @@ app.post("/api/generate-prompts", async (req, res) => {
     printVisibility, mockupStyleMode, mockupStyleBrief,
     learningContext, usedAttributes,
     generateFullListing, additionalInfo, sizeChartIncluded,
+    designPlacement,
     selectedNiche, selectedAudience, selectedStyle, selectedOccasion, selectedPricePoint, selectedKeywords,
   } = req.body;
 
@@ -3938,6 +3951,10 @@ app.post("/api/generate-prompts", async (req, res) => {
   const shirtContext = shirtMode === "__match_picture__"
     ? `Match the shirt in the uploaded picture as closely as possible. If the garment is not a common catalog item, infer the most accurate silhouette, fabric weight, sleeve length, and fit from the reference image.`
     : `Use this shirt type as the main research anchor: ${shirtModel || "Unisex Classic Tee"}.${shirtName ? ` Additional shirt name for research: ${shirtName}.` : ""}`;
+
+  const placementContext = designPlacement && typeof designPlacement === "object"
+    ? `Design placement constraint: the graphic sits at x=${Math.round((designPlacement.x_pct||0.35)*100)}% / y=${Math.round((designPlacement.y_pct||0.28)*100)}% from top-left, covering ${Math.round((designPlacement.w_pct||0.30)*100)}% width and ${Math.round((designPlacement.h_pct||0.24)*100)}% height of the shirt front. Keep all generated prompts consistent with this placement — do not describe the design as oversized, undersized, or repositioned unless the listing role explicitly calls for it (e.g. pocket print).`
+    : "";
 
   const printVisibilityContext = {
     front_only: "Print visibility mode: front only. Front-facing concepts may show the design, but back-view concepts must show a clean blank back with no visible print, no mirrored print, and no partial artwork peeking through.",
@@ -3980,6 +3997,7 @@ app.post("/api/generate-prompts", async (req, res) => {
     generateFullListing: !!generateFullListing,
     additionalInfo: safeText(additionalInfo, 2000),
     sizeChartIncluded: !!sizeChartIncluded,
+    placementContext,
     selectedNiche: Array.isArray(selectedNiche) ? selectedNiche : [],
     selectedAudience: Array.isArray(selectedAudience) ? selectedAudience : [],
     selectedStyle: Array.isArray(selectedStyle) ? selectedStyle : [],
@@ -4522,6 +4540,74 @@ app.post("/api/analyze-shirt", async (req, res) => {
   }
 });
 
+// ── SMART SHIRT PLACEMENT ANALYSIS ────────────────────────────────────────────
+app.post("/api/analyze-shirt-placement", async (req, res) => {
+  if (!requireAppAccess(req, res)) return;
+  const { imageBase64, imageType = "image/png", shirtColor = "" } = req.body;
+  const { gemini, replicate } = loadKeys();
+  if (!gemini) return res.status(503).json({ code: "service_missing", error: "Gemini not configured" });
+  if (!imageBase64) return res.status(400).json({ error: "No image provided" });
+  try {
+    let florentineCaption = "";
+    if (replicate) {
+      try {
+        const florenceOut = await runReplicateVersion(FLORENCE_VERSION, {
+          image: `data:${imageType};base64,${imageBase64}`,
+          task_input: "Detailed Caption",
+        }, replicate);
+        florentineCaption = getPredictionText(florenceOut) || "";
+      } catch (e) {
+        console.warn("[analyze-shirt-placement] Florence caption failed:", e.message);
+      }
+    }
+    const geminiPrompt = `You are a print-on-demand placement expert analyzing a shirt image.
+${florentineCaption ? `Florence caption: "${florentineCaption}"` : ""}
+${shirtColor ? `User shirt color: ${shirtColor}` : ""}
+Return ONLY valid JSON:
+{
+  "placement": { "x_pct": <0-1>, "y_pct": <0-1>, "w_pct": <0-1>, "h_pct": <0-1> },
+  "garment": { "type": "", "neckline": "", "fit": "", "sleeve": "", "color": "", "colorHex": "", "fabric": "" },
+  "shirtResearch": "<2-3 sentence visual description for a Flux prompt>",
+  "printZoneNotes": "<one sentence on print zone constraints>"
+}
+Placement rules: x_pct 0.20-0.30, y_pct 0.22-0.35, w_pct 0.40-0.60, h_pct 0.25-0.40 for standard chest. Pocket: w~0.15, h~0.12. Full-front: w up to 0.65.`;
+    const geminiRes = await fetchJsonWithRetry("https://generativelanguage.googleapis.com/v1beta/models/gemini-2.5-flash:generateContent", {
+      method: "POST",
+      headers: { "Content-Type": "application/json", "x-goog-api-key": gemini },
+      body: JSON.stringify({
+        generationConfig: { maxOutputTokens: 800, responseMimeType: "application/json" },
+        contents: [{ role: "user", parts: [
+          { inline_data: { mime_type: imageType, data: imageBase64 } },
+          { text: geminiPrompt },
+        ]}],
+      }),
+    }, { retries: 2, delayMs: 800, label: "gemini analyze-shirt-placement" });
+    const geminiData = await geminiRes.json();
+    if (geminiData.error) throw new Error(geminiData.error.message);
+    const raw = getGeminiText(geminiData);
+    let parsed;
+    try {
+      parsed = JSON.parse(raw.replace(/^```(?:json)?\s*/i, "").replace(/```\s*$/, "").trim());
+    } catch (e) {
+      console.error("[analyze-shirt-placement] JSON parse failed:", e.message);
+      return res.status(502).json({ error: "Could not parse shirt analysis" });
+    }
+    const p = parsed.placement || {};
+    const clamp = (v, d) => typeof v === "number" ? Math.max(0, Math.min(1, v)) : d;
+    res.json({
+      placement: { x_pct: clamp(p.x_pct, 0.25), y_pct: clamp(p.y_pct, 0.28), w_pct: clamp(p.w_pct, 0.50), h_pct: clamp(p.h_pct, 0.35) },
+      garment: parsed.garment || {},
+      shirtResearch: parsed.shirtResearch || "",
+      printZoneNotes: parsed.printZoneNotes || "",
+      florentineCaption,
+    });
+  } catch (e) {
+    console.error("[analyze-shirt-placement] failed:", e.message);
+    res.status(500).json({ code: "server_error", error: "Shirt placement analysis failed" });
+  }
+});
+// ── END SMART SHIRT PLACEMENT ANALYSIS ────────────────────────────────────────
+
 app.post("/api/ai-fix-suggestion", async (req, res) => {
   if (!requireAppAccess(req, res)) return;
   const { fluxPrompt, qaChecklist, customPrompt, imageBase64, imageType, printVisibility, mockupStyleMode, mockupStyleBrief, listingRole = "", listingRolePhase = "", listingRoleVariant = "", visiblePrint, riskAnalysis = {}, businessScores = {}, categoryResearch = "", shirtResearch = "" } = req.body;
@@ -4605,6 +4691,8 @@ app.post("/api/generate-image", async (req, res) => {
     businessScores = {},
     categoryResearch = "",
     shirtResearch = "",
+    designPlacement = null,
+    smartShirtResearch = "",
     environment = "",
     targetBuyer = "",
     pose = "",
@@ -4674,7 +4762,7 @@ app.post("/api/generate-image", async (req, res) => {
       customPrompt,
       riskAnalysis,
       categoryResearch,
-      shirtResearch,
+      shirtResearch: smartShirtResearch || shirtResearch,
       listingRolePhase,
       listingRoleVariant,
       selectedNiche,
@@ -4686,11 +4774,12 @@ app.post("/api/generate-image", async (req, res) => {
       sceneText: [
         environment ? `SCENE: ${environment}` : "",
         targetBuyer ? `TARGET BUYER: ${targetBuyer}` : "",
-      pose ? `POSE: ${pose}` : "",
-      cameraSetup ? `CAMERA: ${cameraSetup}` : "",
-      lighting ? `LIGHTING: ${lighting}` : "",
-    ].filter(Boolean).join("; "),
-  });
+        pose ? `POSE: ${pose}` : "",
+        cameraSetup ? `CAMERA: ${cameraSetup}` : "",
+        lighting ? `LIGHTING: ${lighting}` : "",
+        designPlacement ? `PRINT PLACEMENT: graphic at x=${Math.round((designPlacement.x_pct||0.25)*100)}% / y=${Math.round((designPlacement.y_pct||0.28)*100)}%, covering ${Math.round((designPlacement.w_pct||0.50)*100)}% width and ${Math.round((designPlacement.h_pct||0.35)*100)}% height — maintain exact zone.` : "",
+      ].filter(Boolean).join("; "),
+    });
     const r = await fetchJsonWithRetry("https://api.replicate.com/v1/models/black-forest-labs/flux-kontext-dev/predictions", {
       method: "POST",
       headers: {

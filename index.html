@@ -1707,6 +1707,150 @@ try {
       }
     }, children);
   }
+  // ── DESIGN PLACEMENT TOOL (SMART) ─────────────────────────────────────────
+  const SHIRT_COLORS = [
+    { name:"White",    hex:"#f0f0f0" }, { name:"Black",    hex:"#1a1a1a" },
+    { name:"Navy",     hex:"#1e2f5e" }, { name:"Forest",   hex:"#2d4a2d" },
+    { name:"Burgundy", hex:"#6b2037" }, { name:"Slate",    hex:"#5a6a7a" },
+    { name:"Sand",     hex:"#c8b89a" }, { name:"Coral",    hex:"#e8624a" },
+    { name:"Sky",      hex:"#5ba3d0" }, { name:"Lavender", hex:"#8b7cb0" },
+  ];
+  const PLACEMENT_PRESETS = {
+    center:    { x_pct:0.30, y_pct:0.30, w_pct:0.40, h_pct:0.36 },
+    chest:     { x_pct:0.34, y_pct:0.22, w_pct:0.32, h_pct:0.25 },
+    fullfront: { x_pct:0.17, y_pct:0.20, w_pct:0.66, h_pct:0.55 },
+    pocket:    { x_pct:0.24, y_pct:0.24, w_pct:0.16, h_pct:0.13 },
+  };
+  function DesignPlacementTool({ imagePreview, placement, onChange, onShirtResearchUpdate }) {
+    const canvasRef = useRef(null);
+    const shirtInputRef = useRef(null);
+    const [dragging, setDragging] = React.useState(null);
+    const [localColor, setLocalColor] = React.useState(placement.shirtColor || "#f0f0f0");
+    const [shirtRefPreview, setShirtRefPreview] = React.useState(null);
+    const [analyzing, setAnalyzing] = React.useState(false);
+    const [analyzeError, setAnalyzeError] = React.useState("");
+    const [garmentInfo, setGarmentInfo] = React.useState(null);
+    const [printZoneNotes, setPrintZoneNotes] = React.useState("");
+    const [mode, setMode] = React.useState("color");
+    const toAbs = (pct, dim) => Math.round(pct * dim);
+    const toPct = (abs, dim) => parseFloat((abs / dim).toFixed(4));
+    const getCanvasRect = () => canvasRef.current?.getBoundingClientRect() || { width:300, height:400, left:0, top:0 };
+    const applyPreset = key => { const p = PLACEMENT_PRESETS[key]; if (p) onChange({ ...placement, ...p }); };
+    const analyzeShirtRef = async (base64, type, colorHint) => {
+      setAnalyzing(true); setAnalyzeError(""); setGarmentInfo(null);
+      try {
+        const res = await apiFetch("/api/analyze-shirt-placement", { imageBase64: base64, imageType: type || "image/png", shirtColor: colorHint || "" });
+        if (res.placement) onChange({ ...placement, ...res.placement, shirtColor: res.garment?.colorHex || localColor });
+        if (res.garment) setGarmentInfo(res.garment);
+        if (res.printZoneNotes) setPrintZoneNotes(res.printZoneNotes);
+        if (res.shirtResearch && onShirtResearchUpdate) onShirtResearchUpdate(res.shirtResearch);
+      } catch (e) { setAnalyzeError("Analysis failed — placement not updated."); }
+      finally { setAnalyzing(false); }
+    };
+    const handleShirtUpload = e => {
+      const file = e.target.files?.[0]; if (!file) return;
+      const reader = new FileReader();
+      reader.onload = ev => { const dataUrl = ev.target.result; setShirtRefPreview(dataUrl); setMode("reference"); analyzeShirtRef(dataUrl.split(",")[1], file.type, ""); };
+      reader.readAsDataURL(file); e.target.value = "";
+    };
+    const handleColorSelect = hex => {
+      setLocalColor(hex); setMode("color"); setShirtRefPreview(null); setGarmentInfo(null); setPrintZoneNotes("");
+      onChange({ ...placement, shirtColor: hex });
+      if (onShirtResearchUpdate) onShirtResearchUpdate("");
+    };
+    const handleCanvasMouseDown = e => {
+      if (e.target.dataset.handle) return;
+      const rect = getCanvasRect();
+      const cx = toAbs(placement.x_pct, rect.width), cy = toAbs(placement.y_pct, rect.height);
+      const cw = toAbs(placement.w_pct, rect.width), ch = toAbs(placement.h_pct, rect.height);
+      const mx = e.clientX - rect.left, my = e.clientY - rect.top;
+      if (mx >= cx && mx <= cx+cw && my >= cy && my <= cy+ch) setDragging({ type:"move", startX:mx, startY:my, ox:cx, oy:cy });
+    };
+    const handleHandleMouseDown = (e, dir) => {
+      e.stopPropagation();
+      const rect = getCanvasRect();
+      setDragging({ type:"resize", dir, startX:e.clientX, startY:e.clientY, ox:toAbs(placement.x_pct,rect.width), oy:toAbs(placement.y_pct,rect.height), ow:toAbs(placement.w_pct,rect.width), oh:toAbs(placement.h_pct,rect.height) });
+    };
+    React.useEffect(() => {
+      const onMove = e => {
+        if (!dragging) return;
+        const rect = getCanvasRect();
+        if (dragging.type === "move") {
+          const dx = (e.clientX - rect.left) - dragging.startX, dy = (e.clientY - rect.top) - dragging.startY;
+          const cw = toAbs(placement.w_pct, rect.width), ch = toAbs(placement.h_pct, rect.height);
+          onChange({ ...placement, x_pct: toPct(Math.max(0, Math.min(rect.width-cw, dragging.ox+dx)), rect.width), y_pct: toPct(Math.max(0, Math.min(rect.height-ch, dragging.oy+dy)), rect.height) });
+        } else {
+          const dx = e.clientX - dragging.startX, dy = e.clientY - dragging.startY, dir = dragging.dir;
+          let nx=dragging.ox, ny=dragging.oy, nw=dragging.ow, nh=dragging.oh;
+          if (dir.includes("r")) nw = Math.max(30, dragging.ow+dx);
+          if (dir.includes("b")) nh = Math.max(30, dragging.oh+dy);
+          if (dir.includes("l")) { nw = Math.max(30, dragging.ow-dx); nx = dragging.ox+dragging.ow-nw; }
+          if (dir.includes("t")) { nh = Math.max(30, dragging.oh-dy); ny = dragging.oy+dragging.oh-nh; }
+          onChange({ ...placement, x_pct:toPct(nx,rect.width), y_pct:toPct(ny,rect.height), w_pct:toPct(nw,rect.width), h_pct:toPct(nh,rect.height) });
+        }
+      };
+      const onUp = () => setDragging(null);
+      window.addEventListener("mousemove", onMove); window.addEventListener("mouseup", onUp);
+      return () => { window.removeEventListener("mousemove", onMove); window.removeEventListener("mouseup", onUp); };
+    }, [dragging, placement]);
+    const shirtFill = localColor, shirtStroke = shirtFill === "#f0f0f0" ? "#ddd" : shirtFill;
+    return React.createElement("div", { style:{ background:"rgba(255,255,255,0.03)", border:"1px solid rgba(255,255,255,0.08)", borderRadius:14, padding:14, marginBottom:11, marginTop:10 } },
+      React.createElement("div", { style:{ display:"flex", alignItems:"center", justifyContent:"space-between", marginBottom:10 } },
+        React.createElement("div", { style:{ fontSize:10, color:"var(--text-tertiary)", fontFamily:"'DM Mono',monospace", letterSpacing:"0.12em", textTransform:"uppercase" } }, "🎯 Design Placement"),
+        analyzing && React.createElement("div", { style:{ fontSize:10, color:"rgba(255,180,0,0.8)", fontFamily:"'DM Mono',monospace" } }, "⟳ Analyzing shirt…")
+      ),
+      React.createElement("div", { style:{ display:"flex", gap:6, marginBottom:12 } },
+        React.createElement("button", { onClick:()=>{ setMode("color"); setShirtRefPreview(null); setGarmentInfo(null); }, style:{ padding:"5px 12px", borderRadius:6, border:`1px solid ${mode==="color"?"rgba(255,180,0,0.6)":"rgba(255,255,255,0.1)"}`, background:mode==="color"?"rgba(255,180,0,0.1)":"transparent", color:mode==="color"?"rgba(255,180,0,0.9)":"rgba(255,255,255,0.4)", fontSize:10, cursor:"pointer", fontFamily:"'DM Mono',monospace" } }, "Color pick"),
+        React.createElement("button", { onClick:()=>{ setMode("reference"); shirtInputRef.current?.click(); }, style:{ padding:"5px 12px", borderRadius:6, border:`1px solid ${mode==="reference"?"rgba(90,180,255,0.6)":"rgba(255,255,255,0.1)"}`, background:mode==="reference"?"rgba(90,180,255,0.1)":"transparent", color:mode==="reference"?"rgba(90,180,255,0.9)":"rgba(255,255,255,0.4)", fontSize:10, cursor:"pointer", fontFamily:"'DM Mono',monospace" } }, mode==="reference" && shirtRefPreview ? "✓ Shirt loaded" : "↑ Upload shirt ref"),
+        React.createElement("input", { ref:shirtInputRef, type:"file", accept:"image/*", onChange:handleShirtUpload, style:{ display:"none" } })
+      ),
+      mode==="color" && React.createElement("div", { style:{ display:"flex", gap:5, flexWrap:"wrap", marginBottom:12 } },
+        SHIRT_COLORS.map(c => React.createElement("div", { key:c.hex, title:c.name, onClick:()=>handleColorSelect(c.hex), style:{ width:22, height:22, borderRadius:5, background:c.hex, cursor:"pointer", border:`2px solid ${localColor===c.hex?"rgba(255,180,0,0.9)":"rgba(255,255,255,0.08)"}`, transition:"border-color .1s" } }))
+      ),
+      mode==="reference" && shirtRefPreview && React.createElement("div", { style:{ display:"flex", gap:10, alignItems:"flex-start", marginBottom:12 } },
+        React.createElement("img", { src:shirtRefPreview, style:{ width:56, height:72, objectFit:"cover", borderRadius:7, border:"1px solid rgba(90,180,255,0.2)", flexShrink:0 } }),
+        garmentInfo ? React.createElement("div", { style:{ flex:1 } },
+          React.createElement("div", { style:{ fontSize:11, color:"rgba(255,255,255,0.8)", fontWeight:500, marginBottom:3 } }, garmentInfo.type || "Garment detected"),
+          React.createElement("div", { style:{ fontSize:10, color:"rgba(255,255,255,0.4)", lineHeight:1.5 } }, [garmentInfo.fit, garmentInfo.neckline, garmentInfo.sleeve, garmentInfo.fabric].filter(Boolean).join(" · ")),
+          garmentInfo.colorHex && React.createElement("div", { style:{ display:"flex", alignItems:"center", gap:5, marginTop:5 } },
+            React.createElement("div", { style:{ width:12, height:12, borderRadius:3, background:garmentInfo.colorHex, border:"1px solid rgba(255,255,255,0.15)" } }),
+            React.createElement("span", { style:{ fontSize:10, color:"rgba(255,255,255,0.4)", fontFamily:"'DM Mono',monospace" } }, garmentInfo.color || garmentInfo.colorHex)
+          ),
+          printZoneNotes && React.createElement("div", { style:{ marginTop:6, fontSize:10, color:"rgba(255,180,0,0.6)", lineHeight:1.4 } }, printZoneNotes)
+        ) : analyzing ? React.createElement("div", { style:{ fontSize:11, color:"rgba(255,255,255,0.3)" } }, "Analyzing garment geometry…") : null
+      ),
+      analyzeError && React.createElement("div", { style:{ fontSize:10, color:"rgba(255,80,80,0.8)", marginBottom:8 } }, analyzeError),
+      React.createElement("div", { style:{ display:"flex", gap:5, flexWrap:"wrap", marginBottom:10 } },
+        ["center","chest","fullfront","pocket"].map(k => React.createElement("button", { key:k, onClick:()=>applyPreset(k), style:{ padding:"4px 9px", borderRadius:6, border:"1px solid rgba(255,255,255,0.1)", background:"rgba(255,255,255,0.04)", color:"rgba(255,255,255,0.5)", fontSize:10, cursor:"pointer", fontFamily:"'DM Mono',monospace" } }, k))
+      ),
+      React.createElement("div", { ref:canvasRef, onMouseDown:handleCanvasMouseDown, style:{ position:"relative", width:"100%", aspectRatio:"3/4", borderRadius:10, overflow:"hidden", cursor:"default", background:"rgba(0,0,0,0.25)", userSelect:"none" } },
+        shirtRefPreview
+          ? React.createElement("img", { src:shirtRefPreview, style:{ position:"absolute", inset:0, width:"100%", height:"100%", objectFit:"contain", pointerEvents:"none" } })
+          : React.createElement("svg", { viewBox:"0 0 400 533", style:{ position:"absolute", inset:0, width:"100%", height:"100%", pointerEvents:"none" } },
+              React.createElement("path", { d:"M140 80 L75 115 L35 175 L78 195 L78 480 L322 480 L322 195 L365 175 L325 115 L260 80 C248 102 224 112 200 112 C176 112 152 102 140 80Z", fill:shirtFill, stroke:shirtStroke, strokeWidth:1.5 }),
+              React.createElement("path", { d:"M140 80 Q162 130 200 130 Q238 130 260 80", fill:"none", stroke:shirtStroke, strokeWidth:1.5 })
+            ),
+        analyzing && React.createElement("div", { style:{ position:"absolute", inset:0, background:"rgba(255,180,0,0.06)", display:"flex", alignItems:"center", justifyContent:"center" } },
+          React.createElement("div", { style:{ fontSize:11, color:"rgba(255,180,0,0.7)", fontFamily:"'DM Mono',monospace" } }, "⟳ detecting print zone…")
+        ),
+        React.createElement("div", { style:{ position:"absolute", left:`${placement.x_pct*100}%`, top:`${placement.y_pct*100}%`, width:`${placement.w_pct*100}%`, height:`${placement.h_pct*100}%`, border:"2px dashed rgba(255,180,0,0.85)", cursor:"move", display:"flex", alignItems:"center", justifyContent:"center", boxShadow:"0 0 0 1px rgba(0,0,0,0.4)" } },
+          imagePreview ? React.createElement("img", { src:imagePreview, style:{ width:"100%", height:"100%", objectFit:"contain", pointerEvents:"none", display:"block" } }) : React.createElement("div", { style:{ fontSize:10, color:"rgba(255,180,0,0.5)", textAlign:"center", fontFamily:"'DM Mono',monospace" } }, "design"),
+          ["tl","tr","bl","br"].map(dir => React.createElement("div", { key:dir, "data-handle":dir, onMouseDown:e=>handleHandleMouseDown(e,dir), style:{ position:"absolute", top:dir.includes("t")?-5:"auto", bottom:dir.includes("b")?-5:"auto", left:dir.includes("l")?-5:"auto", right:dir.includes("r")?-5:"auto", width:10, height:10, background:"rgba(255,180,0,0.95)", border:"2px solid rgba(0,0,0,0.6)", borderRadius:2, cursor:`${dir}-resize` } }))
+        )
+      ),
+      React.createElement("div", { style:{ marginTop:10, display:"flex", flexDirection:"column", gap:5 } },
+        [{ label:"W", key:"w_pct", min:0.05, max:0.85 },{ label:"H", key:"h_pct", min:0.05, max:0.85 },{ label:"X", key:"x_pct", min:0, max:0.80 },{ label:"Y", key:"y_pct", min:0, max:0.80 }].map(({ label, key, min, max }) =>
+          React.createElement("div", { key, style:{ display:"flex", alignItems:"center", gap:8 } },
+            React.createElement("span", { style:{ fontSize:10, color:"rgba(255,255,255,0.35)", fontFamily:"'DM Mono',monospace", width:14 } }, label),
+            React.createElement("input", { type:"range", min, max, step:0.01, value:placement[key], onChange:e=>onChange({ ...placement, [key]:parseFloat(e.target.value) }), style:{ flex:1, accentColor:"rgba(255,180,0,0.9)" } }),
+            React.createElement("span", { style:{ fontSize:10, color:"rgba(255,255,255,0.35)", fontFamily:"'DM Mono',monospace", width:30, textAlign:"right" } }, Math.round(placement[key]*100)+"%")
+          )
+        )
+      )
+    );
+  }
+  // ── END DESIGN PLACEMENT TOOL ──────────────────────────────────────────────
+
   function QualityReportPanel({ report, fixing, onFix, onRegenerate }) {
     if (!report) return null;
     const statusLabel = report.status === "PASS" ? "Ready for Etsy" : report.status === "REJECT" ? "Regenerate" : "Needs Fix";
@@ -2338,6 +2482,9 @@ try {
           return;
         }
         if (mode === "register") {
+          if (!email || !/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email)) { setMessage("Enter a valid email address."); return; }
+          if (!username || username.trim().length < 3) { setMessage("Username must be at least 3 characters."); return; }
+          if (password.length < 8) { setMessage("Password must be at least 8 characters."); return; }
           const { res, data } = await requestJson("/api/auth/register", { email, username, password });
           if (!res.ok) {
             setMessage(res.status === 409 ? "Account already exists. Sign in instead." : userAuthMessage(res.status, data));
@@ -4732,6 +4879,8 @@ try {
     const [imagePreview, setImagePreview] = useState(null);
     const [imageBase64, setImageBase64] = useState(null);
     const [referenceImages, setReferenceImages] = useState([]);
+    const [placementState, setPlacementState] = useState({ x_pct:0.35, y_pct:0.28, w_pct:0.30, h_pct:0.24, shirtColor:"#f0f0f0" });
+    const [smartShirtResearch, setSmartShirtResearch] = useState("");
     const [designAnalysis, setDesignAnalysis] = useState("");
     const [analyzing, setAnalyzing] = useState(false);
     const [loading, setLoading] = useState(false);
@@ -5325,6 +5474,7 @@ try {
             generateFullListing: form.generateFullListing,
             additionalInfo: form.additionalInfo,
             sizeChartIncluded: sizeChartArtifactsList.length > 0,
+            designPlacement: placementState,
             ...selectedContextPayload,
             learningContext,
             usedAttributes: runningHistory
@@ -5350,6 +5500,8 @@ try {
               generateFullListing: form.generateFullListing,
               additionalInfo: form.additionalInfo,
               sizeChartIncluded: sizeChartArtifactsList.length > 0,
+              designPlacement: placementState,
+              smartShirtResearch: smartShirtResearch,
               ...selectedContextPayload,
               designAnalysis: analysis,
               listingRole: parsed[j]?.listingRole || inferListingRoleFromCategory(cat.name || "", j),
@@ -5959,7 +6111,12 @@ ${r.data.thumbnailNotes}`;
       style: {
         display: "none"
       }
-    })), React.createElement("div", {
+    })), imagePreview && React.createElement(DesignPlacementTool, {
+      imagePreview: imagePreview,
+      placement: placementState,
+      onChange: setPlacementState,
+      onShirtResearchUpdate: setSmartShirtResearch,
+    }), React.createElement("div", {
       style: {
         background: "rgba(255,255,255,0.022)",
         border: "1px solid rgba(255,255,255,0.07)",
