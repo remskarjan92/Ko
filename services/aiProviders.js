@@ -1,6 +1,6 @@
 function keySource(type) {
   if (type === "gemini") return process.env.GEMINI_API_KEY || process.env.GOOGLE_API_KEY ? "env" : "file";
-  return process.env.REPLICATE_API_KEY ? "env" : "file";
+  return process.env.REPLICATE_API_KEY || process.env.REPLICATE_API_TOKEN ? "env" : "file";
 }
 
 function getGeminiText(data) {

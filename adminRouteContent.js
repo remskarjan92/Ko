@@ -1,4 +1,10 @@
 (function () {
+  function adminResponseError(data, status) {
+    const code = data?.code ? ` [${data.code}]` : "";
+    const detail = data?.detail ? `: ${data.detail}` : "";
+    return `${data?.error || `Request failed (${status})`}${code}${detail}`;
+  }
+
   function AdminRouteContent({
     routePath,
     isAdmin,
@@ -53,7 +59,7 @@
           });
           const text = await res.text();
           const data = text ? JSON.parse(text) : {};
-          if (!res.ok) throw new Error(data?.error || `Request failed (${res.status})`);
+          if (!res.ok) throw new Error(adminResponseError(data, res.status));
           if (!cancelled) setUsersState({ rows: Array.isArray(data.rows) ? data.rows : [], loading: false, error: "", message: "" });
         } catch (error) {
           if (!cancelled) setUsersState({ rows: [], loading: false, error: error.message || "Could not load users", message: "" });
@@ -1207,7 +1213,7 @@
         });
         const text = await res.text();
         const data = text ? JSON.parse(text) : {};
-        if (!res.ok) throw new Error(data?.error || `Request failed (${res.status})`);
+        if (!res.ok) throw new Error(adminResponseError(data, res.status));
         setUsersState({ rows: Array.isArray(data.rows) ? data.rows : [], loading: false, error: "", message: "Users refreshed" });
       } catch (error) {
         setUsersState(prev => ({ ...prev, loading: false, error: error.message || "Could not refresh users", message: "" }));
@@ -1228,7 +1234,7 @@
         });
         const text = await res.text();
         const data = text ? JSON.parse(text) : {};
-        if (!res.ok) throw new Error(data?.error || `Request failed (${res.status})`);
+        if (!res.ok) throw new Error(adminResponseError(data, res.status));
         setUserDetail(data);
       } catch (error) {
         setDetailError(error.message || "Could not load user detail");
@@ -1252,7 +1258,7 @@
         });
         const text = await res.text();
         const data = text ? JSON.parse(text) : {};
-        if (!res.ok) throw new Error(data?.error || `Request failed (${res.status})`);
+        if (!res.ok) throw new Error(adminResponseError(data, res.status));
         await refreshAdminUsers();
         await loadUserDetail(data.user || { ...user, disabled, account_status: disabled ? "disabled" : "active" });
       } catch (error) {
@@ -1288,7 +1294,7 @@
         });
         const text = await res.text();
         const data = text ? JSON.parse(text) : {};
-        if (!res.ok) throw new Error(data?.error || `Request failed (${res.status})`);
+        if (!res.ok) throw new Error(adminResponseError(data, res.status));
         setCreditMessage(`Balance updated to ${data.balance}`);
         setCreditAmount("");
         setCreditReason("");
@@ -1322,7 +1328,7 @@
         });
         const text = await res.text();
         const data = text ? JSON.parse(text) : {};
-        if (!res.ok) throw new Error(data?.error || `Request failed (${res.status})`);
+        if (!res.ok) throw new Error(adminResponseError(data, res.status));
         setPasswordMessage(data?.message || "Password updated");
         setNewPassword("");
         setPasswordTarget(null);

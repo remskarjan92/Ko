@@ -293,6 +293,10 @@
     .app-root-shell{
       margin-left:288px;
     }
+    .admin-app-shell{
+      width:100%;
+      box-sizing:border-box;
+    }
     @media (max-width: 760px){
       .auth-card{padding:22px;border-radius:18px}
       .app-header-row{align-items:flex-start!important;flex-direction:column}
@@ -303,6 +307,21 @@
       .app-shell-sidebar{position:static;width:auto;padding:0 18px 12px}
       .app-shell-sidebar-panel{height:auto;border-radius:18px}
       .app-root-shell{margin-left:0}
+      .admin-app-shell{
+        flex-direction:column !important;
+      }
+      .admin-app-shell > aside{
+        flex:0 0 auto !important;
+        min-height:auto !important;
+        width:100% !important;
+        border-right:none !important;
+        border-bottom:1px solid rgba(255,255,255,0.08) !important;
+      }
+      .admin-app-shell > main{
+        width:100% !important;
+        flex:1 1 auto !important;
+        padding:16px 16px 28px !important;
+      }
     }
   </style>
 </head>
@@ -6084,10 +6103,19 @@ try {
     }
     const isAdmin = !!adminSession?.authenticated;
     const isUser = !!userSession?.authenticated;
-    const effectiveRoute = isAdmin && !isUser && !isAdminRoute(activeRoute) ? "/admin" : activeRoute;
+    const effectiveRoute = isAdmin && !isUser && !isAdminRoute(activeRoute)
+      ? "/admin"
+      : !isAdmin && isAdminRoute(activeRoute)
+        ? "/dashboard"
+        : activeRoute;
     const isStudioRoute = isUser && effectiveRoute === "/tshirt-studio";
     const isGenerateRoute = isUser && effectiveRoute === "/generate";
     const isGenerationsRoute = isUser && effectiveRoute === "/generations";
+    const isDashboardRoute = isUser && effectiveRoute === "/dashboard";
+    const isCreditsRoute = isUser && effectiveRoute === "/credits";
+    const isAccountRoute = isUser && effectiveRoute === "/account";
+    const isSettingsRoute = isUser && effectiveRoute === "/settings";
+    const isKnownUserRoute = isDashboardRoute || isGenerateRoute || isGenerationsRoute || isStudioRoute || isCreditsRoute || isAccountRoute || isSettingsRoute;
     const setImg = (id, patch) => setImgStates(s => ({
       ...s,
       [id]: {
@@ -7034,7 +7062,7 @@ ${r.data.thumbnailNotes}`;
       size: 17,
       color: "rgba(255,220,100,0.5)"
     }), React.createElement("span", null, "Generiram…")) : React.createElement("span", null, analysisReady ? "⚡ Generiraj " + total + " Mockup Promptov" : "Confirm analysis first"));
-    const composeFooter = React.createElement(React.Fragment, null, generationErrorBanner, generateButton, loadingPanel, resultsSection);
+    const composeFooter = React.createElement(React.Fragment, null, generationErrorBanner, generateButton, loadingPanel);
     const scrollToSection = id => {
       const el = document.getElementById(id);
       if (el) el.scrollIntoView({ behavior: "smooth", block: "start" });
@@ -7085,6 +7113,7 @@ ${r.data.thumbnailNotes}`;
       style: {
         minHeight: "100vh",
         paddingBottom: 70,
+        marginLeft: shouldRenderAdminShell ? 0 : undefined,
         color: "var(--text)",
         position: "relative",
         overflow: "hidden",
@@ -7118,7 +7147,7 @@ ${r.data.thumbnailNotes}`;
       onLogout: logout,
       summaryChips,
       sessionLabel: isAdmin ? "Service status, analytics, and platform controls." : "Build your listing flow from analysis to export."
-    }), !shouldRenderAdminShell && React.createElement(WorkspaceIntro, {
+    }), isGenerateRoute && !shouldRenderAdminShell && React.createElement(WorkspaceIntro, {
       isAdmin,
       analysisReady,
       learningEnabled,
@@ -7148,20 +7177,21 @@ ${r.data.thumbnailNotes}`;
       ratingCount: promptRatings.length,
       onNavigate: navigateToSection,
       onOpenSettings: () => setShowSettings(true)
-    })), !shouldRenderAdminShell && React.createElement(RoutePageHeader, {
+    })), isKnownUserRoute && !shouldRenderAdminShell && React.createElement(RoutePageHeader, {
       route: activeRouteConfig
-    }), !shouldRenderAdminShell && React.createElement(RoutePlaceholderPanel, {
+    }), isKnownUserRoute && !shouldRenderAdminShell && React.createElement(RoutePlaceholderPanel, {
       route: activeRouteConfig
-    }), isUser && !shouldRenderAdminShell && React.createElement(UserRouteContent, {
+    }), isKnownUserRoute && !shouldRenderAdminShell && React.createElement(UserRouteContent, {
       routePath: effectiveRoute,
       session: userSession,
       resultsCount: results.length,
       generatedImages: doneCount,
       imageStatusCounts,
       ratingCount: promptRatings.length,
+      hasDesign: !!imagePreview,
       onNavigate: navigateToSection,
       onOpenSettings: () => setShowSettings(true)
-    }), isUser && effectiveRoute === "/dashboard" && !shouldRenderAdminShell && React.createElement(UserOverview, {
+    }), isDashboardRoute && !shouldRenderAdminShell && React.createElement(UserOverview, {
       session: userSession
     }), isGenerationsRoute && !shouldRenderAdminShell && React.createElement("section", {
       style: {
@@ -7171,13 +7201,43 @@ ${r.data.thumbnailNotes}`;
       }
     }, resultsSection || React.createElement("div", {
       style: {
-        border: "1px dashed rgba(255,255,255,0.12)",
+        border: "1px dashed rgba(255,220,100,0.18)",
         borderRadius: 14,
-        padding: 16,
-        color: "rgba(255,255,255,0.54)",
-        fontSize: 13
+        padding: 18,
+        background: "linear-gradient(135deg, rgba(255,220,100,0.055), rgba(255,255,255,0.018))",
+        color: "rgba(255,255,255,0.62)",
+        fontSize: 13,
+        display: "flex",
+        alignItems: "center",
+        justifyContent: "space-between",
+        gap: 14,
+        flexWrap: "wrap"
       }
-    }, "No generated mockups in this session yet.")), isGenerateRoute && !shouldRenderAdminShell && React.createElement("div", {
+    }, React.createElement("div", null, React.createElement("div", {
+      style: {
+        color: "#fff",
+        fontWeight: 800,
+        fontSize: 15,
+        marginBottom: 4
+      }
+    }, "No generations yet"), React.createElement("div", {
+      style: {
+        color: "rgba(255,255,255,0.54)",
+        lineHeight: 1.5
+      }
+    }, "Create your first mockup set and the results will appear here.")), React.createElement("button", {
+      type: "button",
+      onClick: () => navigateToSection("compose-section", "/generate"),
+      style: {
+        border: "1px solid rgba(255,220,100,0.24)",
+        background: "rgba(255,220,100,0.08)",
+        color: "var(--accent-gold)",
+        borderRadius: 10,
+        padding: "9px 12px",
+        fontWeight: 700,
+        cursor: "pointer"
+      }
+    }, "Create your first mockup set"))), isGenerateRoute && !shouldRenderAdminShell && React.createElement("div", {
       style: {
         maxWidth: 1120,
         margin: "0 auto",

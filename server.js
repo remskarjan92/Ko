@@ -129,7 +129,7 @@ registerKeyRoutes(app, {
 function loadKeys() {
   const envKeys = {
     gemini: process.env.GEMINI_API_KEY || process.env.GOOGLE_API_KEY || "",
-    replicate: process.env.REPLICATE_API_KEY || "",
+    replicate: process.env.REPLICATE_API_KEY || process.env.REPLICATE_API_TOKEN || "",
   };
   // If both env vars are set, use them directly
   if (envKeys.gemini && envKeys.replicate) return envKeys;
@@ -150,7 +150,7 @@ function saveKeys(keys) {
   // On Railway, env vars take priority — saving to file is a no-op for those
   const toSave = {
     gemini: process.env.GEMINI_API_KEY || process.env.GOOGLE_API_KEY ? "" : keys.gemini,
-    replicate: process.env.REPLICATE_API_KEY ? "" : keys.replicate,
+    replicate: process.env.REPLICATE_API_KEY || process.env.REPLICATE_API_TOKEN ? "" : keys.replicate,
   };
   try { fs.writeFileSync(KEYS_FILE, JSON.stringify(toSave, null, 2)); } catch {}
 }
@@ -533,8 +533,14 @@ function placementMatchScore(placement, {
 }
 
 function sendAdminError(res, label, error, status = 500) {
-  console.error(`[${label}] failed:`, error.message);
-  res.status(status).json({ error: "Admin request failed" });
+  const diagnostic = authStorageDiagnostic(error);
+  const code = authStorageErrorCode(error);
+  console.error(`[${label}] failed:`, diagnostic);
+  res.status(status).json({
+    error: "Admin request failed",
+    code,
+    detail: diagnostic,
+  });
 }
 
 function sanitizeUserRow(row = {}) {
@@ -3925,5 +3931,5 @@ app.listen(PORT, () => {
   console.log(`   http://localhost:${PORT}`);
   console.log(`   Node ${process.version} — native fetch ✓`);
   console.log(`   Gemini key: ${process.env.GEMINI_API_KEY || process.env.GOOGLE_API_KEY ? "✓ from env" : "from keys.json / UI"}`);
-  console.log(`   Replicate key: ${process.env.REPLICATE_API_KEY ? "✓ from env" : "from keys.json / UI"}\n`);
+  console.log(`   Replicate key: ${process.env.REPLICATE_API_KEY || process.env.REPLICATE_API_TOKEN ? "✓ from env" : "from keys.json / UI"}\n`);
 });

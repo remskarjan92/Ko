@@ -13,7 +13,7 @@ function registerKeyRoutes(app, { loadKeys, saveKeys, maskKey, keySource, fetchJ
       replicate: {
         set: !!keys.replicate,
         masked: maskKey(keys.replicate),
-        fromEnv: !!process.env.REPLICATE_API_KEY,
+        fromEnv: !!(process.env.REPLICATE_API_KEY || process.env.REPLICATE_API_TOKEN),
       },
     });
   });
@@ -75,11 +75,22 @@ function registerKeyRoutes(app, { loadKeys, saveKeys, maskKey, keySource, fetchJ
     if (!replicate) return res.json({ ok: false, message: "Ključ ni nastavljen." });
     try {
       const r = await fetch("https://api.replicate.com/v1/account", {
-        headers: { Authorization: `Bearer ${replicate}` },
+        headers: {
+          Authorization: `Bearer ${replicate}`,
+          Accept: "application/json",
+        },
       });
-      if (!r.ok) throw new Error(`HTTP ${r.status}`);
-      const d = await r.json();
-      res.json({ ok: true, message: `Povezan kot ${d.username} ✓` });
+      const text = await r.text();
+      const d = text ? JSON.parse(text) : {};
+      if (!r.ok) {
+        const detail = d?.detail || d?.error || d?.message || text || `HTTP ${r.status}`;
+        if (r.status === 401 || r.status === 403) {
+          throw new Error(`Replicate rejected the token (${r.status}). Check REPLICATE_API_TOKEN / REPLICATE_API_KEY.`);
+        }
+        throw new Error(detail);
+      }
+      const accountName = d.username || d.name || d.type || "Replicate account";
+      res.json({ ok: true, message: `Povezan kot ${accountName} ✓` });
     } catch (e) {
       res.json({ ok: false, message: e.message });
     }
