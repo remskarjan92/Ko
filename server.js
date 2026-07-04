@@ -23,6 +23,7 @@ const aiProviders = require("./services/aiProviders");
 const app      = express();
 const PORT     = process.env.PORT || 3000;
 const KEYS_FILE = path.join(__dirname, ".etsy-mockup-keys.json");
+const MOCKUP_PLACEMENTS_FILE = path.join(__dirname, ".ko-mockup-placements.json");
 const ADMIN_TOKEN = process.env.ADMIN_TOKEN || "";
 const APP_ACCESS_TOKEN = process.env.APP_ACCESS_TOKEN || "";
 const ADMIN_USERNAME = process.env.ADMIN_USERNAME || "";
@@ -435,6 +436,98 @@ function requireAuth(req, res) {
   if (session) return session;
   res.status(401).json({ error: "Unauthorized" });
   return null;
+}
+
+function loadMockupPlacements() {
+  try {
+    if (!fs.existsSync(MOCKUP_PLACEMENTS_FILE)) return [];
+    const raw = fs.readFileSync(MOCKUP_PLACEMENTS_FILE, "utf8");
+    const parsed = JSON.parse(raw);
+    return Array.isArray(parsed) ? parsed : [];
+  } catch {
+    return [];
+  }
+}
+
+function saveMockupPlacements(rows) {
+  fs.writeFileSync(MOCKUP_PLACEMENTS_FILE, JSON.stringify(rows, null, 2));
+}
+
+function safeNumber(value, fallback = 0, min = -100000, max = 100000) {
+  const n = Number(value);
+  if (!Number.isFinite(n)) return fallback;
+  return Math.max(min, Math.min(max, n));
+}
+
+function sanitizePlacementRect(value = {}) {
+  return {
+    x: safeNumber(value.x, 0),
+    y: safeNumber(value.y, 0),
+    width: safeNumber(value.width, 0, 0),
+    height: safeNumber(value.height, 0, 0),
+  };
+}
+
+function sanitizeMockupPlacement(input = {}, userId = null) {
+  const createdAt = new Date().toISOString();
+  const applyAllColors = !!input.applyAllColors;
+  const applyAllMockups = !!input.applyAllMockups;
+  return {
+    id: crypto.randomUUID(),
+    designAssetId: safeText(input.designAssetId, 180) || null,
+    productType: safeText(input.productType || "tshirt", 40) || "tshirt",
+    shirtModel: applyAllMockups ? null : safeText(input.shirtModel, 80) || "classic_tee",
+    color: applyAllColors ? null : safeText(input.color, 40) || "white",
+    view: safeText(input.view || "front", 20) || "front",
+    design: {
+      x: safeNumber(input.design?.x, 0),
+      y: safeNumber(input.design?.y, 0),
+      scale: safeNumber(input.design?.scale, 1, 0.05, 20),
+      rotation: safeNumber(input.design?.rotation, 0, -360, 360),
+      width: safeNumber(input.design?.width, 0, 0),
+      height: safeNumber(input.design?.height, 0, 0),
+      sourceName: safeText(input.design?.sourceName, 120) || null,
+    },
+    printArea: sanitizePlacementRect(input.printArea),
+    applyAllColors,
+    applyAllMockups,
+    createdAt,
+    updatedAt: createdAt,
+    userId: userId || null,
+  };
+}
+
+function isValidMockupPlacement(placement) {
+  return !!(
+    placement &&
+    placement.designAssetId &&
+    placement.productType === "tshirt" &&
+    placement.view &&
+    (placement.applyAllMockups || placement.shirtModel) &&
+    placement.printArea?.width > 0 &&
+    placement.printArea?.height > 0
+  );
+}
+
+function placementMatchScore(placement, {
+  designAssetId = "",
+  shirtModel = "",
+  view = "",
+  color = "",
+} = {}) {
+  if (!placement || placement.designAssetId !== designAssetId) return -1;
+  if (view && placement.view && placement.view !== view) return -1;
+  if (shirtModel && placement.shirtModel && placement.shirtModel !== shirtModel && !placement.applyAllMockups) return -1;
+  if (color && placement.color && placement.color !== color && !placement.applyAllColors) return -1;
+  let score = 0;
+  if (placement.applyAllMockups) score += 1;
+  if (placement.shirtModel && placement.shirtModel === shirtModel) score += 4;
+  if (!placement.shirtModel && placement.applyAllMockups) score += 2;
+  if (placement.view && placement.view === view) score += 3;
+  if (placement.applyAllColors) score += 1;
+  if (placement.color && placement.color === color) score += 4;
+  if (!placement.color && placement.applyAllColors) score += 2;
+  return score;
 }
 
 function sendAdminError(res, label, error, status = 500) {
@@ -1196,6 +1289,83 @@ app.patch("/api/me/settings", async (req, res) => {
     res.json({ ok: true, settings: patch });
   } catch (e) {
     sendAdminError(res, "user settings update", e);
+  }
+});
+
+app.post("/api/mockup-placements", async (req, res) => {
+  const session = requireAuth(req, res);
+  if (!session) return;
+  try {
+    const placement = sanitizeMockupPlacement(req.body || {}, session.userId || null);
+    if (!isValidMockupPlacement(placement)) {
+      return res.status(400).json({ code: "invalid_placement", error: "Placement data is invalid" });
+    }
+    const rows = loadMockupPlacements();
+    rows.unshift(placement);
+    saveMockupPlacements(rows.slice(0, 500));
+    res.json({ ok: true, placement });
+  } catch (e) {
+    console.error("[mockup-placements:create] failed:", e.message);
+    res.status(500).json({ code: "server_error", error: "Placement save failed" });
+  }
+});
+
+app.get("/api/mockup-placements", async (req, res) => {
+  const session = requireAuth(req, res);
+  if (!session) return;
+  try {
+    const limit = Math.max(1, Math.min(50, Number(req.query?.limit) || 20));
+    const designAssetId = safeText(req.query?.designAssetId, 180) || "";
+    const shirtModel = safeText(req.query?.shirtModel, 80) || "";
+    const view = safeText(req.query?.view, 20) || "";
+    const color = safeText(req.query?.color, 40) || "";
+    const latestOnly = String(req.query?.latest || "").trim() === "1";
+    const rows = loadMockupPlacements();
+    let filtered = session.userId
+      ? rows.filter(row => row.userId === session.userId)
+      : rows;
+    if (designAssetId) {
+      filtered = filtered.filter(row => row.designAssetId === designAssetId);
+    }
+    if (latestOnly && designAssetId) {
+      const ranked = filtered.map(row => ({
+        row,
+        score: placementMatchScore(row, { designAssetId, shirtModel, view, color }),
+      })).filter(item => item.score >= 0).sort((a, b) => b.score - a.score);
+      const placement = ranked[0]?.row || null;
+      return res.json({ placement, placements: placement ? [placement] : [] });
+    }
+    res.json({ placements: filtered.slice(0, limit) });
+  } catch (e) {
+    console.error("[mockup-placements:list] failed:", e.message);
+    res.status(500).json({ code: "server_error", error: "Placement load failed" });
+  }
+});
+
+app.post("/api/mockup-export", async (req, res) => {
+  const session = requireAuth(req, res);
+  if (!session) return;
+  try {
+    const dataUrl = String(req.body?.dataUrl || "");
+    const format = safeText(req.body?.format, 10) || "png";
+    const fileName = safeText(req.body?.fileName, 120) || `tshirt-mockup.${format}`;
+    const placementPresetId = safeText(req.body?.placementPresetId, 80) || "";
+    const placement = req.body?.placement && typeof req.body.placement === "object" ? sanitizeMockupPlacement(req.body.placement, session.userId || null) : null;
+    if (!dataUrl && (placementPresetId || placement)) {
+      return res.status(400).json({ code: "render_not_supported", error: "Preset-only export is not supported yet" });
+    }
+    if (!/^data:image\/(png|jpeg|jpg);base64,/i.test(dataUrl)) {
+      return res.status(400).json({ code: "invalid_export", error: "Export image is invalid" });
+    }
+    const [meta, base64] = dataUrl.split(",");
+    const mimeType = meta.match(/^data:(image\/(?:png|jpeg|jpg));base64/i)?.[1] || "image/png";
+    const buffer = Buffer.from(base64, "base64");
+    res.setHeader("Content-Type", mimeType);
+    res.setHeader("Content-Disposition", `attachment; filename="${fileName.replace(/[^a-z0-9._-]+/gi, "-")}"`);
+    res.send(buffer);
+  } catch (e) {
+    console.error("[mockup-export] failed:", e.message);
+    res.status(500).json({ code: "server_error", error: "Mockup export failed" });
   }
 });
 

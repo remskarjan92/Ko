@@ -9,7 +9,7 @@
     onNavigate,
     onOpenSettings
   }) {
-    if (!["/dashboard", "/credits", "/account", "/generations", "/settings"].includes(routePath)) return null;
+    if (!["/dashboard", "/generate", "/credits", "/account", "/generations", "/settings", "/tshirt-studio"].includes(routePath)) return null;
     const creditBalance = session?.credits_balance ?? session?.creditBalance ?? session?.credits ?? null;
     const rowStyle = {
       display: "grid",
@@ -102,7 +102,57 @@
         background: "rgba(255,255,255,0.028)",
         padding: "15px"
       }
-    }, routePath === "/settings" ? React.createElement(React.Fragment, null, React.createElement("div", {
+    }, routePath === "/generate" ? React.createElement(React.Fragment, null, React.createElement("div", {
+      style: gridStyle
+    }, [{
+      label: "Design input",
+      value: "Ready"
+    }, {
+      label: "Mockup prompts",
+      value: resultsCount || 0
+    }, {
+      label: "Generated images",
+      value: generatedImages || 0
+    }].map(card => statCard(card.label, card.value))), React.createElement("div", {
+      style: {
+        color: "rgba(255,255,255,0.56)",
+        fontSize: 13,
+        lineHeight: 1.55,
+        marginBottom: 12
+      }
+    }, "Use the composer below to upload artwork, confirm context, generate prompts, and produce mockup images.")) : routePath === "/tshirt-studio" ? React.createElement(React.Fragment, null, React.createElement("div", {
+      style: gridStyle
+    }, [{
+      label: "Placement Canvas",
+      value: "Front mockup"
+    }, {
+      label: "Export",
+      value: "2000 x 2000"
+    }, {
+      label: "Saved Layouts",
+      value: "User scoped"
+    }].map(card => statCard(card.label, card.value))), React.createElement("div", {
+      style: {
+        color: "rgba(255,255,255,0.56)",
+        fontSize: 13,
+        lineHeight: 1.55,
+        marginBottom: 12
+      }
+    }, "Use the studio below to place a design on a shirt, save the placement JSON, and export a finished mockup image."), React.createElement("div", {
+      style: {
+        display: "flex",
+        gap: 9,
+        flexWrap: "wrap"
+      }
+    }, React.createElement("button", {
+      type: "button",
+      onClick: () => onNavigate("tshirt-studio-section", "/tshirt-studio"),
+      style: actionButtonStyle
+    }, "Open Studio"), React.createElement("button", {
+      type: "button",
+      onClick: () => onNavigate("compose-section", "/generate"),
+      style: actionButtonStyle
+    }, "Back to Composer"))) : routePath === "/settings" ? React.createElement(React.Fragment, null, React.createElement("div", {
       style: gridStyle
     }, [{
       label: "Generation Defaults",
@@ -156,7 +206,7 @@
       }
     }, React.createElement("button", {
       type: "button",
-      onClick: () => onNavigate("compose-section"),
+      onClick: () => onNavigate("compose-section", "/generate"),
       style: actionButtonStyle
     }, "Start Generation"), React.createElement("button", {
       type: "button",
@@ -198,7 +248,7 @@
       }
     }, React.createElement("button", {
       type: "button",
-      onClick: () => onNavigate("compose-section"),
+      onClick: () => onNavigate("compose-section", "/generate"),
       style: actionButtonStyle
     }, "Jump to Composer"), React.createElement("button", {
       type: "button",

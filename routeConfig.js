@@ -1,6 +1,8 @@
 (function () {
   const USER_ROUTE_MAP = Object.freeze({
     "/dashboard": { shell: "user", label: "Dashboard", title: "Overview", description: "Account health, credits, recent work, and the current generation workspace.", sectionId: "dashboard-section", status: "existing" },
+    "/generate": { shell: "user", label: "Generate", title: "Generate Mockups", description: "Upload artwork, tune generation context, create mockup prompts, and generate images.", sectionId: "compose-section", status: "existing" },
+    "/tshirt-studio": { shell: "user", label: "T-Shirt Studio", title: "T-Shirt Studio", description: "Place a design on a shirt mockup, adjust it, save placement data, and export the final asset.", sectionId: "tshirt-studio-section", status: "existing" },
     "/generations": { shell: "user", label: "Generations", title: "Generations", description: "Generated mockups, prompt outputs, downloads, and regeneration actions.", sectionId: "results-section", status: "existing" },
     "/credits": { shell: "user", label: "Credits", title: "Billing", description: "Credit balance and usage history are shown in the account overview for now.", sectionId: "credits-section", status: "existing" },
     "/account": { shell: "user", label: "Account", title: "Profile", description: "Profile details, account status, and account management.", sectionId: "account-section", status: "existing" },

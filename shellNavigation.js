@@ -7,7 +7,14 @@
       active: activeRoute === "/dashboard"
     }, {
       id: "compose-section",
-      label: "Generate Mockups"
+      label: "Generate Mockups",
+      route: "/generate",
+      active: activeRoute === "/generate"
+    }, {
+      id: "tshirt-studio-section",
+      label: "T-Shirt Studio",
+      route: "/tshirt-studio",
+      active: activeRoute === "/tshirt-studio"
     }, {
       id: "history-section",
       label: "History",
@@ -37,6 +44,18 @@
       meta: "Home",
       route: "/dashboard",
       active: activeRoute === "/dashboard"
+    }, {
+      id: "compose-section",
+      label: "Generate",
+      meta: "Create",
+      route: "/generate",
+      active: activeRoute === "/generate"
+    }, {
+      id: "tshirt-studio-section",
+      label: "T-Shirt Studio",
+      meta: "Canvas",
+      route: "/tshirt-studio",
+      active: activeRoute === "/tshirt-studio"
     }, {
       id: "results-section",
       label: "Generations",
@@ -157,18 +176,23 @@
       label: "Dashboard",
       description: "Credits, history, and account overview."
     }] : []), {
-      id: "compose-section",
+      id: "tshirt-studio-section",
       kicker: "01",
+      label: "T-Shirt Studio",
+      description: "Place artwork, fine-tune print placement, and export a finished shirt mockup."
+    }, {
+      id: "compose-section",
+      kicker: "02",
       label: "Composer",
       description: "Upload, design intent, and prompt controls."
     }, {
       id: "learning-section",
-      kicker: "02",
+      kicker: "03",
       label: "Learning",
       description: "Local ratings and preference signals."
     }, {
       id: "results-section",
-      kicker: "03",
+      kicker: "04",
       label: "Results",
       description: "Generated concepts, images, and exports."
     }];
