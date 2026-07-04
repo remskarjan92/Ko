@@ -182,11 +182,17 @@ async function loadUserById(userId) {
 }
 
 async function loadUserByLogin(login) {
-  const rows = await supabaseRestQuerySchema("public", "ko_users", {
-    params: { or: `(email.eq.${login},username.eq.${login})` },
+  const byEmail = await supabaseRestQuerySchema("public", "ko_users", {
+    params: { email: `eq.${login}` },
     limit: 1,
-  });
-  return rows[0] || null;
+  }).catch(() => []);
+  if (byEmail[0]) return byEmail[0];
+
+  const byUsername = await supabaseRestQuerySchema("public", "ko_users", {
+    params: { username: `eq.${login}` },
+    limit: 1,
+  }).catch(() => []);
+  return byUsername[0] || null;
 }
 
 module.exports = {

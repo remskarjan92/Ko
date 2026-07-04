@@ -77,7 +77,9 @@ function verifyAdminSessionToken(token) {
 
 function verifyUserSessionToken(token) {
   if (!USER_SESSION_SECRET || !token || !token.includes(".")) return null;
-  const [body, sig] = token.split(".");
+  const lastDot = token.lastIndexOf(".");
+  const body = token.slice(0, lastDot);
+  const sig = token.slice(lastDot + 1);
   const expected = crypto.createHmac("sha256", USER_SESSION_SECRET).update(body).digest("base64url");
   if (!timingSafeEqualString(sig, expected)) return null;
   try {
@@ -274,7 +276,7 @@ function normalizeAuthEmail(value) {
 }
 
 function normalizeAuthUsername(value) {
-  return String(value || "").trim().replace(/\s+/g, "_").slice(0, 80);
+  return String(value || "").trim().replace(/[^a-zA-Z0-9_-]/g, "").slice(0, 30);
 }
 
 module.exports = {

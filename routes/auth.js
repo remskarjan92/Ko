@@ -89,6 +89,9 @@ function registerAuthRoutes(app) {
       if (!email || !email.includes("@") || !username || password.length < 8) {
         return res.status(400).json({ code: "invalid_registration", error: "Invalid registration details" });
       }
+      if (username.length < 3) {
+        return res.status(400).json({ code: "invalid_registration", error: "Username must be at least 3 characters (letters, numbers, _ or -)" });
+      }
       const existingByEmail = await supabaseRestQuerySchema("public", "ko_users", {
         params: { email: `eq.${email}` },
         limit: 1,
