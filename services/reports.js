@@ -29,6 +29,10 @@ function createReportsService({
     return String(value).replace(/[\u0000-\u001f\u007f]/g, "").slice(0, max);
   }
 
+  function safeLowerText(value, max = 120) {
+    return (safeText(value, max) || "").toLowerCase();
+  }
+
   function safeInteger(value, min = 0, max = 2147483647) {
     const n = Number(value);
     if (!Number.isFinite(n)) return null;
@@ -428,12 +432,12 @@ function createReportsService({
       order: "created_at.desc",
       limit: 500,
     });
-    const search = safeText(query.search, 120).toLowerCase();
+    const search = safeLowerText(query.search, 120);
     const filters = {
-      model: safeText(query.model, 120).toLowerCase(),
-      category: safeText(query.category, 120).toLowerCase(),
+      model: safeLowerText(query.model, 120),
+      category: safeLowerText(query.category, 120),
       score: safeText(query.score, 40),
-      status: safeText(query.status, 80).toLowerCase(),
+      status: safeLowerText(query.status, 80),
       dateFrom: safeText(query.dateFrom, 20),
       dateTo: safeText(query.dateTo, 20),
     };
@@ -489,7 +493,7 @@ function createReportsService({
   }
 
   async function loadUserDashboard(userId) {
-    const [userResult, settingsResult, generationsResult, creditsResult, downloadsResult] = await Promise.allSettled([
+    const [userResult, settingsResult, generationsResult, creditsResult] = await Promise.allSettled([
       supabaseRestQuerySchema("public", "ko_users", {
         params: { id: `eq.${userId}` },
         limit: 1,
@@ -500,11 +504,6 @@ function createReportsService({
       }).then(rows => rows[0] || null),
       loadUserGenerations(userId, {}),
       loadUserCredits(userId),
-      supabaseRestQuerySchema(ANALYTICS_SCHEMA, "interaction_events", {
-        params: { user_id: `eq.${userId}`, event_type: `in.(download_png,download_zip)` },
-        order: "created_at.desc",
-        limit: 50,
-      }),
     ]);
     const errors = [];
     const user = userResult.status === "fulfilled" ? userResult.value : null;
@@ -515,17 +514,9 @@ function createReportsService({
     if (generationsResult.status === "rejected") errors.push(`generations:${generationsResult.reason?.message || "failed"}`);
     const credits = creditsResult.status === "fulfilled" ? creditsResult.value : { balance: 0, transactions: [] };
     if (creditsResult.status === "rejected") errors.push(`credits:${creditsResult.reason?.message || "failed"}`);
-    const downloads = downloadsResult.status === "fulfilled" ? downloadsResult.value : [];
-    if (downloadsResult.status === "rejected") errors.push(`downloads:${downloadsResult.reason?.message || "failed"}`);
     const genRows = Array.isArray(generations.rows) ? generations.rows : [];
     const monthlyGenerations = generations.summary?.this_month || 0;
     const latestGenerations = genRows.slice(0, 8);
-    const recentDownloads = downloads.slice(0, 8).map(row => ({
-      id: row.event_id,
-      event_type: row.event_type,
-      prompt_hash: row.prompt_hash || null,
-      created_at: row.created_at || null,
-    }));
     return {
       user,
       settings: settings?.default_settings || {},
@@ -538,7 +529,7 @@ function createReportsService({
         average_generation_success_rate: generations.summary?.success_rate ?? null,
       },
       latest_generations: latestGenerations,
-      recent_downloads: recentDownloads,
+      recent_downloads: [],
       charts: generations.charts || { generationsPerDay: [], creditsUsedPerDay: [] },
       warnings: errors,
     };
@@ -549,9 +540,9 @@ function createReportsService({
       order: "created_at.desc",
       limit: 500,
     });
-    const search = safeText(query.q || query.search, 120).toLowerCase();
-    const status = safeText(query.status, 80).toLowerCase();
-    const role = safeText(query.role, 80).toLowerCase();
+    const search = safeLowerText(query.q || query.search, 120);
+    const status = safeLowerText(query.status, 80);
+    const role = safeLowerText(query.role, 80);
     const limit = safeLimit(query.limit, 50, 250);
     const offset = safeInteger(query.offset, 0, 1000000) || 0;
     const filtered = rows.filter(row => {
@@ -591,8 +582,8 @@ function createReportsService({
       order: "created_at.desc",
       limit: 500,
     });
-    const user = safeText(query.user, 120).toLowerCase();
-    const action = safeText(query.action, 120).toLowerCase();
+    const user = safeLowerText(query.user, 120);
+    const action = safeLowerText(query.action, 120);
     const filtered = rows.filter(row => {
       if (user && !String(row.user_id || "").toLowerCase().includes(user)) return false;
       if (action && !String(row.action || "").toLowerCase().includes(action)) return false;
@@ -618,11 +609,11 @@ function createReportsService({
       order: "created_at.desc",
       limit: 500,
     });
-    const user = safeText(query.user, 120).toLowerCase();
-    const model = safeText(query.model, 120).toLowerCase();
-    const category = safeText(query.category, 120).toLowerCase();
-    const status = safeText(query.status, 80).toLowerCase();
-    const search = safeText(query.search, 120).toLowerCase();
+    const user = safeLowerText(query.user, 120);
+    const model = safeLowerText(query.model, 120);
+    const category = safeLowerText(query.category, 120);
+    const status = safeLowerText(query.status, 80);
+    const search = safeLowerText(query.search, 120);
     const filtered = rows.filter(row => {
       if (user && !String(row.user_id || "").toLowerCase().includes(user)) return false;
       if (model && !String(row.model_name || "").toLowerCase().includes(model)) return false;
