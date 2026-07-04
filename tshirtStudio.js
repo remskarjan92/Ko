@@ -223,6 +223,7 @@
     const [layers, setLayers] = useState([]);
     const [activeLayerId, setActiveLayerId] = useState("");
     const [textLayerValue, setTextLayerValue] = useState("New text");
+    const [viewportWidth, setViewportWidth] = useState(typeof window === "undefined" ? 1440 : window.innerWidth);
     const canvasRef = useRef(null);
     const fabricCanvasRef = useRef(null);
     const designObjectRef = useRef(null);
@@ -584,6 +585,14 @@
       syncPlacement(obj);
     }
 
+    function removeLayerObject(layerId) {
+      const obj = layerObjectsRef.current.get(layerId);
+      if (obj && fabricCanvasRef.current) fabricCanvasRef.current.remove(obj);
+      layerObjectsRef.current.delete(layerId);
+      setLayers(prev => prev.filter(layer => layer.id !== layerId));
+      if (activeLayerId === layerId) setActiveLayerId("");
+    }
+
     function serializeLayer(layer) {
       const obj = layerObjectsRef.current.get(layer.id);
       if (!obj) return null;
@@ -608,6 +617,10 @@
         layerObjectsRef.current.forEach(obj => canvas.remove(obj));
         layerObjectsRef.current.clear();
         setLayers([]);
+      } else if (options.replaceExistingImage) {
+        const targetLayer = layers.find(layer => layer.id === activeLayerId && layer.type === "image")
+          || layers.find(layer => layer.type === "image");
+        if (targetLayer) removeLayerObject(targetLayer.id);
       }
       const area = model.printArea;
       const baseScale = Math.max(0.12, Math.min((area.width * 0.62) / Math.max(img.width || 1, 1), (area.height * 0.62) / Math.max(img.height || 1, 1)));
@@ -686,7 +699,9 @@
         width: CANVAS_SIZE,
         height: CANVAS_SIZE,
         selection: false,
-        preserveObjectStacking: true
+        preserveObjectStacking: true,
+        allowTouchScrolling: false,
+        stopContextMenu: true
       });
 	      const sync = event => {
 	        if (!event?.target || event.target.koGuide) return;
@@ -721,6 +736,12 @@
         fabricCanvasRef.current = null;
         designObjectRef.current = null;
       };
+    }, []);
+
+    useEffect(() => {
+      const onResize = () => setViewportWidth(window.innerWidth || 1440);
+      window.addEventListener("resize", onResize);
+      return () => window.removeEventListener("resize", onResize);
     }, []);
 
     useEffect(() => {
@@ -819,7 +840,7 @@
         }
         return;
       }
-      placeDesign().catch(() => setError("The selected design could not be loaded."));
+      placeDesign(null, { replaceExistingImage: true }).catch(() => setError("The selected design could not be loaded."));
     }, [selectedDesignId]);
 
     useEffect(() => {
@@ -943,7 +964,7 @@
         return;
       }
       if (selectedDesign?.url) {
-        placeDesign().catch(() => setError("The selected design could not be loaded."));
+        placeDesign(null, { replaceExistingImage: true }).catch(() => setError("The selected design could not be loaded."));
       } else {
         setError("Select a design first.");
       }
@@ -1422,7 +1443,10 @@
         if (placement.view && placement.view !== shirtView) setShirtView(placement.view);
         if (placement.color && placement.color !== shirtColorId) setShirtColorId(placement.color);
         if (!placement.shirtModel || placement.shirtModel === shirtModelId) {
-          placeDesign(placement).then(() => {
+          const applyPlacement = Array.isArray(placement.layers) && placement.layers.length
+            ? restoreLayersFromPlacement(placement)
+            : placeDesign(placement, { replaceExistingImage: true });
+          applyPlacement.then(() => {
             setNotice("Last saved placement applied for this design.");
           }).catch(() => {});
         }
@@ -1434,6 +1458,13 @@
       borderRadius: 18,
       padding: 16
     };
+    const compactStudio = viewportWidth < 1180;
+    const mobileStudio = viewportWidth < 760;
+    const studioGridColumns = mobileStudio
+      ? "minmax(0, 1fr)"
+      : compactStudio
+        ? "minmax(220px, 300px) minmax(0, 1fr)"
+        : "minmax(230px, 280px) minmax(420px, 1fr) minmax(280px, 340px)";
     const sectionTitle = label => h("div", {
       style: {
         fontSize: 10,
@@ -1669,7 +1700,7 @@
       style: tokenButton(touchButton, item.id === shirtView ? "1px solid rgba(255,220,100,0.34)" : "1px solid rgba(255,255,255,0.08)", item.id === shirtView ? "rgba(255,220,100,0.08)" : "rgba(255,255,255,0.03)", item.id === shirtView ? "var(--accent-gold)" : "var(--text-secondary)", { minHeight: 42, borderRadius: 12, padding: "10px 12px", fontSize: 11 })
     }, item.name))));
     const centerCanvas = h("main", {
-      style: { ...panelStyle, minWidth: 0 }
+      style: { ...panelStyle, minWidth: 0, gridColumn: compactStudio && !mobileStudio ? "2" : undefined }
     }, h("div", {
       style: { display: "flex", justifyContent: "space-between", alignItems: "center", gap: 12, marginBottom: 12, flexWrap: "wrap" }
     }, h("div", null, h("div", {
@@ -1680,6 +1711,7 @@
       style: { fontSize: 11, color: "var(--text-tertiary)", fontFamily: "'DM Mono',monospace" }
     }, "2000×2000 export")), h("div", {
       style: {
+        position: "relative",
         borderRadius: 22,
         overflow: "hidden",
         border: "1px solid rgba(255,255,255,0.06)",
@@ -1690,8 +1722,26 @@
       ref: canvasRef,
       width: CANVAS_SIZE,
       height: CANVAS_SIZE,
-      style: { width: "100%", display: "block", aspectRatio: "1 / 1" }
-    })), h("div", {
+      style: { width: "100%", display: "block", aspectRatio: "1 / 1", touchAction: "none" }
+    }), designChoices.length === 0 && h("button", {
+      type: "button",
+      onClick: () => fileInputRef.current && fileInputRef.current.click(),
+      style: {
+        position: "absolute",
+        left: "50%",
+        top: "50%",
+        transform: "translate(-50%, -50%)",
+        border: "1px solid rgba(255,220,100,0.32)",
+        background: "rgba(12,12,14,0.82)",
+        color: "var(--accent-gold)",
+        borderRadius: 14,
+        padding: "13px 16px",
+        fontWeight: 800,
+        cursor: "pointer",
+        boxShadow: "0 16px 50px rgba(0,0,0,0.34)",
+        whiteSpace: "nowrap"
+      }
+    }, "Upload design")), h("div", {
       style: {
         marginTop: 10,
         display: "flex",
@@ -1707,7 +1757,7 @@
       style: { color: printAreaWarning ? "#FF8E8E" : "var(--accent-green)", fontFamily: "'DM Mono',monospace" }
     }, printAreaWarning || printAreaStatus)));
     const rightSidebar = h("aside", {
-      style: { display: "grid", gap: 12, minWidth: 0 }
+      style: { display: "grid", gap: 12, minWidth: 0, gridColumn: compactStudio && !mobileStudio ? "1 / -1" : undefined }
     }, h("div", {
       style: panelStyle
     }, sectionTitle("Design Properties"), h("div", {
@@ -1969,10 +2019,10 @@
     }, "Canvas · Safe area · Export")), h("div", {
       style: {
         display: "grid",
-        gridTemplateColumns: "minmax(230px, 280px) minmax(420px, 1fr) minmax(280px, 340px)",
+        gridTemplateColumns: studioGridColumns,
         gap: 16,
         alignItems: "start",
-        overflowX: "auto",
+        overflowX: "visible",
         paddingBottom: 4
       }
     }, leftSidebar, centerCanvas, rightSidebar));
